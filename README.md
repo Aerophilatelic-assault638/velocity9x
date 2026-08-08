@@ -11,6 +11,7 @@ Windows 98 display driver.
 ## Current implementation
 
 - strict matching for the first supported PCI device;
+- decoded PCI framebuffer-resource validation and bounded VRAM overrides;
 - overflow-safe framebuffer pitch and size calculation;
 - a chipset-neutral backend contract;
 - fixed-size diagnostic records suitable for a serial transport;
@@ -52,6 +53,28 @@ The toolchain spike can also build the original Win16 NE loader shell:
 This produces `build/win16/v9xdisp.drv` and verifies its DOS and NE signatures.
 It proves the compiler/linker path only; the file is not an installable display
 driver because the display DDI exports and DIB Engine contract are not complete.
+
+With the external Windows 98 DDK installed at `C:\98DDK`, build the ABI/DDI
+skeleton with:
+
+```powershell
+./scripts/build-win16-ddi-skeleton.ps1
+```
+
+That image exports the documented display ordinals and imports the system DIB
+Engine, but `Enable`, `ReEnable`, and `ValidateMode` deliberately reject use. It
+is a link/ABI artifact and remains unsafe to install.
+
+The same external DDK supplies the MASM and linker needed to prove the 32-bit
+mini-VDD image path:
+
+```powershell
+./scripts/build-minivdd-skeleton.ps1
+```
+
+This produces `build/minivdd32/v9xmini.vxd`. Its initialization entry point
+always reports failure, so it cannot claim or program hardware. It is a build
+artifact only and must not be installed.
 
 To check the repository structure without a compiler:
 

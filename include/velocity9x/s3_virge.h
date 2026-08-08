@@ -8,6 +8,11 @@
 
 v9x_status v9x_s3_virge_probe(struct v9x_backend_state *state,
                               const struct v9x_pci_identity *pci);
+v9x_status v9x_s3_virge_bind_framebuffer(
+    struct v9x_backend_state *state,
+    const struct v9x_pci_bar_resource *bar,
+    v9x_u32 detected_vram_bytes,
+    v9x_u32 override_vram_bytes);
 v9x_status v9x_s3_virge_validate_mode(struct v9x_backend_state *state,
                                       const struct v9x_mode_request *request,
                                       struct v9x_mode_layout *layout);

@@ -13,11 +13,17 @@ $required = @(
     "scripts\build-host.ps1",
     "scripts\build-host-msvc.ps1",
     "scripts\build-win16-skeleton.ps1",
+    "scripts\build-win16-ddi-skeleton.ps1",
+    "scripts\build-minivdd-skeleton.ps1",
     "src\common\mode.c",
+    "src\common\resources.c",
     "src\chipsets\s3\virge\backend.c",
     "src\display16\display_component.c",
     "src\display16\loader.c",
+    "src\display16\ddi.c",
+    "src\display16\dib_thunks.asm",
     "src\minivdd32\minivdd_component.c",
+    "src\minivdd32\loader.asm",
     "tests\host\test_main.c"
 )
 
@@ -30,10 +36,14 @@ if ($missing.Count -ne 0) {
 
 $sourceFiles = Get-ChildItem -LiteralPath (Join-Path $repoRoot "src") -Recurse -File
 $sourceFiles += Get-ChildItem -LiteralPath (Join-Path $repoRoot "include") -Recurse -File
-$allowedWindowsBoundary = Join-Path $repoRoot "src\display16\loader.c"
+$allowedOsBoundaries = @(
+    (Join-Path $repoRoot "src\display16\loader.c"),
+    (Join-Path $repoRoot "src\display16\ddi.c"),
+    (Join-Path $repoRoot "src\minivdd32\loader.asm")
+)
 $forbidden = $sourceFiles |
-    Select-String -Pattern '#include\s*[<"]windows\.h[>"]|#include\s*[<"]vmm\.h[>"]' |
-    Where-Object { $_.Path -ne $allowedWindowsBoundary }
+    Select-String -Pattern '#include\s*[<"]windows\.h[>"]|#include\s*[<"]vmm\.h[>"]|include\s+(VMM|MINIVDD)\.INC' |
+    Where-Object { $_.Path -notin $allowedOsBoundaries }
 if ($forbidden) {
     $forbidden | ForEach-Object { Write-Error $_.ToString() }
     throw "Portable skeleton source contains an unapproved Windows/DDK dependency."

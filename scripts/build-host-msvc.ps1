@@ -23,12 +23,30 @@ if (-not $cl) {
         if ($vsRoot) {
             $devCmd = Join-Path $vsRoot "Common7\Tools\VsDevCmd.bat"
             $envDump = cmd /c "`"$devCmd`" -arch=x64 -no_logo && set"
+            $developerPath = $null
             foreach ($line in $envDump) {
                 if ($line -match '^([^=]+)=(.*)$') {
-                    Set-Item -Path "env:$($Matches[1])" -Value $Matches[2]
+                    if ($Matches[1] -ieq "Path") {
+                        if ($Matches[2] -match '\\VC\\Tools\\MSVC\\') {
+                            $developerPath = $Matches[2]
+                        }
+                    }
+                    else {
+                        Set-Item -Path "env:$($Matches[1])" -Value $Matches[2]
+                    }
                 }
             }
+            if ($developerPath) {
+                $env:Path = $developerPath
+            }
             $cl = Get-Command "cl.exe" -ErrorAction SilentlyContinue
+            if (-not $cl -and $env:VCToolsInstallDir) {
+                $clPath = Join-Path $env:VCToolsInstallDir `
+                    "bin\Hostx64\x64\cl.exe"
+                if (Test-Path -LiteralPath $clPath) {
+                    $cl = Get-Command $clPath
+                }
+            }
         }
     }
 }
@@ -42,6 +60,7 @@ $sourceNames = @(
     "src\common\build.c",
     "src\common\mode.c",
     "src\common\log.c",
+    "src\common\resources.c",
     "src\chipsets\s3\virge\backend.c",
     "src\display16\display_component.c",
     "src\minivdd32\minivdd_component.c",

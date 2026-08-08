@@ -176,10 +176,111 @@ static void test_mode_layout_properties(void)
     }
 }
 
+static void test_framebuffer_resource_validation(void)
+{
+    struct v9x_pci_bar_resource bar;
+    struct v9x_framebuffer_binding binding;
+
+    bar.physical_base = 0xe0000000ul;
+    bar.aperture_bytes = 64ul * 1024ul * 1024ul;
+    bar.flags = V9X_PCI_BAR_MEMORY | V9X_PCI_BAR_PREFETCHABLE;
+
+    CHECK(v9x_framebuffer_validate_binding(&bar,
+                                            4ul * 1024ul * 1024ul,
+                                            0ul,
+                                            &binding) == V9X_STATUS_OK);
+    CHECK(binding.physical_base == bar.physical_base);
+    CHECK(binding.aperture_bytes == bar.aperture_bytes);
+    CHECK(binding.vram_bytes == 4ul * 1024ul * 1024ul);
+    CHECK(binding.override_active == V9X_FALSE);
+
+    CHECK(v9x_framebuffer_validate_binding(&bar,
+                                            0ul,
+                                            2ul * 1024ul * 1024ul,
+                                            &binding) == V9X_STATUS_OK);
+    CHECK(binding.vram_bytes == 2ul * 1024ul * 1024ul);
+    CHECK(binding.override_active == V9X_TRUE);
+
+    CHECK(v9x_framebuffer_validate_binding(0, 1ul, 0ul, &binding) ==
+          V9X_STATUS_INVALID_ARGUMENT);
+    CHECK(binding.physical_base == 0ul);
+    CHECK(v9x_framebuffer_validate_binding(&bar, 1ul, 0ul, 0) ==
+          V9X_STATUS_INVALID_ARGUMENT);
+
+    bar.flags = V9X_PCI_BAR_IO;
+    CHECK(v9x_framebuffer_validate_binding(&bar, 1ul, 0ul, &binding) ==
+          V9X_STATUS_UNSUPPORTED);
+    bar.flags = V9X_PCI_BAR_MEMORY | V9X_PCI_BAR_64BIT;
+    CHECK(v9x_framebuffer_validate_binding(&bar, 1ul, 0ul, &binding) ==
+          V9X_STATUS_UNSUPPORTED);
+    bar.flags = V9X_PCI_BAR_MEMORY | (v9x_u16)0x0010u;
+    CHECK(v9x_framebuffer_validate_binding(&bar, 1ul, 0ul, &binding) ==
+          V9X_STATUS_INVALID_ARGUMENT);
+
+    bar.flags = V9X_PCI_BAR_MEMORY;
+    bar.physical_base = 0ul;
+    CHECK(v9x_framebuffer_validate_binding(&bar, 1ul, 0ul, &binding) ==
+          V9X_STATUS_INVALID_ARGUMENT);
+    bar.physical_base = 0xe0000000ul;
+    bar.aperture_bytes = 3ul * 1024ul * 1024ul;
+    CHECK(v9x_framebuffer_validate_binding(&bar, 1ul, 0ul, &binding) ==
+          V9X_STATUS_INVALID_ARGUMENT);
+    bar.aperture_bytes = 64ul * 1024ul * 1024ul;
+    bar.physical_base = 0xe1000000ul;
+    CHECK(v9x_framebuffer_validate_binding(&bar, 1ul, 0ul, &binding) ==
+          V9X_STATUS_INVALID_ARGUMENT);
+
+    bar.physical_base = 0xe0000000ul;
+    CHECK(v9x_framebuffer_validate_binding(&bar,
+                                            65ul * 1024ul * 1024ul,
+                                            0ul,
+                                            &binding) ==
+          V9X_STATUS_INSUFFICIENT_MEMORY);
+    CHECK(binding.physical_base == 0ul);
+    CHECK(v9x_framebuffer_validate_binding(&bar, 0ul, 0ul, &binding) ==
+          V9X_STATUS_INVALID_ARGUMENT);
+}
+
+static void test_framebuffer_resource_properties(void)
+{
+    struct v9x_pci_bar_resource bar;
+    struct v9x_framebuffer_binding binding;
+    v9x_u32 iteration;
+
+    for (iteration = 0ul; iteration < 10000ul; ++iteration) {
+        v9x_u16 shift = (v9x_u16)(12u + (prng_next() % 16ul));
+        v9x_u32 aperture = 1ul << shift;
+        v9x_u32 vram = (prng_next() % aperture) + 1ul;
+
+        bar.aperture_bytes = aperture;
+        bar.physical_base = prng_next() & ~(aperture - 1ul);
+        if (bar.physical_base == 0ul) {
+            bar.physical_base = aperture;
+        }
+        bar.flags = V9X_PCI_BAR_MEMORY;
+        if ((prng_next() & 1ul) != 0ul) {
+            bar.flags |= V9X_PCI_BAR_PREFETCHABLE;
+        }
+
+        CHECK(v9x_framebuffer_validate_binding(&bar, vram, 0ul, &binding) ==
+              V9X_STATUS_OK);
+        CHECK(binding.physical_base == bar.physical_base);
+        CHECK(binding.aperture_bytes == aperture);
+        CHECK(binding.vram_bytes == vram);
+        CHECK(binding.override_active == V9X_FALSE);
+
+        bar.physical_base += 1ul;
+        CHECK(v9x_framebuffer_validate_binding(&bar, vram, 0ul, &binding) ==
+              V9X_STATUS_INVALID_ARGUMENT);
+        CHECK(binding.physical_base == 0ul);
+    }
+}
+
 static void test_probe_is_strict(void)
 {
     struct v9x_backend_state state;
     struct v9x_pci_identity pci;
+    struct v9x_pci_bar_resource bar;
     struct v9x_mode_request request;
     struct v9x_mode_layout layout;
 
@@ -189,6 +290,7 @@ static void test_probe_is_strict(void)
     pci.revision = 1u;
     CHECK(v9x_s3_virge_probe(&state, &pci) == V9X_STATUS_OK);
     CHECK(state.initialized == V9X_TRUE);
+    CHECK(state.resources_bound == V9X_FALSE);
     CHECK(state.capabilities == 0ul);
 
     request.width = 640u;
@@ -196,14 +298,45 @@ static void test_probe_is_strict(void)
     request.bits_per_pixel = 8u;
     request.pitch_alignment = 8u;
     request.framebuffer_bytes = 1ul; /* The backend must use trusted state. */
-    state.vram_bytes = 4ul * 1024ul * 1024ul;
+    CHECK(v9x_s3_virge_validate_mode(&state, &request, &layout) ==
+          V9X_STATUS_INVALID_STATE);
+
+    bar.physical_base = 0xe0000000ul;
+    bar.aperture_bytes = 64ul * 1024ul * 1024ul;
+    bar.flags = V9X_PCI_BAR_MEMORY | V9X_PCI_BAR_PREFETCHABLE;
+    CHECK(v9x_s3_virge_bind_framebuffer(&state,
+                                        &bar,
+                                        4ul * 1024ul * 1024ul,
+                                        0ul) == V9X_STATUS_OK);
+    CHECK(state.resources_bound == V9X_TRUE);
+    CHECK(state.vram_bytes == 4ul * 1024ul * 1024ul);
+    CHECK(state.capabilities == 0ul);
     CHECK(v9x_s3_virge_validate_mode(&state, &request, &layout) ==
           V9X_STATUS_OK);
     CHECK(layout.visible_bytes == 307200ul);
 
+    CHECK(v9x_s3_virge_bind_framebuffer(&state, 0, 1ul, 0ul) ==
+          V9X_STATUS_INVALID_ARGUMENT);
+    CHECK(state.resources_bound == V9X_FALSE);
+    CHECK(state.framebuffer.physical_base == 0ul);
+
+    CHECK(v9x_s3_virge_bind_framebuffer(&state,
+                                        &bar,
+                                        4ul * 1024ul * 1024ul,
+                                        0ul) == V9X_STATUS_OK);
+
+    bar.flags = V9X_PCI_BAR_IO;
+    CHECK(v9x_s3_virge_bind_framebuffer(&state, &bar, 1ul, 0ul) ==
+          V9X_STATUS_UNSUPPORTED);
+    CHECK(state.resources_bound == V9X_FALSE);
+    CHECK(state.vram_bytes == 0ul);
+    CHECK(state.framebuffer.physical_base == 0ul);
+    CHECK(state.capabilities == 0ul);
+
     pci.device_id = 0x5631u;
     CHECK(v9x_s3_virge_probe(&state, &pci) == V9X_STATUS_UNSUPPORTED);
     CHECK(state.initialized == V9X_FALSE);
+    CHECK(state.resources_bound == V9X_FALSE);
     CHECK(state.capabilities == 0ul);
     CHECK(state.pci.vendor_id == 0u);
     CHECK(v9x_s3_virge_validate_mode(&state, &request, &layout) ==
@@ -255,6 +388,8 @@ int main(void)
     test_mode_layout_rejects_bad_arguments();
     test_mode_layout_overflow();
     test_mode_layout_properties();
+    test_framebuffer_resource_validation();
+    test_framebuffer_resource_properties();
     test_probe_is_strict();
     test_components_and_log();
     test_build_identity();

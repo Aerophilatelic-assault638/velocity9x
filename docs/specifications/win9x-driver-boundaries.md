@@ -1,6 +1,6 @@
 # Windows 9x driver boundary specification (working draft)
 
-Status: incomplete Phase 1 specification  
+Status: DDK-backed ABI baseline; implementation incomplete
 Target: Windows 98SE, S3 ViRGE/DX 86C375
 
 ## Proven project-owned boundary
@@ -22,13 +22,23 @@ Engine interoperation that empirical testing proves cannot live elsewhere. It
 will translate segmented pointers and Windows-owned structures into the small
 project-owned contracts in `include/velocity9x`.
 
-Unresolved before an NE image may be called installable:
+The Windows 98 DDK establishes these requirements:
 
-- exact required exports and their ordinals for the selected DIB Engine model;
-- calling convention and structure layout for every export;
+- `Enable` is ordinal 5 and is called for both `GDIINFO` and `PDEVICE` setup;
+- `Disable` is ordinal 4 and releases selectors and allocations;
+- `ReEnable` is ordinal 31 and handles dynamic mode changes;
+- `ValidateMode` is exported by name, conventionally at ordinal 700, and must
+  validate without changing the screen;
+- drawing entry points occupy ordinals 1 through 30 and may forward to DIBENG;
+- cursor entry points occupy ordinals 101 through 104;
+- `ResetHiResMode` is a fixed-segment callback registered with the system VDD;
+- a linear framebuffer selector is created by the 16-bit display minidriver.
+
+Still unresolved before an NE image may be called installable:
+
 - initialization and teardown ordering;
-- DIB Engine library/import requirements and redistribution constraints;
-- whether mode enumeration and programming must execute in this component;
+- complete `GDIINFO`, `DIBENGINE`, and selector construction;
+- VDD registration and full-screen transition behavior;
 - the legal and technical provenance of every header, import library, and tool.
 
 The source under `src/display16` is therefore a lifecycle shell, not a complete

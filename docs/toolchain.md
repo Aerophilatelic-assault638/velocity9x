@@ -21,9 +21,11 @@ of the repository or release package. The repository build scripts locate it
 from `WATCOM` and then fall back to `C:\WATCOM`.
 
 The supplied tree includes Win16 Windows headers and libraries and can create an
-NE DLL/DRV image. No Windows 9x VxD framework, mini-VDD headers, or relevant VxD
-sample was found in the installation. The installed `h\nt\ddk` tree targets the
-Windows NT driver model and must not be mistaken for the Windows 9x VxD DDK.
+NE DLL/DRV image. Open Watcom itself does not include the Win9x mini-VDD headers,
+but its linker supports the Windows VxD image format. The separate external
+Windows 98 DDK at `C:\98DDK` supplies the relevant Win9x interfaces and samples;
+see `docs/ddk-inputs.md`. Open Watcom's `h\nt\ddk` tree still must not be mistaken
+for the Windows 9x VxD DDK.
 
 ## Verified builds
 
@@ -33,5 +35,13 @@ Windows NT driver model and must not be mistaken for the Windows 9x VxD DDK.
   verified image was 1,602 bytes with SHA-256
   `297C4D8B48DD65A0B613CBBE5D0D58544B14C8DFA2EC91DFA73F8D91FC22C6B9`
   for build identifier `watcom-spike-2`.
-- Win9x mini-VDD LE image: not yet supported; external ABI/tool requirements are
-  still under investigation.
+- Win16 DDI shell: compiled with Open Watcom, linked against the external
+  `DIBENG.LIB` import library, and verified as an NE image with the documented
+  display and cursor export surface. Its mode-entry functions reject use. The
+  verified `phase-next-final` image is 4,494 bytes with SHA-256
+  `6C49ACF4ECD18D0F6086198D2D142A5652AEBB97CAEB779A561CA1BAA6E8E8D0`.
+- Win9x mini-VDD shell: assembled and linked with the external Windows 98 DDK
+  tools and headers, then verified as an LE image with an exported device
+  descriptor and embedded build identifier. Its initialization always fails.
+  The verified `phase-next-final` image is 4,668 bytes with SHA-256
+  `A0E0F9A456EA131838112C3D092AEC0441D2A01E257A34A18C4EE24C6F4A06D7`.

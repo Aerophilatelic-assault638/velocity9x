@@ -36,6 +36,9 @@ $includeDir = Join-Path $repoRoot "include"
 $sources = @(
     @{ Name = "build"; Path = "src\common\build.c" },
     @{ Name = "log"; Path = "src\common\log.c" },
+    @{ Name = "mode"; Path = "src\common\mode.c" },
+    @{ Name = "resources"; Path = "src\common\resources.c" },
+    @{ Name = "virge_backend"; Path = "src\chipsets\s3\virge\backend.c" },
     @{ Name = "display_component"; Path = "src\display16\display_component.c" },
     @{ Name = "loader"; Path = "src\display16\loader.c" }
 )
@@ -73,6 +76,9 @@ $linkLines = @(
     "option heapsize=1024",
     "file '$(Join-Path $outputDir 'build.obj')'",
     "file '$(Join-Path $outputDir 'log.obj')'",
+    "file '$(Join-Path $outputDir 'mode.obj')'",
+    "file '$(Join-Path $outputDir 'resources.obj')'",
+    "file '$(Join-Path $outputDir 'virge_backend.obj')'",
     "file '$(Join-Path $outputDir 'display_component.obj')'",
     "file '$(Join-Path $outputDir 'loader.obj')'",
     "libfile libentry",
