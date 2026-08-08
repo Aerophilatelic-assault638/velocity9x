@@ -14,6 +14,7 @@ if (-not $BuildId) {
     $BuildId = Get-V9xBuildId -RepoRoot $repoRoot -Fallback "vm-probe-local"
 }
 
+& (Join-Path $PSScriptRoot "build-win32-serial-smoke.ps1") -BuildId $BuildId
 & (Join-Path $PSScriptRoot "build-dos-serial-smoke.ps1") -BuildId $BuildId
 & (Join-Path $PSScriptRoot "build-win16-ddi-skeleton.ps1") `
     -BuildId $BuildId -DdkRoot $DdkRoot
@@ -21,8 +22,10 @@ if (-not $BuildId) {
     -BuildId $BuildId -DdkRoot $DdkRoot
 
 New-Item -ItemType Directory -Force -Path $outputDir,$logDir | Out-Null
-Copy-Item -LiteralPath (Join-Path $repoRoot "build\dos-diag\v9xser.exe") `
+Copy-Item -LiteralPath (Join-Path $repoRoot "build\win32-diag\v9xser.exe") `
     -Destination (Join-Path $outputDir "V9XSER.EXE") -Force
+Copy-Item -LiteralPath (Join-Path $repoRoot "build\dos-diag\v9xser.exe") `
+    -Destination (Join-Path $outputDir "V9XDOS.EXE") -Force
 Copy-Item -LiteralPath (Join-Path $repoRoot "build\win16-ddi\v9xdisp.drv") `
     -Destination (Join-Path $outputDir "V9XDISP.DRV") -Force
 Copy-Item -LiteralPath (Join-Path $repoRoot "build\minivdd32\v9xmini.vxd") `
@@ -32,7 +35,8 @@ $readme = @(
     "Velocity9x VM probe bundle",
     "Build: $BuildId",
     "",
-    "SAFE ACTION: run V9XSER.EXE to send one COM1 smoke line at 9600 8N1.",
+    "SAFE ACTION: run V9XSER.EXE to send one Win32 COM1 smoke line.",
+    "V9XDOS.EXE is a direct-UART fallback intended for pure DOS only.",
     "",
     "DO NOT INSTALL V9XDISP.DRV OR V9XMINI.VXD.",
     "They are ABI/link artifacts whose initialization deliberately fails.",

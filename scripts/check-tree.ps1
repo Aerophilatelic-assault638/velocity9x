@@ -17,6 +17,7 @@ $required = @(
     "scripts\build-win16-ddi-skeleton.ps1",
     "scripts\build-minivdd-skeleton.ps1",
     "scripts\build-dos-serial-smoke.ps1",
+    "scripts\build-win32-serial-smoke.ps1",
     "scripts\prepare-vm-probe.ps1",
     "src\common\mode.c",
     "src\common\resources.c",
@@ -28,7 +29,8 @@ $required = @(
     "src\minivdd32\minivdd_component.c",
     "src\minivdd32\loader.asm",
     "tests\host\test_main.c",
-    "tools\diag\serial_smoke.c"
+    "tools\diag\serial_smoke.c",
+    "tools\diag\serial_smoke_win32.c"
 )
 
 $missing = @($required | Where-Object {
