@@ -1,0 +1,88 @@
+#include "velocity9x/s3_virge.h"
+
+static v9x_status v9x_s3_virge_enter_mode(struct v9x_backend_state *state,
+                                          const struct v9x_mode_request *request)
+{
+    (void)state;
+    (void)request;
+    return V9X_STATUS_UNSUPPORTED;
+}
+
+static v9x_status v9x_s3_virge_leave_mode(struct v9x_backend_state *state)
+{
+    (void)state;
+    return V9X_STATUS_OK;
+}
+
+static v9x_status v9x_s3_virge_wait_idle(struct v9x_backend_state *state,
+                                         v9x_u32 timeout_ticks)
+{
+    (void)state;
+    (void)timeout_ticks;
+    return V9X_STATUS_UNSUPPORTED;
+}
+
+static v9x_status v9x_s3_virge_recover(struct v9x_backend_state *state)
+{
+    if (state == 0) {
+        return V9X_STATUS_INVALID_ARGUMENT;
+    }
+    state->capabilities = 0ul;
+    return V9X_STATUS_UNSUPPORTED;
+}
+
+v9x_status v9x_s3_virge_probe(struct v9x_backend_state *state,
+                              const struct v9x_pci_identity *pci)
+{
+    if (state == 0 || pci == 0) {
+        return V9X_STATUS_INVALID_ARGUMENT;
+    }
+
+    state->initialized = V9X_FALSE;
+    state->capabilities = 0ul;
+    state->vram_bytes = 0ul;
+    state->pci.vendor_id = 0u;
+    state->pci.device_id = 0u;
+    state->pci.revision = 0u;
+
+    if (pci->vendor_id != V9X_PCI_VENDOR_S3 ||
+        pci->device_id != V9X_PCI_DEVICE_VIRGE_DX) {
+        return V9X_STATUS_UNSUPPORTED;
+    }
+
+    state->pci = *pci;
+    state->initialized = V9X_TRUE;
+    return V9X_STATUS_OK;
+}
+
+v9x_status v9x_s3_virge_validate_mode(struct v9x_backend_state *state,
+                                      const struct v9x_mode_request *request,
+                                      struct v9x_mode_layout *layout)
+{
+    struct v9x_mode_request bounded_request;
+
+    if (state == 0 || request == 0 || layout == 0) {
+        return V9X_STATUS_INVALID_ARGUMENT;
+    }
+    if (state->initialized == V9X_FALSE) {
+        return V9X_STATUS_INVALID_STATE;
+    }
+
+    bounded_request = *request;
+    bounded_request.framebuffer_bytes = state->vram_bytes;
+    return v9x_mode_calculate(&bounded_request, layout);
+}
+
+static const struct v9x_backend_ops v9x_s3_virge_ops = {
+    v9x_s3_virge_probe,
+    v9x_s3_virge_validate_mode,
+    v9x_s3_virge_enter_mode,
+    v9x_s3_virge_leave_mode,
+    v9x_s3_virge_wait_idle,
+    v9x_s3_virge_recover
+};
+
+const struct v9x_backend_ops *v9x_s3_virge_backend(void)
+{
+    return &v9x_s3_virge_ops;
+}

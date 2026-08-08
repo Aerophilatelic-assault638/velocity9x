@@ -1,0 +1,8 @@
+/build/
+*.err
+*.map
+*.obj
+*.sym
+*.drv
+*.vxd
+*.dll
