@@ -1,0 +1,75 @@
+[CmdletBinding()]
+param(
+    [string]$BuildId
+)
+
+$ErrorActionPreference = "Stop"
+$repoRoot = Split-Path -Parent $PSScriptRoot
+$outputDir = Join-Path $repoRoot "build\win16-loader-probe"
+
+. (Join-Path $PSScriptRoot "common.ps1")
+if (-not $BuildId) {
+    $BuildId = Get-V9xBuildId -RepoRoot $repoRoot -Fallback "win16-loader-local"
+}
+if ($BuildId -notmatch '^[A-Za-z0-9._+-]+$') {
+    throw "BuildId may contain only letters, digits, dot, underscore, plus, and hyphen."
+}
+
+$watcomRoot = $env:WATCOM
+if (-not $watcomRoot -and (Test-Path -LiteralPath "C:\WATCOM")) {
+    $watcomRoot = "C:\WATCOM"
+}
+if (-not $watcomRoot) {
+    throw "Open Watcom was not found. Set WATCOM or install it at C:\WATCOM."
+}
+
+$compiler = Join-Path $watcomRoot "binnt\wcl.exe"
+$dumper = Join-Path $watcomRoot "binnt64\wdump.exe"
+foreach ($tool in @($compiler, $dumper)) {
+    if (-not (Test-Path -LiteralPath $tool)) {
+        throw "Required Open Watcom tool was not found: $tool"
+    }
+}
+
+$env:WATCOM = $watcomRoot
+$env:Path = "$(Join-Path $watcomRoot 'binnt64');$(Join-Path $watcomRoot 'binnt');$env:Path"
+$env:INCLUDE = "$(Join-Path $watcomRoot 'h');$(Join-Path $watcomRoot 'h\win')"
+New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
+
+$source = Join-Path $repoRoot "tools\diag\win16_driver_loader.c"
+$executable = Join-Path $outputDir "v9x16ld.exe"
+Push-Location $outputDir
+try {
+    & $compiler "-bt=windows" "-l=windows" "-zq" "-wx" `
+        "-dV9X_BUILD_ID=`"$BuildId`"" "-fe=$executable" $source
+    if ($LASTEXITCODE -ne 0) {
+        throw "Open Watcom failed to build the Win16 display-loader probe."
+    }
+}
+finally {
+    Pop-Location
+}
+
+$bytes = [System.IO.File]::ReadAllBytes($executable)
+$newHeaderOffset = if ($bytes.Length -ge 64) {
+    [System.BitConverter]::ToInt32($bytes, 0x3c)
+} else { -1 }
+if ($bytes.Length -lt 64 -or $bytes[0] -ne 0x4d -or
+    $bytes[1] -ne 0x5a -or $newHeaderOffset -lt 0 -or
+    $newHeaderOffset + 1 -ge $bytes.Length -or
+    $bytes[$newHeaderOffset] -ne 0x4e -or
+    $bytes[$newHeaderOffset + 1] -ne 0x45) {
+    throw "The Win16 display-loader probe is not an MZ/NE image."
+}
+if (-not [System.Text.Encoding]::ASCII.GetString($bytes).Contains($BuildId)) {
+    throw "The Win16 display-loader probe does not contain its build identifier."
+}
+
+$dumpText = (@(& $dumper -e $executable 2>&1)) -join "`n"
+if ($LASTEXITCODE -ne 0 -or $dumpText -notmatch "target OS.*=\s+02H" -or
+    $dumpText -notmatch "(?m)^\s*KERNEL\s*$" -or
+    $dumpText -notmatch "(?m)^\s*USER\s*$") {
+    throw "The Win16 display-loader probe failed its Windows import audit."
+}
+
+Write-Output "Built Win16 display DRV load/unload utility: $executable"

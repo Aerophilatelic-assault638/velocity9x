@@ -16,6 +16,7 @@ $required = @(
     "scripts\build-host-msvc.ps1",
     "scripts\build-win16-skeleton.ps1",
     "scripts\build-win16-ddi-skeleton.ps1",
+    "scripts\build-win16-loader-probe.ps1",
     "scripts\build-minivdd-skeleton.ps1",
     "scripts\build-dos-serial-smoke.ps1",
     "scripts\build-win32-serial-smoke.ps1",
@@ -35,7 +36,8 @@ $required = @(
     "tools\diag\serial_smoke.c",
     "tools\diag\serial_smoke_win32.c",
     "tools\diag\vxd_probe.asm",
-    "tools\diag\vxd_probe_win32.c"
+    "tools\diag\vxd_probe_win32.c",
+    "tools\diag\win16_driver_loader.c"
 )
 
 $missing = @($required | Where-Object {

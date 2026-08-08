@@ -18,6 +18,8 @@ if (-not $BuildId) {
 & (Join-Path $PSScriptRoot "build-dos-serial-smoke.ps1") -BuildId $BuildId
 & (Join-Path $PSScriptRoot "build-vxd-loader-probe.ps1") `
     -BuildId $BuildId -DdkRoot $DdkRoot
+& (Join-Path $PSScriptRoot "build-win16-loader-probe.ps1") -BuildId $BuildId
+& (Join-Path $PSScriptRoot "build-driver-stage-probe.ps1") -BuildId $BuildId
 & (Join-Path $PSScriptRoot "build-win16-ddi-skeleton.ps1") `
     -BuildId $BuildId -DdkRoot $DdkRoot
 & (Join-Path $PSScriptRoot "build-minivdd-skeleton.ps1") `
@@ -32,6 +34,10 @@ Copy-Item -LiteralPath (Join-Path $repoRoot "build\vxd-probe\v9xvxd.exe") `
     -Destination (Join-Path $outputDir "V9XVXD.EXE") -Force
 Copy-Item -LiteralPath (Join-Path $repoRoot "build\vxd-probe\v9xprobe.vxd") `
     -Destination (Join-Path $outputDir "V9XPROBE.VXD") -Force
+Copy-Item -LiteralPath (Join-Path $repoRoot "build\win16-loader-probe\v9x16ld.exe") `
+    -Destination (Join-Path $outputDir "V9X16LD.EXE") -Force
+Copy-Item -LiteralPath (Join-Path $repoRoot "build\driver-stage-probe\v9xstage.exe") `
+    -Destination (Join-Path $outputDir "V9XSTAGE.EXE") -Force
 Copy-Item -LiteralPath (Join-Path $repoRoot "build\win16-ddi\v9xdisp.drv") `
     -Destination (Join-Path $outputDir "V9XDISP.DRV") -Force
 Copy-Item -LiteralPath (Join-Path $repoRoot "build\minivdd32\v9xmini.vxd") `
@@ -45,6 +51,11 @@ $readme = @(
     "V9XDOS.EXE is a direct-UART fallback intended for pure DOS only.",
     "SAFE LIFECYCLE PROBE: run V9XVXD.EXE with V9XPROBE.VXD beside it.",
     "The probe loads, logs, and unloads without touching display hardware.",
+    "SAFE WIN16 PROBE: run V9X16LD.EXE with V9XDISP.DRV beside it.",
+    "It loads the DRV as an inactive library and never calls display Enable.",
+    "CONSOLIDATED DRIVER-STAGE TEST: run V9XSTAGE.EXE once.",
+    "It holds V9XPROBE.VXD loaded while V9X16LD.EXE silently loads/unloads",
+    "V9XDISP.DRV, reports one PASS/FAIL result, and changes no display mode.",
     "",
     "DO NOT INSTALL V9XDISP.DRV OR V9XMINI.VXD.",
     "They are ABI/link artifacts whose initialization deliberately fails.",

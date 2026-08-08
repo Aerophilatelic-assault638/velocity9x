@@ -39,3 +39,19 @@ operable after unload.
 Phase 1 may proceed to the smallest recoverable system-VDD registration probe.
 The installable-driver and 20-cycle gates remain closed: `V9XMINI.VXD` still
 rejects initialization, and `V9XDISP.DRV` still rejects display enable.
+
+## System-VDD query checkpoint
+
+A second build, `vdd-table-1`, called `VDD_Get_Mini_Dispatch_Table`, verified a
+non-null table with at least the Windows 4.0 mini-VDD function count, and made
+no changes to the returned table. It then completed the same open, close, and
+unload sequence. The live capture included:
+
+```text
+V9X-VDD table-ok build=vdd-table-1
+```
+
+The 165-byte capture has SHA-256
+`36BC2DCBDFAE291285E2FD7F66E24DA440CBC8EC46AE234911B56C6F50165DFB`.
+This read-only query avoids leaving system VDD with callback pointers into a
+dynamically unloaded probe.

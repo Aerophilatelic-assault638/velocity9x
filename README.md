@@ -96,6 +96,8 @@ Mount `build/vm-probe` as an 86Box virtual CD folder. `V9XSER.EXE` performs the
 COM1 smoke test; `V9XVXD.EXE` may be run with `V9XPROBE.VXD` beside it to
 perform the separate dynamic load/unload probe. The bundled `V9XDISP.DRV` and
 `V9XMINI.VXD` remain noninstallable link artifacts and must not be installed.
+`V9X16LD.EXE` may load `V9XDISP.DRV` strictly as an inactive Win16 library for
+the loader test; it never calls the display `Enable` entry point.
 
 For unbuffered host diagnostics, configure 86Box COM1 as a Named Pipe server
 named `velocity9x-com1`, then run:
