@@ -82,6 +82,19 @@ To check the repository structure without a compiler:
 ./scripts/check-tree.ps1
 ```
 
+The inventoried local 86Box installations and the changes needed for an S3
+ViRGE/DX test clone are recorded in `docs/vm-environment.md`.
+
+To prepare the safe VM transfer and COM1 smoke-test folder:
+
+```powershell
+./scripts/prepare-vm-probe.ps1
+```
+
+Mount `build/vm-probe` as an 86Box virtual CD folder and run only `V9XSER.EXE`.
+The bundled DRV and VXD are noninstallable link artifacts and must not be
+installed.
+
 ## Safety and licensing
 
 Do not install generated artifacts in Windows 98 until the packaging gate in

@@ -24,3 +24,15 @@ All integer fields are unsigned and little-endian on the supported x86 targets.
 Sequence wrap is allowed. No event contains pointers, compiler-dependent enums,
 or variable-length data. Transports must never wait indefinitely. A failed or
 absent logger must not prevent driver initialization or recovery.
+
+## Transport smoke test
+
+`tools/diag/serial_smoke.c` is a DOS utility for verifying the VM's COM1 host
+transport before any driver is loaded. It programs the COM1 8250-compatible
+UART directly for 9600 8N1 and sends one ASCII line beginning
+`V9X-SERIAL-SMOKE`. Direct UART output avoids BIOS INT 14h modem-status waits,
+which can time out with a file-backed serial device even when its transmit path
+is usable. Every transmit-register wait remains bounded.
+
+That line is not a version-1 binary diagnostic record. It is an explicit
+transport-only probe and must not be accepted by a binary record decoder.

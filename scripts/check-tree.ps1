@@ -6,6 +6,7 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $required = @(
     "PLAN.md",
     "README.md",
+    "docs\vm-environment.md",
     "docs\specifications\win9x-driver-boundaries.md",
     "docs\specifications\logging-protocol.md",
     "include\velocity9x\backend.h",
@@ -15,6 +16,8 @@ $required = @(
     "scripts\build-win16-skeleton.ps1",
     "scripts\build-win16-ddi-skeleton.ps1",
     "scripts\build-minivdd-skeleton.ps1",
+    "scripts\build-dos-serial-smoke.ps1",
+    "scripts\prepare-vm-probe.ps1",
     "src\common\mode.c",
     "src\common\resources.c",
     "src\chipsets\s3\virge\backend.c",
@@ -24,7 +27,8 @@ $required = @(
     "src\display16\dib_thunks.asm",
     "src\minivdd32\minivdd_component.c",
     "src\minivdd32\loader.asm",
-    "tests\host\test_main.c"
+    "tests\host\test_main.c",
+    "tools\diag\serial_smoke.c"
 )
 
 $missing = @($required | Where-Object {
