@@ -1,6 +1,6 @@
 # Phase 1 timebox and first implementation slice
 
-Status: planned; clock not started  
+Status: active; clock started 2026-08-08
 Date: 2026-08-08
 
 ## Decision
@@ -31,3 +31,8 @@ adding mode-setting or acceleration code.
 This timebox does not start the 20-cycle installation gate. That gate begins only
 after the DRV, VxD, INF, serial transport, uninstall path, and standard-VGA
 recovery procedure have each been reviewed.
+
+The first guest checkpoint is a separate dynamic `V9XPROBE.VXD`. It proves
+ring-0 load, Win32 open/close, unload, and bounded serial output without
+registering as a mini-VDD or touching display hardware. The installable-driver
+cycle gate remains closed until this probe passes in the disposable VM.

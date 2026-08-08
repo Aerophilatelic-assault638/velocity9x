@@ -16,6 +16,7 @@ Windows 98 display driver.
 - a chipset-neutral backend contract;
 - fixed-size diagnostic records suitable for a serial transport;
 - lifecycle shells for the 16-bit display and 32-bit mini-VDD sides;
+- a hardware-inert dynamic VxD lifecycle probe with bounded COM1 logging;
 - host tests and an Open Watcom build entry point.
 
 No acceleration capability is advertised yet. The operating-system ABI thunks,
@@ -91,9 +92,17 @@ To prepare the safe VM transfer and COM1 smoke-test folder:
 ./scripts/prepare-vm-probe.ps1
 ```
 
-Mount `build/vm-probe` as an 86Box virtual CD folder and run only `V9XSER.EXE`.
-The bundled DRV and VXD are noninstallable link artifacts and must not be
-installed.
+Mount `build/vm-probe` as an 86Box virtual CD folder. `V9XSER.EXE` performs the
+COM1 smoke test; `V9XVXD.EXE` may be run with `V9XPROBE.VXD` beside it to
+perform the separate dynamic load/unload probe. The bundled `V9XDISP.DRV` and
+`V9XMINI.VXD` remain noninstallable link artifacts and must not be installed.
+
+For unbuffered host diagnostics, configure 86Box COM1 as a Named Pipe server
+named `velocity9x-com1`, then run:
+
+```powershell
+./scripts/capture-serial-pipe.ps1
+```
 
 ## Safety and licensing
 

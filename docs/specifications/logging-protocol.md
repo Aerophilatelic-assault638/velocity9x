@@ -44,5 +44,16 @@ file until the File device is detached, the VM exits, or enough output fills
 the buffer. For live driver diagnostics, use a named-pipe capture transport or
 another host consumer that flushes each received record.
 
+For live 86Box capture, configure COM1 as a Named Pipe in Server mode with pipe
+name `velocity9x-com1`, then run:
+
+```powershell
+./scripts/capture-serial-pipe.ps1
+```
+
+The capture helper appends raw bytes to `build/vm-logs/com1-live.bin`, flushes
+each received chunk, and mirrors ASCII probe text to its console. Raw capture is
+required because later driver records use the binary 32-byte format above.
+
 That line is not a version-1 binary diagnostic record. It is an explicit
 transport-only probe and must not be accepted by a binary record decoder.

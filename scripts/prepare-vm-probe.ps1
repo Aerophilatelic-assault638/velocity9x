@@ -16,6 +16,8 @@ if (-not $BuildId) {
 
 & (Join-Path $PSScriptRoot "build-win32-serial-smoke.ps1") -BuildId $BuildId
 & (Join-Path $PSScriptRoot "build-dos-serial-smoke.ps1") -BuildId $BuildId
+& (Join-Path $PSScriptRoot "build-vxd-loader-probe.ps1") `
+    -BuildId $BuildId -DdkRoot $DdkRoot
 & (Join-Path $PSScriptRoot "build-win16-ddi-skeleton.ps1") `
     -BuildId $BuildId -DdkRoot $DdkRoot
 & (Join-Path $PSScriptRoot "build-minivdd-skeleton.ps1") `
@@ -26,6 +28,10 @@ Copy-Item -LiteralPath (Join-Path $repoRoot "build\win32-diag\v9xser.exe") `
     -Destination (Join-Path $outputDir "V9XSER.EXE") -Force
 Copy-Item -LiteralPath (Join-Path $repoRoot "build\dos-diag\v9xser.exe") `
     -Destination (Join-Path $outputDir "V9XDOS.EXE") -Force
+Copy-Item -LiteralPath (Join-Path $repoRoot "build\vxd-probe\v9xvxd.exe") `
+    -Destination (Join-Path $outputDir "V9XVXD.EXE") -Force
+Copy-Item -LiteralPath (Join-Path $repoRoot "build\vxd-probe\v9xprobe.vxd") `
+    -Destination (Join-Path $outputDir "V9XPROBE.VXD") -Force
 Copy-Item -LiteralPath (Join-Path $repoRoot "build\win16-ddi\v9xdisp.drv") `
     -Destination (Join-Path $outputDir "V9XDISP.DRV") -Force
 Copy-Item -LiteralPath (Join-Path $repoRoot "build\minivdd32\v9xmini.vxd") `
@@ -37,6 +43,8 @@ $readme = @(
     "",
     "SAFE ACTION: run V9XSER.EXE to send one Win32 COM1 smoke line.",
     "V9XDOS.EXE is a direct-UART fallback intended for pure DOS only.",
+    "SAFE LIFECYCLE PROBE: run V9XVXD.EXE with V9XPROBE.VXD beside it.",
+    "The probe loads, logs, and unloads without touching display hardware.",
     "",
     "DO NOT INSTALL V9XDISP.DRV OR V9XMINI.VXD.",
     "They are ABI/link artifacts whose initialization deliberately fails.",
@@ -57,3 +65,4 @@ Set-Content -LiteralPath (Join-Path $outputDir "SHA256.TXT") `
 
 Write-Output "Prepared VM probe folder: $outputDir"
 Write-Output "Configure COM1 output file: $(Join-Path $logDir 'com1.log')"
+Write-Output "For live capture, configure COM1 as named-pipe server velocity9x-com1."

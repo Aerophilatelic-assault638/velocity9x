@@ -52,6 +52,7 @@ Both ROM trees contain the same `roms\video\s3virge\86c375_4.bin` image with SHA
 `DF0FBA7D82E734E000E51608D39B2E330AD0D21DBD615A6B83E5CFED1037931D`.
 
 Windows 98 booted, detected `S3 ViRGE-DX/GX PCI (375/385)`, completed Plug and
-Play installation, rebooted automatically, and reached the desktop. COM1 host
-logging and a post-detection recovery snapshot remain to be configured before
-loading Velocity9x artifacts.
+Play installation, rebooted automatically, and reached the desktop. The Win32
+COM1 smoke probe then completed the guest VCOMM-to-86Box-to-host path. 86Box's
+File character device buffered the short lines until detach; use the documented
+named-pipe capture for live driver diagnostics.
