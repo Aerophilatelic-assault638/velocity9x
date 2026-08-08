@@ -17,6 +17,7 @@ Windows 98 display driver.
 - fixed-size diagnostic records suitable for a serial transport;
 - lifecycle shells for the 16-bit display and 32-bit mini-VDD sides;
 - a hardware-inert dynamic VxD lifecycle probe with bounded COM1 logging;
+- a consolidated VxD-plus-Win16-DRV lifecycle test with one PASS/FAIL result;
 - host tests and an Open Watcom build entry point.
 
 No acceleration capability is advertised yet. The operating-system ABI thunks,
@@ -98,6 +99,11 @@ perform the separate dynamic load/unload probe. The bundled `V9XDISP.DRV` and
 `V9XMINI.VXD` remain noninstallable link artifacts and must not be installed.
 `V9X16LD.EXE` may load `V9XDISP.DRV` strictly as an inactive Win16 library for
 the loader test; it never calls the display `Enable` entry point.
+
+`V9XSTAGE.EXE` is the preferred consolidated Phase 1 test. It holds the
+hardware-inert VxD open while the Win16 helper loads and unloads the DRV, then
+reports a single result and writes the full lifecycle to COM1. It still does
+not install or activate the display driver.
 
 For unbuffered host diagnostics, configure 86Box COM1 as a Named Pipe server
 named `velocity9x-com1`, then run:
