@@ -63,6 +63,119 @@ static void test_mode_layout(void)
           V9X_STATUS_INSUFFICIENT_MEMORY);
 }
 
+static void test_mode_layout_rejects_bad_arguments(void)
+{
+    struct v9x_mode_request request;
+    struct v9x_mode_layout layout;
+
+    request.width = 640u;
+    request.height = 480u;
+    request.bits_per_pixel = 8u;
+    request.pitch_alignment = 8u;
+    request.framebuffer_bytes = 4ul * 1024ul * 1024ul;
+
+    CHECK(v9x_mode_calculate(0, &layout) == V9X_STATUS_INVALID_ARGUMENT);
+    CHECK(v9x_mode_calculate(&request, 0) == V9X_STATUS_INVALID_ARGUMENT);
+
+    request.width = 0u;
+    CHECK(v9x_mode_calculate(&request, &layout) == V9X_STATUS_INVALID_ARGUMENT);
+    CHECK(layout.pitch_bytes == 0ul);
+    CHECK(layout.visible_bytes == 0ul);
+    CHECK(layout.offscreen_bytes == 0ul);
+    request.width = 640u;
+
+    request.height = 0u;
+    CHECK(v9x_mode_calculate(&request, &layout) == V9X_STATUS_INVALID_ARGUMENT);
+    request.height = 480u;
+
+    request.pitch_alignment = 0u;
+    CHECK(v9x_mode_calculate(&request, &layout) == V9X_STATUS_INVALID_ARGUMENT);
+}
+
+static void test_mode_layout_overflow(void)
+{
+    struct v9x_mode_request request;
+    struct v9x_mode_layout layout;
+
+    /* pitch 131072 * height 65535 exceeds 32 bits. */
+    request.width = 65535u;
+    request.height = 65535u;
+    request.bits_per_pixel = 16u;
+    request.pitch_alignment = 8u;
+    request.framebuffer_bytes = 0xfffffffful;
+    CHECK(v9x_mode_calculate(&request, &layout) == V9X_STATUS_INTEGER_OVERFLOW);
+    CHECK(layout.pitch_bytes == 0ul);
+    CHECK(layout.visible_bytes == 0ul);
+    CHECK(layout.offscreen_bytes == 0ul);
+}
+
+static v9x_u32 prng_state = 0x12345678ul;
+
+static v9x_u32 prng_next(void)
+{
+    prng_state = prng_state * 1664525ul + 1013904223ul;
+    return prng_state;
+}
+
+static void test_mode_layout_properties(void)
+{
+    static const v9x_u16 alignments[8] = { 1u, 2u, 4u, 8u, 16u, 32u, 64u, 128u };
+    struct v9x_mode_request request;
+    struct v9x_mode_layout layout;
+    v9x_u32 iteration;
+
+    for (iteration = 0ul; iteration < 20000ul; ++iteration) {
+        v9x_u32 raw_pitch;
+        v9x_u32 alignment_mask;
+        v9x_u32 pitch;
+        v9x_status status;
+
+        request.width = (v9x_u16)(prng_next() & 0xffffu);
+        request.height = (v9x_u16)(prng_next() & 0xffffu);
+        request.bits_per_pixel = ((prng_next() & 1ul) != 0ul) ? 16u : 8u;
+        request.pitch_alignment = alignments[prng_next() & 7ul];
+        request.framebuffer_bytes = prng_next();
+
+        status = v9x_mode_calculate(&request, &layout);
+
+        if (request.width == 0u || request.height == 0u) {
+            CHECK(status == V9X_STATUS_INVALID_ARGUMENT);
+            continue;
+        }
+
+        /* Small enough to compute exactly in 32 bits. */
+        raw_pitch = (v9x_u32)request.width *
+                    (v9x_u32)(request.bits_per_pixel / 8u);
+        alignment_mask = (v9x_u32)request.pitch_alignment - 1ul;
+        pitch = (raw_pitch + alignment_mask) & ~alignment_mask;
+
+        /* Independent overflow decision via exact double arithmetic. */
+        if ((double)pitch * (double)request.height > 4294967295.0) {
+            CHECK(status == V9X_STATUS_INTEGER_OVERFLOW);
+        } else if (pitch * (v9x_u32)request.height >
+                   request.framebuffer_bytes) {
+            CHECK(status == V9X_STATUS_INSUFFICIENT_MEMORY);
+        } else {
+            CHECK(status == V9X_STATUS_OK);
+            CHECK(layout.pitch_bytes == pitch);
+            CHECK(layout.pitch_bytes % request.pitch_alignment == 0ul);
+            CHECK(layout.pitch_bytes >= raw_pitch);
+            CHECK(layout.pitch_bytes - raw_pitch <
+                  (v9x_u32)request.pitch_alignment);
+            CHECK(layout.visible_bytes ==
+                  pitch * (v9x_u32)request.height);
+            CHECK(layout.offscreen_bytes ==
+                  request.framebuffer_bytes - layout.visible_bytes);
+        }
+
+        if (status != V9X_STATUS_OK) {
+            CHECK(layout.pitch_bytes == 0ul);
+            CHECK(layout.visible_bytes == 0ul);
+            CHECK(layout.offscreen_bytes == 0ul);
+        }
+    }
+}
+
 static void test_probe_is_strict(void)
 {
     struct v9x_backend_state state;
@@ -123,8 +236,8 @@ static void test_components_and_log(void)
     CHECK(sink.records[0].size == 32u);
     CHECK(sink.records[0].sequence == 0ul);
     CHECK(sink.records[1].sequence == 1ul);
-    CHECK(sink.records[0].argument0 == 16ul);
-    CHECK(sink.records[1].argument0 == 32ul);
+    CHECK(sink.records[0].argument0 == V9X_COMPONENT_DISPLAY16);
+    CHECK(sink.records[1].argument0 == V9X_COMPONENT_MINIVDD32);
 }
 
 static void test_build_identity(void)
@@ -139,6 +252,9 @@ static void test_build_identity(void)
 int main(void)
 {
     test_mode_layout();
+    test_mode_layout_rejects_bad_arguments();
+    test_mode_layout_overflow();
+    test_mode_layout_properties();
     test_probe_is_strict();
     test_components_and_log();
     test_build_identity();

@@ -41,6 +41,9 @@ v9x_status v9x_mode_calculate(const struct v9x_mode_request *request,
     bytes_per_pixel = (v9x_u32)(request->bits_per_pixel / 8u);
     raw_pitch = (v9x_u32)request->width * bytes_per_pixel;
     alignment_mask = (v9x_u32)request->pitch_alignment - 1ul;
+    /* With 16-bit width and depths up to 16 bpp this guard cannot trigger;
+     * it protects future wider fields or depths. The reachable overflow
+     * path is the pitch*height check below. */
     if (raw_pitch > V9X_U32_MAX - alignment_mask) {
         return V9X_STATUS_INTEGER_OVERFLOW;
     }

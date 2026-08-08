@@ -18,8 +18,8 @@ Windows 98 display driver.
 - host tests and an Open Watcom build entry point.
 
 No acceleration capability is advertised yet. The operating-system ABI thunks,
-resource mapping, and mode programming remain gated on the Phase 1 ABI and
-toolchain spike.
+resource mapping, and mode programming remain gated on the Phase 0 ABI
+specification and the Phase 1 toolchain spike.
 
 ## Host build
 
@@ -32,6 +32,16 @@ Install an Open Watcom v2 snapshot, initialize its environment, and run:
 The script builds and runs `build/host/v9x-host-tests.exe`. A missing compiler is
 reported as a prerequisite failure; the script does not download toolchains or
 licensed SDK/DDK material.
+
+The same suite can be built with a second compiler for independent warnings:
+
+```powershell
+./scripts/build-host-msvc.ps1
+```
+
+This locates MSVC (directly or via `vswhere`) and builds with `/W4 /WX` into
+`build/host-msvc`. Both scripts default the embedded build identifier to the
+current git revision, with a `-dirty` suffix for a modified tree.
 
 The toolchain spike can also build the original Win16 NE loader shell:
 
@@ -54,5 +64,5 @@ To check the repository structure without a compiler:
 Do not install generated artifacts in Windows 98 until the packaging gate in
 `packaging/win98se/README.md` is cleared. Always keep a standard-VGA snapshot.
 
-No project license has been selected. Unless and until a license is added, this
-work is all rights reserved.
+Copyright (c) 2026 Michael Dale. No project license has been selected. Unless
+and until a license is added, this work is all rights reserved.

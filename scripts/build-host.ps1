@@ -1,11 +1,16 @@
 [CmdletBinding()]
 param(
-    [string]$BuildId = "local"
+    [string]$BuildId
 )
 
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $outputDir = Join-Path $repoRoot "build\host"
+
+. (Join-Path $PSScriptRoot "common.ps1")
+if (-not $BuildId) {
+    $BuildId = Get-V9xBuildId -RepoRoot $repoRoot -Fallback "local"
+}
 
 $watcomRoot = $env:WATCOM
 if (-not $watcomRoot -and (Test-Path -LiteralPath "C:\WATCOM")) {

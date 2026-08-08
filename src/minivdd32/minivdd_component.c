@@ -15,7 +15,7 @@ v9x_status v9x_minivdd32_start(struct v9x_component_state *component,
     component->backend = backend;
     component->started = V9X_TRUE;
     (void)v9x_log_emit(logger, V9X_EVENT_COMPONENT_INIT, V9X_STATUS_OK,
-                       32ul, 0ul, 0ul, 0ul);
+                       V9X_COMPONENT_MINIVDD32, 0ul, 0ul, 0ul);
     return V9X_STATUS_OK;
 }
 
@@ -29,7 +29,7 @@ v9x_status v9x_minivdd32_stop(struct v9x_component_state *component)
     }
 
     (void)v9x_log_emit(component->logger, V9X_EVENT_COMPONENT_STOP,
-                       V9X_STATUS_OK, 32ul, 0ul, 0ul, 0ul);
+                       V9X_STATUS_OK, V9X_COMPONENT_MINIVDD32, 0ul, 0ul, 0ul);
     component->started = V9X_FALSE;
     component->backend = 0;
     component->logger = 0;
