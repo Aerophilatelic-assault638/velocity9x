@@ -7,17 +7,27 @@ $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $outputDir = Join-Path $repoRoot "build\host"
 
+$watcomRoot = $env:WATCOM
+if (-not $watcomRoot -and (Test-Path -LiteralPath "C:\WATCOM")) {
+    $watcomRoot = "C:\WATCOM"
+}
+if ($watcomRoot) {
+    $env:WATCOM = $watcomRoot
+    $env:Path = "$(Join-Path $watcomRoot 'binnt64');$(Join-Path $watcomRoot 'binnt');$env:Path"
+    $env:INCLUDE = "$(Join-Path $watcomRoot 'h');$(Join-Path $watcomRoot 'h\nt')"
+}
+
 $compiler = Get-Command "wcl386.exe" -ErrorAction SilentlyContinue
-if (-not $compiler -and $env:WATCOM) {
+if (-not $compiler -and $watcomRoot) {
     $candidates = @(
-        (Join-Path $env:WATCOM "binnt64\wcl386.exe"),
-        (Join-Path $env:WATCOM "binnt\wcl386.exe")
+        (Join-Path $watcomRoot "binnt64\wcl386.exe"),
+        (Join-Path $watcomRoot "binnt\wcl386.exe")
     )
     $compiler = $candidates | Where-Object { Test-Path -LiteralPath $_ } |
         Select-Object -First 1
 }
 if (-not $compiler) {
-    throw "Open Watcom wcl386.exe was not found. Install Open Watcom v2 and initialize its environment."
+    throw "Open Watcom wcl386.exe was not found. Set WATCOM or install it at C:\WATCOM."
 }
 
 New-Item -ItemType Directory -Force -Path $outputDir | Out-Null

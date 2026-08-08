@@ -33,6 +33,16 @@ The script builds and runs `build/host/v9x-host-tests.exe`. A missing compiler i
 reported as a prerequisite failure; the script does not download toolchains or
 licensed SDK/DDK material.
 
+The toolchain spike can also build the original Win16 NE loader shell:
+
+```powershell
+./scripts/build-win16-skeleton.ps1
+```
+
+This produces `build/win16/v9xdisp.drv` and verifies its DOS and NE signatures.
+It proves the compiler/linker path only; the file is not an installable display
+driver because the display DDI exports and DIB Engine contract are not complete.
+
 To check the repository structure without a compiler:
 
 ```powershell
