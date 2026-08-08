@@ -1,4 +1,4 @@
-VELOCITY9X ACTIVE 640x480x8 BRING-UP - READ FIRST
+VELOCITY9X PHASE 3 MODE-MATRIX BRING-UP - READ FIRST
 
 This package is intentionally limited to PCI VEN_5333 DEV_8A01.
 It is an engineering bring-up build, not a release driver.
@@ -8,6 +8,8 @@ V9XSTAGE.EXE is an optional one-click preflight. It loads the VxD lifecycle
 probe and asks the DRV only for GDIINFO/mode validation; it never sets a mode.
 V9XGDI.EXE is the post-boot framebuffer test. Run it only after the new desktop
 appears; it draws GDI primitives and checks tolerant pixel readback.
+V9XFIX.BAT stages corrected driver files through WININIT.INI when an installed
+bring-up build is too unstable to update through Display Properties.
 
 PREREQUISITES
 
@@ -24,7 +26,7 @@ INSTALL
 3. Expand Display adapters and open the S3/standard PCI display adapter.
 4. Select Driver, Update Driver, then choose a specific driver/location.
 5. Use Have Disk and browse to this package directory.
-6. Select "Velocity9x S3 ViRGE/DX 86C375 (640x480x8 bring-up)".
+6. Select "Velocity9x S3 ViRGE/DX 86C375 (Phase 3 mode matrix)".
 7. Let Windows copy the two files, but do not accept a different device ID.
 8. Shut down fully when prompted. Do not use a warm restart for the first test.
 9. Start COM1 capture, then cold-start the VM once.
@@ -37,6 +39,11 @@ V9X-DRV load build=<id>
 V9X-DRV enable-query mode=640x480x8
 V9X-DRV lfb=0x........ bytes=00400000
 V9X-DRV enable-ok mode=640x480x8 lfb-mapped
+
+The first boot defaults to 640x480x8. After it passes, Display Properties may
+select 800x600 or 1024x768 at 256 colours, or any of the same resolutions at
+High Color (16 bit). Fully reboot after every selection; live mode switching is
+intentionally disabled in this candidate. Test one combination per boot.
 
 If the desktop does not appear, stop after the single boot attempt and follow
 RECOVER.TXT. Do not repeatedly reboot a failed image.

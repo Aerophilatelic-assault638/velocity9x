@@ -162,7 +162,8 @@ if ($image -notmatch "CODE\|FIXED\|SHARE\|PRELOAD") {
 $mapText = Get-Content -LiteralPath $mapPath -Raw
 $requiredRuntimeSymbols = @(
     "V9XHARDWAREPRESENT", "V9XHARDWAREENABLE", "V9XHARDWAREDISABLE",
-    "V9XVDDREGISTER", "V9XVDDUNREGISTER", "V9XVDDPOSTMODE",
+    "V9XVDDGETDISPLAYCONFIG", "V9XVDDREGISTER", "V9XVDDUNREGISTER",
+    "V9XVDDPOSTMODE",
     "V9XCREATEDIBPDEVICECALL", "V9XDIBSETPALETTETRANSLATECALL",
     "DIB_EnumObjExt", "DIB_RealizeObjectExt",
     "DIB_DibBltExt", "DIB_GetPaletteExt", "DIB_SetCursorExt",
@@ -177,7 +178,11 @@ foreach ($symbol in $requiredRuntimeSymbols) {
 $runtimeDisassembly = (& $disassembler "-a" $runtimeObject 2>&1) -join "`n"
 foreach ($instruction in @(
     'mov\s+eax,80H', 'mov\s+eax,81H', 'mov\s+eax,82H',
-    'mov\s+eax,87H', 'mov\s+ecx,4b000H',
+    'mov\s+eax,85H', 'mov\s+eax,87H',
+    'push\s+esi', 'push\s+edi',
+    'movzx\s+edi,word ptr 6\[bp\]',
+    'mov\s+ecx,dword ptr DGROUP:_v9x_active_visible_bytes',
+    'mov\s+bx,word ptr DGROUP:_v9x_active_vbe_mode',
     'mov\s+ax,seg RESETHIRESMODE', 'int\s+2fH'
 )) {
     if ($runtimeDisassembly -notmatch $instruction) {
@@ -190,5 +195,9 @@ if ($thunkDisassembly -notmatch
     '(?s)CheckCursor:.*?cmp\s+dword ptr es:_v9x_driver_pdevice,0.*?jmp\s+far ptr DIB_CheckCursorExt.*?retf') {
     throw "The DIB CheckCursor thunk is missing its disabled-state guard."
 }
+if ($thunkDisassembly -notmatch
+    '(?s)DibBlt:.*?push\s+word ptr es:_v9x_palettized.*?jmp\s+far ptr DIB_DibBltExt') {
+    throw "The DIB BitBlt thunk is not forwarding the selected palette mode."
+}
 
-Write-Output "Built active 640x480x8 Win16 DDI candidate: $driverPath"
+Write-Output "Built Phase 3 640/800/1024 x 8/16-bpp Win16 DDI candidate: $driverPath"

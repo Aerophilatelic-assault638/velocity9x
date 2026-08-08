@@ -52,9 +52,14 @@ HKR,DEFAULT,ExtModeSwitch,,0
 HKR,"MODES\4\640,480",drv,,vga.drv
 HKR,"MODES\4\640,480",vdd,,*vdd
 HKR,"MODES\8\640,480",,,60
+HKR,"MODES\8\800,600",,,60
+HKR,"MODES\8\1024,768",,,60
+HKR,"MODES\16\640,480",,,60
+HKR,"MODES\16\800,600",,,60
+HKR,"MODES\16\1024,768",,,60
 
 [Strings]
 Provider="Velocity9x Project"
 Manufacturer="Velocity9x"
-DeviceDesc="Velocity9x S3 ViRGE/DX 86C375 (640x480x8 bring-up)"
+DeviceDesc="Velocity9x S3 ViRGE/DX 86C375 (Phase 3 mode matrix)"
 DiskName="Velocity9x Windows 98SE driver-stage disk"

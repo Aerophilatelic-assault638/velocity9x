@@ -3,10 +3,9 @@
 Velocity9x is a ground-up Windows 9x display-driver project. The first target is
 Windows 98 Second Edition on the S3 ViRGE/DX 86C375 (`5333:8A01`).
 
-The repository contains the portable core, proven Phase 1 loader probes, and a
-host-audited 640x480x8 activation candidate. The candidate is not yet a release
-or a guest-proven installable driver; its first activation remains gated on a
-cold VM disk/NVR backup and recovery test.
+The repository contains the portable core, proven Phase 1 loader probes, a
+guest-proven 640x480x8 activation milestone, and a Phase 3 candidate covering
+640x480, 800x600, and 1024x768 at 8 and 16 bpp. It is not a release driver.
 
 ## Current implementation
 
@@ -18,13 +17,13 @@ cold VM disk/NVR backup and recovery test.
 - lifecycle shells for the 16-bit display and 32-bit mini-VDD sides;
 - a hardware-inert dynamic VxD lifecycle probe with bounded COM1 logging;
 - a consolidated VxD-plus-Win16-DRV lifecycle test with one PASS/FAIL result;
-- a fixed-mode DIB Engine framebuffer candidate and default-handler mini-VDD;
+- a boot-selected DIB Engine framebuffer candidate and default-handler mini-VDD;
 - a strict S3-only INF, recovery documentation, and read-only settings panel;
 - host tests and an Open Watcom build entry point.
 
 No acceleration capability is advertised. The active candidate uses firmware
-mode entry and DPMI framebuffer mapping; guest activation evidence is still
-pending.
+mode entry and DPMI framebuffer mapping. Dynamic mode switching remains off;
+Display Properties selections take effect after reboot.
 
 ## Host build
 
@@ -66,9 +65,9 @@ skeleton with:
 ```
 
 That image exports the documented display ordinals and imports the system DIB
-Engine. It now contains the quarantined 640x480x8 activation path; build the full
-package and follow its cold-backup procedure rather than installing this binary
-alone.
+Engine. It now contains the quarantined 640/800/1024 x 8/16-bpp activation path;
+build the full package and follow its recovery procedure rather than installing
+this binary alone.
 
 The same external DDK supplies the MASM and linker needed to prove the 32-bit
 mini-VDD image path:

@@ -1,13 +1,16 @@
 ; Original Velocity9x Win16 DIB Engine and framebuffer runtime glue.
 ;
 ; The DIB Engine names are supplied by the external Windows 98 DDK import
-; library.  Hardware bring-up is restricted to VBE 0x101 and a validated,
+; library. Hardware bring-up is restricted to an audited VBE mode table and a
+; validated,
 ; 64-KiB-aligned S3 linear aperture read from CR59/CR5A.
 
 .model compact
 .386p
 
 .data
+EXTRN _v9x_active_vbe_mode:WORD
+EXTRN _v9x_active_visible_bytes:DWORD
 V9xScreenSelector dw 0
 V9xLinearAddress  dd 0
 V9xPhysicalBase   dd 0
@@ -30,6 +33,7 @@ VDD_DEVICE_ID          EQU 000ah
 VDD_DRIVER_REGISTER    EQU 0080h
 VDD_DRIVER_UNREGISTER  EQU 0081h
 VDD_SAVE_DRIVER_STATE  EQU 0082h
+VDD_GET_DISPLAY_CONFIG EQU 0085h
 VDD_POST_MODE_CHANGE   EQU 0087h
 STOP_IO_TRAP           EQU 4000h
 START_IO_TRAP          EQU 4007h
@@ -90,6 +94,45 @@ V9xVddInitializeFailed:
     ret
 V9xVddInitialize ENDP
 
+PUBLIC V9XVDDGETDISPLAYCONFIG
+V9XVDDGETDISPLAYCONFIG PROC FAR
+    push    bp
+    mov     bp, sp
+    push    bx
+    push    cx
+    push    dx
+    push    esi
+    push    edi
+    push    es
+
+    call    V9xVddInitialize
+    or      ax, ax
+    jz      short V9xVddGetConfigFailed
+    movzx   edi, word ptr [bp+6]
+    mov     es, word ptr [bp+8]
+    mov     eax, VDD_GET_DISPLAY_CONFIG
+    movzx   ebx, V9xVmHandle
+    mov     ecx, 34
+    call    dword ptr V9xVddEntryPoint
+    cmp     eax, VDD_GET_DISPLAY_CONFIG
+    je      short V9xVddGetConfigFailed
+    inc     eax
+    jz      short V9xVddGetConfigFailed
+    mov     ax, 1
+    jmp     short V9xVddGetConfigDone
+V9xVddGetConfigFailed:
+    xor     ax, ax
+V9xVddGetConfigDone:
+    pop     es
+    pop     edi
+    pop     esi
+    pop     dx
+    pop     cx
+    pop     bx
+    pop     bp
+    retf    4
+V9XVDDGETDISPLAYCONFIG ENDP
+
 PUBLIC V9XVDDREGISTER
 V9XVDDREGISTER PROC FAR
     push    bx
@@ -109,7 +152,7 @@ V9XVDDREGISTER PROC FAR
 
     mov     eax, VDD_DRIVER_REGISTER
     movzx   ebx, V9xVmHandle
-    mov     ecx, 0004b000h
+    mov     ecx, _v9x_active_visible_bytes
     mov     ax, SEG RESETHIRESMODE
     mov     es, ax
     mov     di, OFFSET RESETHIRESMODE
@@ -178,7 +221,8 @@ V9XVDDUNREGISTER ENDP
 
 V9xSetVbeMode PROC NEAR
     mov     ax, 4f02h
-    mov     bx, 4101h
+    mov     bx, _v9x_active_vbe_mode
+    or      bx, 4000h
     int     10h
     cmp     ax, 004fh
     jne     short V9xSetVbeModeFailed

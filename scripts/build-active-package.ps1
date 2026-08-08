@@ -10,7 +10,7 @@ $outputDir = Join-Path $repoRoot "build\win98se-active"
 
 . (Join-Path $PSScriptRoot "common.ps1")
 if (-not $BuildId) {
-    $BuildId = Get-V9xBuildId -RepoRoot $repoRoot -Fallback "active-640-local"
+    $BuildId = Get-V9xBuildId -RepoRoot $repoRoot -Fallback "phase3-matrix-local"
 }
 if ($BuildId -notmatch '^[A-Za-z0-9._+-]+$') {
     throw "BuildId may contain only letters, digits, dot, underscore, plus, and hyphen."
@@ -31,6 +31,8 @@ $infSource = Join-Path $repoRoot "packaging\win98se\velocity9x.inf"
 $installSource = Join-Path $repoRoot "packaging\win98se\INSTALL.TXT"
 $recoverSource = Join-Path $repoRoot "packaging\win98se\RECOVER.TXT"
 $firstBootSource = Join-Path $repoRoot "packaging\win98se\FIRSTBOOT.TXT"
+$normalRepairSource = Join-Path $repoRoot "packaging\win98se\V9XFIX.BAT"
+$normalRepairInfSource = Join-Path $repoRoot "packaging\win98se\V9XFIX.INF"
 $infText = Get-Content -LiteralPath $infSource -Raw
 
 $hardwareIds = @([regex]::Matches(
@@ -40,7 +42,7 @@ if ($hardwareIds.Count -ne 1 -or
     $hardwareIds[0] -ne 'PCI\VEN_5333&DEV_8A01') {
     throw "The active INF must match only PCI\VEN_5333&DEV_8A01."
 }
-foreach ($forbidden in @('MODES\8\800,600', 'MODES\16', 'MODES\24',
+foreach ($forbidden in @('MODES\24',
                           'MODES\32', 'DDC', 'carddvdd')) {
     if ($infText.IndexOf($forbidden, [StringComparison]::OrdinalIgnoreCase) -ge 0) {
         throw "The active INF contains out-of-scope entry $forbidden."
@@ -48,6 +50,9 @@ foreach ($forbidden in @('MODES\8\800,600', 'MODES\16', 'MODES\24',
 }
 foreach ($required in @('v9xdisp.drv', 'v9xmini.vxd',
                          'DEFAULT,Mode,,"8,640,480"',
+                         'MODES\8\640,480', 'MODES\8\800,600',
+                         'MODES\8\1024,768', 'MODES\16\640,480',
+                         'MODES\16\800,600', 'MODES\16\1024,768',
                          'DEFAULT,vdd,,"*vdd,*vflatd"')) {
     if ($infText.IndexOf($required, [StringComparison]::OrdinalIgnoreCase) -lt 0) {
         throw "The active INF is missing required entry $required."
@@ -77,12 +82,17 @@ Copy-Item -LiteralPath $recoverSource `
     -Destination (Join-Path $outputDir "RECOVER.TXT") -Force
 Copy-Item -LiteralPath $firstBootSource `
     -Destination (Join-Path $outputDir "FIRSTBOOT.TXT") -Force
+$normalRepairLines = Get-Content -LiteralPath $normalRepairSource
+Set-Content -LiteralPath (Join-Path $outputDir "V9XFIX.BAT") `
+    -Value $normalRepairLines -Encoding Ascii
+Copy-Item -LiteralPath $normalRepairInfSource `
+    -Destination (Join-Path $outputDir "V9XFIX.INF") -Force
 
 $manifest = @(
     "Velocity9x active display bring-up package",
     "Build: $BuildId",
     "Target: Windows 98SE, PCI 5333:8A01 only",
-    "Mode: 640x480x8 at 60 Hz",
+    "Modes: 640x480, 800x600, 1024x768 at 8/16 bpp and 60 Hz",
     "Rendering: Windows DIB Engine, no acceleration",
     "Mini-VDD callbacks: none (master VDD defaults)",
     "Settings: read-only bring-up status, report, and recovery shortcut",
@@ -107,7 +117,8 @@ Set-Content -LiteralPath (Join-Path $outputDir "SHA256.TXT") `
 
 $expectedPackageFiles = @(
     "FIRSTBOOT.TXT", "INSTALL.TXT", "MANIFEST.TXT", "RECOVER.TXT", "SHA256.TXT",
-    "V9X16LD.EXE", "V9XDISP.DRV", "V9XGDI.EXE", "V9XMINI.VXD", "V9XPROBE.VXD",
+    "V9X16LD.EXE", "V9XDISP.DRV", "V9XFIX.BAT", "V9XFIX.INF",
+    "V9XGDI.EXE", "V9XMINI.VXD", "V9XPROBE.VXD",
     "V9XSET.EXE", "V9XSTAGE.EXE", "VELOCITY9X.INF"
 )
 $actualPackageFiles = @(Get-ChildItem -LiteralPath $outputDir -File |

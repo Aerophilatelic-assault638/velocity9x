@@ -4,7 +4,7 @@
 /*
  * Minimal public Windows 9x display/DDI structures used by Velocity9x.
  * These declarations intentionally cover only the fields needed by the
- * first 640x480x8 DIB Engine bring-up path.
+ * fixed 8-bpp DIB Engine bring-up paths.
  */
 
 #include <windows.h>
@@ -26,6 +26,7 @@
 #define V9X_DE_MINIDRIVER         0x0001u
 #define V9X_DE_PALETTIZED         0x0002u
 #define V9X_DE_BUSY               0x0010u
+#define V9X_DE_FIVE6FIVE          0x0040u
 #define V9X_DE_VRAM               0x8000u
 #define V9X_DE_VERSION            0x0400u
 
@@ -115,11 +116,27 @@ typedef struct v9x_display_validate_mode {
     short height;
 } V9X_DISPLAY_VALIDATE_MODE;
 
+/* Legacy prefix returned by the master VDD's VDD_GET_DISPLAY_CONFIG API. */
+typedef struct v9x_display_info {
+    WORD header_size;
+    WORD info_flags;
+    DWORD device_node;
+    char driver_name[16];
+    WORD width;
+    WORD height;
+    WORD dpi;
+    BYTE planes;
+    BYTE bits_per_pixel;
+    WORD maximum_refresh;
+} V9X_DISPLAY_INFO;
+
 typedef char v9x_assert_gdi_info_size[
     sizeof(V9X_GDI_INFO) == V9X_GDIINFO_SIZE ? 1 : -1];
 typedef char v9x_assert_dib_engine_size[
     sizeof(V9X_DIB_ENGINE) == V9X_DIBENGINE_SIZE ? 1 : -1];
 typedef char v9x_assert_validate_mode_size[
     sizeof(V9X_DISPLAY_VALIDATE_MODE) == 8u ? 1 : -1];
+typedef char v9x_assert_display_info_size[
+    sizeof(V9X_DISPLAY_INFO) == 34u ? 1 : -1];
 
 #endif

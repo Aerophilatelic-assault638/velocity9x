@@ -87,4 +87,11 @@ separate diagnostics defect; it is not evidence of an activation failure. The
 The software cursor moved across the test pattern without trails, corruption,
 or disappearance, and the guest then completed a clean full shutdown.
 
-Still pending: a repeat cold boot and demonstrated standard-VGA recovery.
+The repeat cold boot produced the same 93-byte mini-VDD capture (SHA-256
+`B8B0D11006BA65D216474C877F2FA5AF2CEA03A700B6E28312C16F1BAC27BAB0`),
+and the GDI/pixel and cursor tests passed again. Windows then switched back to
+Standard PCI Graphics Adapter (VGA), completed a usable warm reboot, and did
+not emit another Velocity9x mini-VDD initialization checkpoint. The first
+activation candidate therefore passed its initial install, repeat-boot, and
+standard-VGA recovery gate. Longer reliability-cycle counts remain Phase 1
+release work rather than a blocker for the next fixed-mode experiment.

@@ -1,9 +1,9 @@
 /*
  * Velocity9x first active DIB Engine path.
  *
- * Scope is intentionally restricted to one unaccelerated 640x480x8 linear
- * framebuffer. The assembly runtime performs VBE mode entry and DPMI mapping;
- * every drawing operation remains with the Windows DIB Engine.
+ * Scope is restricted to an unaccelerated standard VBE mode matrix. The
+ * assembly runtime performs VBE mode entry and DPMI mapping; every drawing
+ * operation remains with the Windows DIB Engine.
  */
 #define SetCursor V9xUserSetCursor
 #include <windows.h>
@@ -12,14 +12,9 @@
 #include "velocity9x/build.h"
 #include "win9x_display_abi.h"
 
-#define V9X_WIDTH                 640u
-#define V9X_HEIGHT                480u
-#define V9X_BPP                     8u
-#define V9X_PITCH                 640u
 #define V9X_BITMAP_HEADER_SIZE     40u
 #define V9X_PALETTE_ENTRIES       256u
 #define V9X_PALETTE_BYTES        1024u
-#define V9X_PDEVICE_EXTRA       (V9X_BITMAP_HEADER_SIZE + V9X_PALETTE_BYTES)
 
 #define V9X_COM1_DATA_PORT      0x03f8u
 #define V9X_COM1_LCR_PORT       0x03fbu
@@ -45,12 +40,39 @@ extern void FAR PASCAL V9xHardwareDisable(void);
 extern WORD FAR PASCAL V9xVddRegister(void);
 extern void FAR PASCAL V9xVddPostMode(void);
 extern void FAR PASCAL V9xVddUnregister(void);
+extern WORD FAR PASCAL V9xVddGetDisplayConfig(V9X_DISPLAY_INFO FAR *);
+
+typedef struct v9x_display_mode {
+    WORD width;
+    WORD height;
+    WORD bits_per_pixel;
+    WORD pitch;
+    WORD vbe_mode;
+    short english_low;
+    short english_high;
+} V9X_DISPLAY_MODE;
+
+static const V9X_DISPLAY_MODE v9x_modes[] = {
+    {  640u, 480u,  8u,  640u, 0x0101u, 254, 127 },
+    {  800u, 600u,  8u,  800u, 0x0103u, 318, 159 },
+    { 1024u, 768u,  8u, 1024u, 0x0105u, 407, 203 },
+    {  640u, 480u, 16u, 1280u, 0x0111u, 254, 127 },
+    {  800u, 600u, 16u, 1600u, 0x0114u, 318, 159 },
+    { 1024u, 768u, 16u, 2048u, 0x0117u, 407, 203 }
+};
+#define V9X_MODE_COUNT (sizeof(v9x_modes) / sizeof(v9x_modes[0]))
 
 V9X_DIB_ENGINE FAR *v9x_driver_pdevice;
+WORD v9x_active_vbe_mode = 0x0101u;
+DWORD v9x_active_visible_bytes = 307200ul;
+WORD v9x_palettized = 1u;
 static RGBQUAD FAR *v9x_color_table;
+static const V9X_DISPLAY_MODE *v9x_selected_mode = &v9x_modes[0];
+static const V9X_DISPLAY_MODE *v9x_active_mode;
 static WORD v9x_dib_pdevice_size;
 static WORD v9x_screen_selector;
 static WORD v9x_enabled;
+static WORD v9x_dpi = 96u;
 
 static BYTE v9x_port_in(WORD port);
 #pragma aux v9x_port_in = "in al,dx" parm [dx] value [al] modify exact [al]
@@ -93,6 +115,78 @@ static void v9x_serial_write_hex32(DWORD value)
     }
     text[8] = '\0';
     v9x_serial_write(text);
+}
+
+static void v9x_serial_write_u16(WORD value)
+{
+    char text[6];
+    WORD length = 0u;
+    WORD index;
+
+    do {
+        text[length++] = (char)('0' + (value % 10u));
+        value /= 10u;
+    } while (value != 0u && length < 5u);
+    for (index = 0u; index < length / 2u; ++index) {
+        char temporary = text[index];
+        text[index] = text[length - index - 1u];
+        text[length - index - 1u] = temporary;
+    }
+    text[length] = '\0';
+    v9x_serial_write(text);
+}
+
+static void v9x_serial_write_mode(const char FAR *prefix)
+{
+    v9x_serial_write(prefix);
+    v9x_serial_write_u16(v9x_selected_mode->width);
+    v9x_serial_write("x");
+    v9x_serial_write_u16(v9x_selected_mode->height);
+    v9x_serial_write("x");
+    v9x_serial_write_u16(v9x_selected_mode->bits_per_pixel);
+}
+
+static const V9X_DISPLAY_MODE *v9x_find_mode(WORD width,
+                                              WORD height,
+                                              WORD bits_per_pixel)
+{
+    WORD index;
+
+    for (index = 0u; index < V9X_MODE_COUNT; ++index) {
+        if (v9x_modes[index].width == width &&
+            v9x_modes[index].height == height &&
+            v9x_modes[index].bits_per_pixel == bits_per_pixel) {
+            return &v9x_modes[index];
+        }
+    }
+    return 0;
+}
+
+static void v9x_select_requested_mode(void)
+{
+    V9X_DISPLAY_INFO display_info;
+    BYTE *bytes = (BYTE *)&display_info;
+    const V9X_DISPLAY_MODE *requested = 0;
+    WORD index;
+
+    for (index = 0u; index < sizeof(display_info); ++index) {
+        bytes[index] = 0u;
+    }
+    if (V9xVddGetDisplayConfig(&display_info) != 0u) {
+        requested = v9x_find_mode(display_info.width, display_info.height,
+                                  display_info.bits_per_pixel);
+        if (display_info.dpi >= 72u && display_info.dpi <= 200u) {
+            v9x_dpi = display_info.dpi;
+        }
+    }
+    if (requested == 0) {
+        requested = &v9x_modes[0];
+    }
+    v9x_selected_mode = requested;
+    v9x_active_vbe_mode = requested->vbe_mode;
+    v9x_active_visible_bytes =
+        (DWORD)requested->pitch * (DWORD)requested->height;
+    v9x_palettized = requested->bits_per_pixel == 8u ? 1u : 0u;
 }
 
 void v9x_display_boot_log(void)
@@ -180,6 +274,11 @@ static WORD v9x_fill_gdi_info(V9X_GDI_INFO FAR *info,
                               LPVOID data)
 {
     WORD result;
+    WORD extra_size;
+
+    if (v9x_enabled == 0u) {
+        v9x_select_requested_mode();
+    }
 
     result = V9xDibEnableCall(info, 1u, destination_type, output_file, data);
     if (result == 0u || info->dpDEVICEsize <= 0) {
@@ -191,37 +290,54 @@ static WORD v9x_fill_gdi_info(V9X_GDI_INFO FAR *info,
     info->dpTechnology = V9X_DT_RASDISPLAY;
     info->dpHorzSize = 208;
     info->dpVertSize = 156;
-    info->dpHorzRes = V9X_WIDTH;
-    info->dpVertRes = V9X_HEIGHT;
-    info->dpBitsPixel = V9X_BPP;
+    info->dpHorzRes = v9x_selected_mode->width;
+    info->dpVertRes = v9x_selected_mode->height;
+    info->dpBitsPixel = v9x_selected_mode->bits_per_pixel;
     info->dpPlanes = 1;
     info->dpNumBrushes = -1;
-    info->dpNumPens = 16;
     info->dpNumFonts = 0;
-    info->dpNumColors = 20;
-    info->dpDEVICEsize = (short)(v9x_dib_pdevice_size + V9X_PDEVICE_EXTRA);
-    info->dpRaster |= V9X_RC_PALETTE | V9X_RC_DIBTODEV;
+    extra_size = V9X_BITMAP_HEADER_SIZE;
+    info->dpRaster |= V9X_RC_DIBTODEV;
+    if (v9x_palettized != 0u) {
+        info->dpNumPens = 16;
+        info->dpNumColors = 20;
+        info->dpRaster |= V9X_RC_PALETTE;
+        info->dpNumPalReg = V9X_PALETTE_ENTRIES;
+        info->dpPalReserved = 20u;
+        info->dpColorRes = 18u;
+        extra_size += V9X_PALETTE_BYTES;
+    } else {
+        info->dpNumPens = -1;
+        info->dpNumColors = -1;
+        info->dpRaster &= (WORD)~V9X_RC_PALETTE;
+        info->dpNumPalReg = 0u;
+        info->dpPalReserved = 0u;
+        info->dpColorRes = 0u;
+    }
+    info->dpDEVICEsize = (short)(v9x_dib_pdevice_size + extra_size);
 
     v9x_set_point(&info->dpMLoWin, 2080, 1560);
-    v9x_set_point(&info->dpMLoVpt, V9X_WIDTH, -V9X_HEIGHT);
+    v9x_set_point(&info->dpMLoVpt, (short)v9x_selected_mode->width,
+                  -(short)v9x_selected_mode->height);
     v9x_set_point(&info->dpMHiWin, 20800, 15600);
-    v9x_set_point(&info->dpMHiVpt, V9X_WIDTH, -V9X_HEIGHT);
+    v9x_set_point(&info->dpMHiVpt, (short)v9x_selected_mode->width,
+                  -(short)v9x_selected_mode->height);
     v9x_set_point(&info->dpELoWin, 325, 325);
-    v9x_set_point(&info->dpELoVpt, 254, -254);
+    v9x_set_point(&info->dpELoVpt, v9x_selected_mode->english_low,
+                  -v9x_selected_mode->english_low);
     v9x_set_point(&info->dpEHiWin, 1625, 1625);
-    v9x_set_point(&info->dpEHiVpt, 127, -127);
+    v9x_set_point(&info->dpEHiVpt, v9x_selected_mode->english_high,
+                  -v9x_selected_mode->english_high);
     v9x_set_point(&info->dpTwpWin, 2340, 2340);
-    v9x_set_point(&info->dpTwpVpt, 127, -127);
+    v9x_set_point(&info->dpTwpVpt, v9x_selected_mode->english_high,
+                  -v9x_selected_mode->english_high);
 
-    info->dpLogPixelsX = 96;
-    info->dpLogPixelsY = 96;
+    info->dpLogPixelsX = (short)v9x_dpi;
+    info->dpLogPixelsY = (short)v9x_dpi;
     info->dpDCManage = V9X_DC_IGNORE_DFNP;
     info->dpCaps1 |= V9X_C1_DIBENGINE | V9X_C1_REINIT_ABLE |
                      V9X_C1_BYTE_PACKED | V9X_C1_COLORCURSOR |
                      V9X_C1_SLOW_CARD;
-    info->dpNumPalReg = V9X_PALETTE_ENTRIES;
-    info->dpPalReserved = 20u;
-    info->dpColorRes = 18u;
     return V9X_GDIINFO_SIZE;
 }
 
@@ -232,6 +348,7 @@ static WORD v9x_build_pdevice(LPVOID device_info,
 {
     BITMAPINFO FAR *bitmap_info;
     DWORD created;
+    WORD pdevice_flags = V9X_DE_MINIDRIVER | V9X_DE_VRAM;
 
     if (v9x_dib_pdevice_size == 0u) {
         return 0u;
@@ -260,28 +377,37 @@ static WORD v9x_build_pdevice(LPVOID device_info,
         v9x_screen_selector = 0u;
         return 0u;
     }
-    (void)V9xDibSetPaletteTranslateCall(0, device_info);
+    if (v9x_palettized != 0u) {
+        (void)V9xDibSetPaletteTranslateCall(0, device_info);
+        pdevice_flags |= V9X_DE_PALETTIZED;
+    } else {
+        pdevice_flags |= V9X_DE_FIVE6FIVE;
+    }
 
     bitmap_info = (BITMAPINFO FAR *)
         ((BYTE FAR *)device_info + v9x_dib_pdevice_size);
     bitmap_info->bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-    bitmap_info->bmiHeader.biWidth = V9X_WIDTH;
-    bitmap_info->bmiHeader.biHeight = V9X_HEIGHT;
+    bitmap_info->bmiHeader.biWidth = v9x_selected_mode->width;
+    bitmap_info->bmiHeader.biHeight = v9x_selected_mode->height;
     bitmap_info->bmiHeader.biPlanes = 1u;
-    bitmap_info->bmiHeader.biBitCount = V9X_BPP;
+    bitmap_info->bmiHeader.biBitCount = v9x_selected_mode->bits_per_pixel;
     bitmap_info->bmiHeader.biCompression = BI_RGB;
-    bitmap_info->bmiHeader.biSizeImage = (DWORD)V9X_PITCH * V9X_HEIGHT;
+    bitmap_info->bmiHeader.biSizeImage = v9x_active_visible_bytes;
     bitmap_info->bmiHeader.biXPelsPerMeter = 0;
     bitmap_info->bmiHeader.biYPelsPerMeter = 0;
-    bitmap_info->bmiHeader.biClrUsed = V9X_PALETTE_ENTRIES;
-    bitmap_info->bmiHeader.biClrImportant = V9X_PALETTE_ENTRIES;
+    bitmap_info->bmiHeader.biClrUsed =
+        v9x_palettized != 0u ? V9X_PALETTE_ENTRIES : 0u;
+    bitmap_info->bmiHeader.biClrImportant = bitmap_info->bmiHeader.biClrUsed;
 
-    v9x_color_table = bitmap_info->bmiColors;
-    v9x_build_palette(v9x_color_table);
+    if (v9x_palettized != 0u) {
+        v9x_color_table = bitmap_info->bmiColors;
+        v9x_build_palette(v9x_color_table);
+    } else {
+        v9x_color_table = 0;
+    }
     created = V9xCreateDibPDeviceCall(bitmap_info, device_info,
                                      MAKELP(v9x_screen_selector, 0u),
-                                     V9X_DE_MINIDRIVER | V9X_DE_PALETTIZED |
-                                     V9X_DE_VRAM);
+                                     pdevice_flags);
     if (created == 0ul) {
         v9x_serial_write("V9X-DRV enable-fail stage=create-pdevice\r\n");
         V9xVddUnregister();
@@ -295,12 +421,16 @@ static WORD v9x_build_pdevice(LPVOID device_info,
     v9x_driver_pdevice->deBeginAccess = V9xDibBeginAccess;
     v9x_driver_pdevice->deEndAccess = V9xDibEndAccess;
     v9x_driver_pdevice->deVersion = V9X_DE_VERSION;
-    v9x_program_palette(0u, V9X_PALETTE_ENTRIES);
+    if (v9x_palettized != 0u) {
+        v9x_program_palette(0u, V9X_PALETTE_ENTRIES);
+    }
     v9x_enabled = 1u;
+    v9x_active_mode = v9x_selected_mode;
     v9x_serial_write("V9X-DRV lfb=0x");
     v9x_serial_write_hex32(V9xHardwareBase());
     v9x_serial_write(" bytes=00400000\r\n");
-    v9x_serial_write("V9X-DRV enable-ok mode=640x480x8 lfb-mapped\r\n");
+    v9x_serial_write_mode("V9X-DRV enable-ok mode=");
+    v9x_serial_write(" lfb-mapped\r\n");
     return 1u;
 }
 
@@ -311,7 +441,6 @@ WORD __loadds FAR PASCAL Enable(LPVOID device_info,
                                 LPVOID data)
 {
     if ((action & 1u) != 0u) {
-        v9x_serial_write("V9X-DRV enable-query mode=640x480x8\r\n");
         return v9x_fill_gdi_info((V9X_GDI_INFO FAR *)device_info,
                                  destination_type, output_file, data);
     }
@@ -327,6 +456,7 @@ WORD __loadds FAR PASCAL Disable(LPVOID destination_device)
         device->deFlags |= V9X_DE_BUSY;
     }
     v9x_enabled = 0u;
+    v9x_active_mode = 0;
     v9x_driver_pdevice = 0;
     v9x_color_table = 0;
     V9xVddUnregister();
@@ -342,7 +472,8 @@ WORD __loadds FAR PASCAL ReEnable(LPVOID destination_device,
     V9X_DIB_ENGINE FAR *device =
         (V9X_DIB_ENGINE FAR *)destination_device;
 
-    if (device == 0 || gdi_info == 0 || v9x_enabled == 0u) {
+    if (device == 0 || gdi_info == 0 || v9x_enabled == 0u ||
+        v9x_active_mode == 0) {
         return 0u;
     }
     if (v9x_fill_gdi_info((V9X_GDI_INFO FAR *)gdi_info, 0, 0, 0) == 0u ||
@@ -351,7 +482,9 @@ WORD __loadds FAR PASCAL ReEnable(LPVOID destination_device,
         return 0u;
     }
     device->deFlags &= (WORD)~V9X_DE_BUSY;
-    v9x_program_palette(0u, V9X_PALETTE_ENTRIES);
+    if (v9x_palettized != 0u) {
+        v9x_program_palette(0u, V9X_PALETTE_ENTRIES);
+    }
     V9xVddPostMode();
     v9x_serial_write("V9X-DRV reenable-ok\r\n");
     return 1u;
@@ -361,6 +494,7 @@ WORD __loadds FAR PASCAL ValidateMode(LPVOID display_info)
 {
     V9X_DISPLAY_VALIDATE_MODE FAR *mode =
         (V9X_DISPLAY_VALIDATE_MODE FAR *)display_info;
+    const V9X_DISPLAY_MODE *candidate;
 
     if (mode == 0 || mode->size < sizeof(*mode)) {
         return V9X_VALMODE_NO_WRONG_DRIVER;
@@ -368,8 +502,9 @@ WORD __loadds FAR PASCAL ValidateMode(LPVOID display_info)
     if (V9xHardwarePresent() == 0u) {
         return V9X_VALMODE_NO_WRONG_DRIVER;
     }
-    if (mode->width != V9X_WIDTH || mode->height != V9X_HEIGHT ||
-        mode->bits_per_pixel != V9X_BPP) {
+    candidate = v9x_find_mode((WORD)mode->width, (WORD)mode->height,
+                              mode->bits_per_pixel);
+    if (candidate == 0) {
         return V9X_VALMODE_NO_NOMEM;
     }
     return V9X_VALMODE_YES;
@@ -381,7 +516,7 @@ DWORD __loadds FAR PASCAL SetPalette(WORD start,
 {
     DWORD result;
 
-    if (v9x_driver_pdevice == 0 || palette == 0) {
+    if (v9x_driver_pdevice == 0 || palette == 0 || v9x_palettized == 0u) {
         return 0ul;
     }
     result = V9xDibSetPaletteCall(start, count, palette,
@@ -395,6 +530,8 @@ DWORD __loadds FAR PASCAL SetPalette(WORD start,
 void __loadds FAR PASCAL ResetHiResMode(void)
 {
     if (V9xHardwareReset() != 0u) {
-        v9x_program_palette(0u, V9X_PALETTE_ENTRIES);
+        if (v9x_palettized != 0u) {
+            v9x_program_palette(0u, V9X_PALETTE_ENTRIES);
+        }
     }
 }

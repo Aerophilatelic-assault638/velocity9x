@@ -58,3 +58,9 @@ for the Windows 9x VxD DDK.
   fills, lines, text, BitBlt, StretchBlt, SetPixel, and tolerant GetPixel
   readback. The `active-640-vdd1` image is 4,608 bytes with SHA-256
   `7CE0BFE1AB92C13AFF0DC6C8ACB1824095D466E09C78C8C4F8500DD4BA530276`.
+- Phase 3 mode-matrix path: build `phase3-matrix-v1` reads the boot-time
+  `DISPLAYINFO` prefix from the master VDD and selects 640x480, 800x600, or
+  1024x768 at 8 or 16 bpp. The host-audited DRV is 9,016 bytes with SHA-256
+  `989090F00F63E3C35A29D88D61328200EEA58BDEF78CBA1FB8AF3B55142C44BB`;
+  the full package hash manifest has SHA-256
+  `A49153FB0E945B5E6D37B3A288415832B4908601C58C87AC2DC461E350F8CA55`.

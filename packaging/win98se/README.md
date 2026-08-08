@@ -10,7 +10,9 @@ Host-audited properties:
 - the LE mini-VDD has a valid DDB and installs no dispatch callbacks;
 - binary names and system destination directory are fixed;
 - the INF matches only `PCI\VEN_5333&DEV_8A01`;
-- only 640x480x8 is advertised, with standard VGA as the fallback entry;
+- 640x480, 800x600, and 1024x768 are advertised at 8 and 16 bpp;
+- in-session mode switching remains disabled, so each selection requires reboot;
+- 640x480 standard VGA remains available as the recovery fallback;
 - every component carries a build identifier and the package carries hashes;
 - external DDK and Open Watcom inputs remain outside the package.
 

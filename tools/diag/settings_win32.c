@@ -17,7 +17,8 @@ static const char v9x_report[] =
     "Velocity9x settings report\r\n"
     "Build: " V9X_BUILD_ID "\r\n"
     "Target: S3 ViRGE/DX 86C375 (PCI 5333:8A01)\r\n"
-    "Candidate mode: 640x480, 256 colors, 60 Hz\r\n"
+    "Resolutions: 640x480, 800x600, 1024x768\r\n"
+    "Color depths: 8-bit indexed; 16-bit RGB 5:6:5\r\n"
     "Rendering: Windows DIB Engine (software)\r\n"
     "Acceleration: disabled\r\n"
     "Mini-VDD callbacks: master VDD defaults\r\n";
@@ -135,41 +136,45 @@ static void v9x_create_controls(HWND window)
         SS_CENTER, 16, 14, 388, 20, 0);
 
     (void)v9x_control(window, "BUTTON", "Display",
-                      BS_GROUPBOX, 14, 42, 392, 82, 0);
+                      BS_GROUPBOX, 14, 42, 392, 102, 0);
     (void)v9x_control(window, "STATIC", "Adapter:",
                       SS_LEFT, 28, 63, 76, 18, 0);
     (void)v9x_control(window, "STATIC", "S3 ViRGE/DX 86C375 (5333:8A01)",
                       SS_LEFT, 110, 63, 278, 18, 0);
-    (void)v9x_control(window, "STATIC", "Candidate mode:",
+    (void)v9x_control(window, "STATIC", "Resolutions:",
                       SS_LEFT, 28, 87, 76, 18, 0);
-    (void)v9x_control(window, "STATIC", "640 x 480, 256 colors, 60 Hz",
+    (void)v9x_control(window, "STATIC", "640x480, 800x600, 1024x768",
                       SS_LEFT, 110, 87, 278, 18, 0);
+    (void)v9x_control(window, "STATIC", "Colour depths:",
+                      SS_LEFT, 28, 111, 76, 18, 0);
+    (void)v9x_control(window, "STATIC", "8-bit indexed, 16-bit RGB 5:6:5",
+                      SS_LEFT, 110, 111, 278, 18, 0);
 
     (void)v9x_control(window, "BUTTON", "Rendering and safety",
-                      BS_GROUPBOX, 14, 134, 392, 100, 0);
+                      BS_GROUPBOX, 14, 154, 392, 100, 0);
     control = v9x_control(window, "BUTTON", "Windows DIB Engine rendering",
-                          BS_AUTOCHECKBOX | WS_DISABLED, 28, 156, 250, 20, 0);
+                          BS_AUTOCHECKBOX | WS_DISABLED, 28, 176, 250, 20, 0);
     SendMessageA(control, BM_SETCHECK, BST_CHECKED, 0);
     control = v9x_control(window, "BUTTON", "Hardware acceleration",
-                          BS_AUTOCHECKBOX | WS_DISABLED, 28, 179, 250, 20, 0);
+                          BS_AUTOCHECKBOX | WS_DISABLED, 28, 199, 250, 20, 0);
     SendMessageA(control, BM_SETCHECK, BST_UNCHECKED, 0);
     control = v9x_control(window, "BUTTON", "Extended mode switching",
-                          BS_AUTOCHECKBOX | WS_DISABLED, 28, 202, 190, 20, 0);
+                          BS_AUTOCHECKBOX | WS_DISABLED, 28, 222, 190, 20, 0);
     SendMessageA(control, BM_SETCHECK, BST_UNCHECKED, 0);
     (void)v9x_control(window, "STATIC", "Build: " V9X_BUILD_ID,
-                      SS_RIGHT, 228, 204, 160, 18, 0);
+                      SS_RIGHT, 228, 224, 160, 18, 0);
 
     (void)v9x_control(window, "BUTTON", "Copy report",
-                      BS_PUSHBUTTON | WS_TABSTOP, 15, 250, 92, 28,
+                      BS_PUSHBUTTON | WS_TABSTOP, 15, 270, 92, 28,
                       V9X_ID_COPY_REPORT);
     (void)v9x_control(window, "BUTTON", "Run GDI test",
-                      BS_PUSHBUTTON | WS_TABSTOP, 113, 250, 94, 28,
+                      BS_PUSHBUTTON | WS_TABSTOP, 113, 270, 94, 28,
                       V9X_ID_GDI_TEST);
     (void)v9x_control(window, "BUTTON", "Recovery guide",
-                      BS_PUSHBUTTON | WS_TABSTOP, 213, 250, 104, 28,
+                      BS_PUSHBUTTON | WS_TABSTOP, 213, 270, 104, 28,
                       V9X_ID_RECOVERY);
     (void)v9x_control(window, "BUTTON", "Close",
-                      BS_DEFPUSHBUTTON | WS_TABSTOP, 323, 250, 83, 28,
+                      BS_DEFPUSHBUTTON | WS_TABSTOP, 323, 270, 83, 28,
                       V9X_ID_CLOSE);
 }
 
@@ -246,11 +251,11 @@ void WINAPI V9xSettingsEntry(void)
 
     v9x_ui_font = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
     x = (GetSystemMetrics(SM_CXSCREEN) - 430) / 2;
-    y = (GetSystemMetrics(SM_CYSCREEN) - 320) / 2;
+    y = (GetSystemMetrics(SM_CYSCREEN) - 340) / 2;
     window = CreateWindowExA(WS_EX_DLGMODALFRAME,
                              v9x_class_name, v9x_window_title,
                              WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
-                             x, y, 430, 320, 0, 0, instance, 0);
+                             x, y, 430, 340, 0, 0, instance, 0);
     if (window == 0) {
         ExitProcess(2ul);
     }

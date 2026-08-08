@@ -30,20 +30,22 @@ public_name PROC FAR
 public_name ENDP
 ENDM
 
-; DIB_DibBltExt takes the driver's fixed palettized-state word as its extra
-; argument. The active bring-up mode is always palettized 8 bpp.
+; DIB_DibBltExt takes the current palettized-state word as its extra argument.
 V9X_FORWARD_PALETTIZED MACRO public_name, target_name
     PUBLIC public_name
     EXTRN target_name:FAR
 public_name PROC FAR
+    mov ax,DGROUP
+    mov es,ax
     pop ecx
-    push 1
+    push word ptr es:_v9x_palettized
     push ecx
     jmp target_name
 public_name ENDP
 ENDM
 
 EXTRN _v9x_driver_pdevice:DWORD
+EXTRN _v9x_palettized:WORD
 
 V9X_FORWARD BitBlt,                    DIB_BitBlt
 V9X_FORWARD ColorInfo,                 DIB_ColorInfo

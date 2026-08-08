@@ -17,6 +17,16 @@ typedef struct v9x_probe_mode {
     short height;
 } V9X_PROBE_MODE;
 
+static int v9x_supported_mode(WORD width, WORD height, WORD bits_per_pixel)
+{
+    int supported_resolution =
+        (width == 640u && height == 480u) ||
+        (width == 800u && height == 600u) ||
+        (width == 1024u && height == 768u);
+    return supported_resolution &&
+           (bits_per_pixel == 8u || bits_per_pixel == 16u);
+}
+
 static int v9x_is_quiet(const char FAR *command_line)
 {
     if (command_line == 0) {
@@ -41,6 +51,10 @@ int PASCAL WinMain(HINSTANCE instance,
     V9X_VALIDATE_PROC validate_proc;
     V9X_PROBE_MODE mode;
     WORD FAR *gdi_words = (WORD FAR *)v9x_gdi_info;
+    static const WORD widths[] = { 640u, 800u, 1024u };
+    static const WORD heights[] = { 480u, 600u, 768u };
+    WORD depth;
+    WORD index;
     int quiet = v9x_is_quiet(command_line);
 
     driver = LoadLibrary("V9XDISP.DRV");
@@ -67,8 +81,8 @@ int PASCAL WinMain(HINSTANCE instance,
     }
 
     if (enable_proc(v9x_gdi_info, 1u, 0, 0, 0) != 110u ||
-        gdi_words[0] != 0x0400u || gdi_words[4] != 640u ||
-        gdi_words[5] != 480u || gdi_words[6] != 8u ||
+        gdi_words[0] != 0x0400u ||
+        !v9x_supported_mode(gdi_words[4], gdi_words[5], gdi_words[6]) ||
         gdi_words[7] != 1u || gdi_words[13] <= 48u) {
         FreeLibrary(driver);
         if (!quiet) {
@@ -78,20 +92,26 @@ int PASCAL WinMain(HINSTANCE instance,
         return 3;
     }
 
+    for (depth = 8u; depth <= 16u; depth += 8u) {
+        for (index = 0u; index < 3u; ++index) {
+            mode.size = sizeof(mode);
+            mode.bits_per_pixel = depth;
+            mode.width = (short)widths[index];
+            mode.height = (short)heights[index];
+            if (validate_proc(&mode) != 0u) {
+                FreeLibrary(driver);
+                if (!quiet) {
+                    MessageBox(0, "A supported mode was rejected.",
+                               v9x_title, MB_OK | MB_ICONHAND);
+                }
+                return 4;
+            }
+        }
+    }
     mode.size = sizeof(mode);
     mode.bits_per_pixel = 8u;
-    mode.width = 640;
-    mode.height = 480;
-    if (validate_proc(&mode) != 0u) {
-        FreeLibrary(driver);
-        if (!quiet) {
-            MessageBox(0, "The supported mode was rejected.",
-                       v9x_title, MB_OK | MB_ICONHAND);
-        }
-        return 4;
-    }
-    mode.width = 800;
-    mode.height = 600;
+    mode.width = 1280;
+    mode.height = 1024;
     if (validate_proc(&mode) == 0u) {
         FreeLibrary(driver);
         if (!quiet) {
@@ -100,12 +120,23 @@ int PASCAL WinMain(HINSTANCE instance,
         }
         return 5;
     }
+    mode.bits_per_pixel = 24u;
+    mode.width = 640;
+    mode.height = 480;
+    if (validate_proc(&mode) == 0u) {
+        FreeLibrary(driver);
+        if (!quiet) {
+            MessageBox(0, "An unsupported colour depth was incorrectly accepted.",
+                       v9x_title, MB_OK | MB_ICONHAND);
+        }
+        return 6;
+    }
 
     if (!quiet) {
         MessageBox(0,
-                   "V9XDISP.DRV passed its DIB Engine inquiry and mode "
-                   "validation without enabling the display. Click OK to "
-                   "unload it.",
+                   "V9XDISP.DRV passed its DIB Engine inquiry and all six "
+                   "mode validations without enabling the display. Click "
+                   "OK to unload it.",
                    v9x_title,
                    MB_OK | MB_ICONINFORMATION);
     }

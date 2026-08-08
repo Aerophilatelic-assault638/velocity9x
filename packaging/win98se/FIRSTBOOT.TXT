@@ -26,6 +26,14 @@ ONE INSTALL ATTEMPT
    the screen driver and checks fills, BitBlt, SetPixel, and GetPixel. Confirm
    PASS, then move the software cursor across the pattern and close it.
 
+MODE-MATRIX TEST
+
+10. After the default mode passes, use Display Properties to test these modes:
+      800x600x8, 1024x768x8,
+      640x480x16, 800x600x16, 1024x768x16.
+11. Fully reboot after each selection and run V9XGDI.EXE once. Do not attempt
+    an in-session switch; ExtModeSwitch is intentionally disabled.
+
 STOP CONDITIONS
 
 - If the desktop does not appear, do not try repeated boots.
