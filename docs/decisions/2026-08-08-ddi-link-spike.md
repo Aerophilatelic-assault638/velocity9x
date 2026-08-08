@@ -18,13 +18,15 @@ external and generate only original project sources and build artifacts.
 - Both images embed a source/build identifier and are produced by command-line
   scripts.
 
-The current entry points deliberately reject initialization. These artifacts
-prove binary construction only; they are not installable drivers and do not
-satisfy the Phase 1 guest load, logging, recovery, or cycle gates.
+The display and mini-VDD entry points deliberately reject initialization. These
+artifacts prove binary construction only; they are not installable drivers and
+do not satisfy the Phase 1 recovery or cycle gates. A separate hardware-inert
+dynamic VxD has since passed guest load, Win32 open/close, serial logging, and
+unload; see `2026-08-08-vxd-lifecycle-probe.md`.
 
 ## Consequence
 
 The toolchain kill-risk is reduced: both required legacy image formats can be
-produced without vendoring DDK files. The next driver step is a VM-only loader
-probe with serial logging, followed by the original display-mode and mini-VDD
-registration behavior needed for a recoverable skeleton installation.
+produced without vendoring DDK files. The VM-only loader probe is complete. The
+next driver step is the smallest system-VDD registration behavior needed for a
+recoverable skeleton installation, still without mode programming.

@@ -56,3 +56,7 @@ Play installation, rebooted automatically, and reached the desktop. The Win32
 COM1 smoke probe then completed the guest VCOMM-to-86Box-to-host path. 86Box's
 File character device buffered the short lines until detach; use the documented
 named-pipe capture for live driver diagnostics.
+
+COM1 named-pipe Server mode with pipe name `velocity9x-com1` was subsequently
+verified with `scripts/capture-serial-pipe.ps1`. It captured all four ring-0
+dynamic-VxD lifecycle records immediately while the VM remained running.

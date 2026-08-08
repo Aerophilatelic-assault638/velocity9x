@@ -7,6 +7,7 @@ $required = @(
     "PLAN.md",
     "README.md",
     "docs\vm-environment.md",
+    "docs\decisions\2026-08-08-vxd-lifecycle-probe.md",
     "docs\specifications\win9x-driver-boundaries.md",
     "docs\specifications\logging-protocol.md",
     "include\velocity9x\backend.h",

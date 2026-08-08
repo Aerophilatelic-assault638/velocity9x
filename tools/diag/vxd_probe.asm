@@ -8,6 +8,7 @@
 
 .xlist
 include VMM.INC
+include MINIVDD.INC
 .list
 
 Declare_Virtual_Device V9XPROBE, 1, 0, V9xProbe_Control, \
@@ -70,7 +71,24 @@ BeginProc V9xProbe_Dynamic_Init
     mov     esi, OFFSET32 V9xProbeInitLine
     mov     ecx, V9xProbeInitLineLength
     call    V9xProbe_Serial_Write
+
+    VxDCall VDD_Get_Mini_Dispatch_Table
+    test    edi, edi
+    jz      short V9xProbe_Vdd_Table_Failed
+    cmp     ecx, NBR_MINI_VDD_FUNCTIONS
+    jb      short V9xProbe_Vdd_Table_Failed
+
+    mov     esi, OFFSET32 V9xProbeVddTableLine
+    mov     ecx, V9xProbeVddTableLineLength
+    call    V9xProbe_Serial_Write
     clc
+    ret
+
+V9xProbe_Vdd_Table_Failed:
+    mov     esi, OFFSET32 V9xProbeVddTableFailLine
+    mov     ecx, V9xProbeVddTableFailLineLength
+    call    V9xProbe_Serial_Write
+    stc
     ret
 EndProc V9xProbe_Dynamic_Init
 

@@ -58,6 +58,10 @@ Set-Content -LiteralPath $buildInclude -Encoding Ascii -Value @(
     "V9xProbeBuildId db `"velocity9x:$BuildId`", 0",
     "V9xProbeInitLine db `"V9X-VXD init build=$BuildId`", 13, 10",
     "V9xProbeInitLineLength equ `$ - V9xProbeInitLine",
+    "V9xProbeVddTableLine db `"V9X-VDD table-ok build=$BuildId`", 13, 10",
+    "V9xProbeVddTableLineLength equ `$ - V9xProbeVddTableLine",
+    "V9xProbeVddTableFailLine db `"V9X-VDD table-fail build=$BuildId`", 13, 10",
+    "V9xProbeVddTableFailLineLength equ `$ - V9xProbeVddTableFailLine",
     "V9xProbeOpenLine db `"V9X-VXD open build=$BuildId`", 13, 10",
     "V9xProbeOpenLineLength equ `$ - V9xProbeOpenLine",
     "V9xProbeCloseLine db `"V9X-VXD close build=$BuildId`", 13, 10",
@@ -82,7 +86,8 @@ Set-Content -LiteralPath $definitionFile -Encoding Ascii -Value @(
 $vxdSource = Join-Path $repoRoot "tools\diag\vxd_probe.asm"
 $assemblerArguments = @(
     "-coff", "-DBLD_COFF", "-W2", "-Zd", "-c", "-Cx",
-    "-DMASM6", "-Sg", "-I$ddkInclude", "-I$outputDir",
+    "-DMASM6", "-Sg", "-DVGA", "-DVGA31", "-DMINIVDD=1",
+    "-I$ddkInclude", "-I$outputDir",
     "-Fo$vxdObject", $vxdSource
 )
 & $assembler @assemblerArguments
@@ -111,7 +116,8 @@ if ($vxdBytes.Length -lt 64 -or $vxdBytes[0] -ne 0x4d -or
     throw "The VxD probe output is not an MZ/LE image."
 }
 $vxdText = [System.Text.Encoding]::ASCII.GetString($vxdBytes)
-foreach ($marker in @("velocity9x:$BuildId", "V9X-VXD init", "V9XPROBE_DDB")) {
+foreach ($marker in @("velocity9x:$BuildId", "V9X-VXD init",
+                       "V9X-VDD table-ok", "V9XPROBE_DDB")) {
     if (-not $vxdText.Contains($marker)) {
         throw "The VxD probe output is missing marker $marker."
     }
