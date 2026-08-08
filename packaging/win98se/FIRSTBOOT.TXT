@@ -1,0 +1,35 @@
+VELOCITY9X FIRST ACTIVE BOOT - MORNING CHECKLIST
+
+The candidate is staged at D:\ACTIVE in the Windows 98 guest. Do not install
+until the cold backup below has completed.
+
+HOST PREPARATION
+
+1. Shut down Windows 98 and fully close every 86Box/86Box Manager process.
+2. Tell Codex that 86Box is closed. Codex can run:
+     .\scripts\backup-86box-profile.ps1
+   This copies the active VHD, 86box.cfg, and NVR directory and writes hashes.
+3. Start the VM normally and, if desired, run D:\ACTIVE\V9XSTAGE.EXE.
+   PASS verifies that both binaries load and the DRV query is coherent. It does
+   not install the driver or change video mode.
+
+ONE INSTALL ATTEMPT
+
+4. Read D:\ACTIVE\INSTALL.TXT and D:\ACTIVE\RECOVER.TXT.
+5. Update the display adapter with D:\ACTIVE\VELOCITY9X.INF.
+6. Shut down fully when prompted. Do not warm-restart the first test.
+7. On the host, start .\scripts\capture-serial-pipe.ps1 and then cold-start
+   the Win86SE profile once.
+8. Expect V9X-MINI defaults-ok and V9X-DRV enable-ok in the capture, followed
+   by a usable 640x480 256-colour desktop and software cursor.
+9. Run D:\ACTIVE\V9XSET.EXE and select Run GDI test. V9XGDI.EXE draws through
+   the screen driver and checks fills, BitBlt, SetPixel, and GetPixel. Confirm
+   PASS, then move the software cursor across the pattern and close it.
+
+STOP CONDITIONS
+
+- If the desktop does not appear, do not try repeated boots.
+- Power off and follow RECOVER.TXT or restore the cold backup.
+- Keep the failed serial capture and report the last V9X-DRV stage line.
+
+V9XSET.EXE is a read-only status panel; it is safe to inspect before install.

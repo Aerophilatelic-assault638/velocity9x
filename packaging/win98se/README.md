@@ -1,20 +1,27 @@
-# Windows 98SE package gate
+# Windows 98SE active-package gate
 
-This directory intentionally contains no installable INF yet. An INF can change
-the active display driver early in boot; publishing one before the DRV/VxD ABI,
-copy lists, registry entries, uninstall behavior, and standard-VGA recovery are
-validated would create a false and unsafe milestone.
+This directory contains the source for the first quarantined activation INF.
+Its presence does not mean the driver has passed guest activation or recovery.
+Only `scripts/build-active-package.ps1` should assemble the transferable folder.
 
-Before adding `velocity9x.inf`, all of the following must be true:
+Host-audited properties:
 
-- the NE display DRV loads and unloads in a disposable VM;
-- the LE mini-VDD loads and logs without touching unsupported devices;
-- the exact binary names and system destination directories are fixed;
-- the PCI match is restricted to `PCI\VEN_5333&DEV_8A01`;
-- failed installation and uninstall return to standard VGA;
-- the serial build identifier is visible before any mode programming;
-- all external DDK/tool inputs are recorded and absent from the package;
-- the pre-install VM snapshot and recovery steps have been tested.
+- the NE display DRV has the documented export surface and DIBENG imports;
+- the LE mini-VDD has a valid DDB and installs no dispatch callbacks;
+- binary names and system destination directory are fixed;
+- the INF matches only `PCI\VEN_5333&DEV_8A01`;
+- only 640x480x8 is advertised, with standard VGA as the fallback entry;
+- every component carries a build identifier and the package carries hashes;
+- external DDK and Open Watcom inputs remain outside the package.
 
-The first INF must be reviewed line-by-line and tested only against a snapshot of
-the standard-VGA Windows 98SE VM.
+Still required before this becomes an accepted installable driver:
+
+- a cold copy of the active VHD, `86box.cfg`, and NVR directory;
+- one captured cold boot showing mini-VDD and display `enable-ok` checkpoints;
+- visible desktop, palette, drawing, and software-cursor checks;
+- a demonstrated standard-VGA rollback or exact cold-backup restore;
+- repeated install, boot, unload, and removal cycles required by Phase 1.
+
+Never install directly from this source directory. Build the quarantined output,
+read its `FIRSTBOOT.TXT`, `INSTALL.TXT`, and `RECOVER.TXT`, and test only
+against the backed-up Windows 98SE S3 VM.

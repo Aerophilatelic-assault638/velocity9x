@@ -1,6 +1,6 @@
 # Phase 2 portable resource groundwork timebox
 
-Status: active preparatory slice; hardware gate closed
+Status: preparatory slice completed; superseded by active bring-up candidate
 Date: 2026-08-08
 
 ## Decision
@@ -9,9 +9,11 @@ Timebox the host-testable resource-discovery groundwork to two focused
 development days. This slice may define and validate PCI identity, decoded BAR,
 VRAM override, framebuffer-size, and capability-state contracts.
 
-It may not perform PCI configuration writes, physical mappings, register I/O, or
-install a display driver. Those actions remain gated on the Phase 1 ABI,
-mini-VDD, logging transport, uninstall, and standard-VGA recovery work.
+This restriction governed the portable resource slice. The subsequent Phase 1
+driver-pair lifecycle and VDD table probes passed, so the separately recorded
+active 640x480x8 candidate may now perform a read-only PCI BIOS lookup, firmware
+mode entry, aperture mapping, and palette I/O. Guest installation remains gated
+on a cold VM disk/NVR backup and explicit recovery test.
 
 ## Exit condition
 

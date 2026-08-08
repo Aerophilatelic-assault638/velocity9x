@@ -8,9 +8,14 @@ $required = @(
     "README.md",
     "docs\vm-environment.md",
     "docs\decisions\2026-08-08-vxd-lifecycle-probe.md",
+    "docs\decisions\2026-08-08-active-640-candidate.md",
     "docs\specifications\win9x-driver-boundaries.md",
     "docs\specifications\logging-protocol.md",
     "include\velocity9x\backend.h",
+    "packaging\win98se\velocity9x.inf",
+    "packaging\win98se\INSTALL.TXT",
+    "packaging\win98se\FIRSTBOOT.TXT",
+    "packaging\win98se\RECOVER.TXT",
     "scripts\common.ps1",
     "scripts\build-host.ps1",
     "scripts\build-host-msvc.ps1",
@@ -18,6 +23,10 @@ $required = @(
     "scripts\build-win16-ddi-skeleton.ps1",
     "scripts\build-win16-loader-probe.ps1",
     "scripts\build-minivdd-skeleton.ps1",
+    "scripts\build-active-package.ps1",
+    "scripts\build-settings.ps1",
+    "scripts\build-gdi-smoke.ps1",
+    "scripts\backup-86box-profile.ps1",
     "scripts\build-dos-serial-smoke.ps1",
     "scripts\build-win32-serial-smoke.ps1",
     "scripts\build-vxd-loader-probe.ps1",
@@ -29,6 +38,8 @@ $required = @(
     "src\display16\display_component.c",
     "src\display16\loader.c",
     "src\display16\ddi.c",
+    "src\display16\win9x_display_abi.h",
+    "src\display16\runtime.asm",
     "src\display16\dib_thunks.asm",
     "src\minivdd32\minivdd_component.c",
     "src\minivdd32\loader.asm",
@@ -37,7 +48,9 @@ $required = @(
     "tools\diag\serial_smoke_win32.c",
     "tools\diag\vxd_probe.asm",
     "tools\diag\vxd_probe_win32.c",
-    "tools\diag\win16_driver_loader.c"
+    "tools\diag\win16_driver_loader.c",
+    "tools\diag\settings_win32.c",
+    "tools\diag\gdi_smoke_win32.c"
 )
 
 $missing = @($required | Where-Object {
@@ -52,6 +65,7 @@ $sourceFiles += Get-ChildItem -LiteralPath (Join-Path $repoRoot "include") -Recu
 $allowedOsBoundaries = @(
     (Join-Path $repoRoot "src\display16\loader.c"),
     (Join-Path $repoRoot "src\display16\ddi.c"),
+    (Join-Path $repoRoot "src\display16\win9x_display_abi.h"),
     (Join-Path $repoRoot "src\minivdd32\loader.asm")
 )
 $forbidden = $sourceFiles |

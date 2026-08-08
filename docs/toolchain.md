@@ -35,13 +35,26 @@ for the Windows 9x VxD DDK.
   verified image was 1,602 bytes with SHA-256
   `297C4D8B48DD65A0B613CBBE5D0D58544B14C8DFA2EC91DFA73F8D91FC22C6B9`
   for build identifier `watcom-spike-2`.
-- Win16 DDI shell: compiled with Open Watcom, linked against the external
+- Win16 DDI path: compiled with Open Watcom and linked against the external
   `DIBENG.LIB` import library, and verified as an NE image with the documented
-  display and cursor export surface. Its mode-entry functions reject use. The
-  verified `phase-next-final` image is 4,494 bytes with SHA-256
-  `6C49ACF4ECD18D0F6086198D2D142A5652AEBB97CAEB779A561CA1BAA6E8E8D0`.
-- Win9x mini-VDD shell: assembled and linked with the external Windows 98 DDK
+  display and cursor export surface. The historical `phase-next-final` shell
+  rejected mode entry. The current host-audited `active-640-vdd1` candidate is
+  8,102 bytes with SHA-256
+  `D5C80873083552AC2856B926E33F1221838DAE5460FA216A479928A9A9CF85AB`.
+  It includes the master-VDD registration/unregistration handoff; guest
+  activation remains pending.
+- Win9x mini-VDD path: assembled and linked with the external Windows 98 DDK
   tools and headers, then verified as an LE image with an exported device
-  descriptor and embedded build identifier. Its initialization always fails.
-  The verified `phase-next-final` image is 4,668 bytes with SHA-256
-  `A0E0F9A456EA131838112C3D092AEC0441D2A01E257A34A18C4EE24C6F4A06D7`.
+  descriptor and embedded build identifier. The historical shell rejected
+  initialization. The `active-640-vdd1` candidate validates the master VDD table,
+  installs zero callbacks, and is 4,748 bytes with SHA-256
+  `5D4910145EEA0713AEC9FC69C948CA7E530BB819559BBA71A77C8A42A989F0FE`.
+- Windows 98 settings/status utility: linked without a C runtime and audited to
+  import only ANSI-era APIs from `KERNEL32`, `USER32`, `GDI32`, and `SHELL32`.
+  The `active-640-vdd1` image is 5,632 bytes with SHA-256
+  `750C363105282C391B50800BCEBD5564569554B921538BE5D0D35E2F8E0455B0`.
+- Windows 98 GDI framebuffer smoke test: runtime-free PE image importing only
+  ANSI-era APIs from `KERNEL32`, `USER32`, and `GDI32`. It exercises on-screen
+  fills, lines, text, BitBlt, StretchBlt, SetPixel, and tolerant GetPixel
+  readback. The `active-640-vdd1` image is 4,608 bytes with SHA-256
+  `7CE0BFE1AB92C13AFF0DC6C8ACB1824095D466E09C78C8C4F8500DD4BA530276`.

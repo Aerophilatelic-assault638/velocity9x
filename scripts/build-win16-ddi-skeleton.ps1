@@ -25,8 +25,9 @@ $compiler = Join-Path $watcomRoot "binnt\wcc.exe"
 $assembler = Join-Path $watcomRoot "binnt\wasm.exe"
 $linker = Join-Path $watcomRoot "binnt\wlink.exe"
 $dumper = Join-Path $watcomRoot "binnt64\wdump.exe"
+$disassembler = Join-Path $watcomRoot "binnt64\wdis.exe"
 $dibEngineLibrary = Join-Path $DdkRoot "lib\win98\DIBENG.LIB"
-$requiredTools = @($compiler, $assembler, $linker, $dumper,
+$requiredTools = @($compiler, $assembler, $linker, $dumper, $disassembler,
                    $dibEngineLibrary)
 $missingTools = @($requiredTools | Where-Object {
     -not (Test-Path -LiteralPath $_)
@@ -57,7 +58,8 @@ foreach ($source in $sources) {
     $objectPath = Join-Path $outputDir "$($source.Name).obj"
     $arguments = @(
         "-bt=windows", "-mc", "-zu", "-zc", "-bd", "-zq", "-wx",
-        "-i=$includeDir", "-dV9X_BUILD_ID=`"$BuildId`"",
+        "-i=$includeDir", "-i=$(Join-Path $repoRoot 'src\display16')",
+        "-dV9X_BUILD_ID=`"$BuildId`"",
         "-fo=$objectPath", $sourcePath
     )
     & $compiler @arguments
@@ -73,10 +75,17 @@ if ($LASTEXITCODE -ne 0) {
     throw "Open Watcom failed to assemble the DIB Engine forwarding thunks."
 }
 
+$runtimeSource = Join-Path $repoRoot "src\display16\runtime.asm"
+$runtimeObject = Join-Path $outputDir "runtime.obj"
+& $assembler "-zq" "-fo=$runtimeObject" $runtimeSource
+if ($LASTEXITCODE -ne 0) {
+    throw "Open Watcom failed to assemble the Win16 framebuffer runtime."
+}
+
 $driverPath = Join-Path $outputDir "v9xdisp.drv"
 $mapPath = Join-Path $outputDir "v9xdisp.map"
 $linkFile = Join-Path $outputDir "v9xdisp.lnk"
-$objectNames = @($sources.Name) + "dib_thunks"
+$objectNames = @($sources.Name) + @("dib_thunks", "runtime")
 $linkLines = @(
     "system windows dll initinstance memory",
     "name '$driverPath'",
@@ -101,14 +110,14 @@ $linkLines += @(
     "export GetCharWidth.15", "export DeviceBitmap.16",
     "export FastBorder.17", "export SetAttribute.18",
     "export DibBlt.19", "export CreateDIBitmap.20",
-    "export DibToDevice.21", "export SetPalette.22",
+    "export DibToDevice.21", "export SetPalette.22=SETPALETTE",
     "export GetPalette.23", "export SetPaletteTranslate.24",
     "export GetPaletteTranslate.25", "export UpdateColors.26",
     "export StretchBlt.27", "export StretchDIBits.28",
     "export SelectBitmap.29", "export BitmapBits.30",
     "export ReEnable.31=REENABLE", "export Inquire.101",
-    "export SetCursor.102=SETCURSOR", "export MoveCursor.103=MOVECURSOR",
-    "export CheckCursor.104=CHECKCURSOR",
+    "export SetCursor.102", "export MoveCursor.103",
+    "export CheckCursor.104",
     "export ValidateMode.700=VALIDATEMODE"
 )
 Set-Content -LiteralPath $linkFile -Value $linkLines -Encoding Ascii
@@ -146,5 +155,40 @@ $image = (& $dumper "-e" $driverPath 2>&1) -join "`n"
 if ($image -notmatch "DIBENG") {
     throw "The Win16 DDI output does not import the DIB Engine."
 }
+if ($image -notmatch "CODE\|FIXED\|SHARE\|PRELOAD") {
+    throw "The Win16 DDI code segment is not fixed, shared, and preloaded."
+}
 
-Write-Output "Built non-installable Win16 DDI skeleton: $driverPath"
+$mapText = Get-Content -LiteralPath $mapPath -Raw
+$requiredRuntimeSymbols = @(
+    "V9XHARDWAREPRESENT", "V9XHARDWAREENABLE", "V9XHARDWAREDISABLE",
+    "V9XVDDREGISTER", "V9XVDDUNREGISTER", "V9XVDDPOSTMODE",
+    "V9XCREATEDIBPDEVICECALL", "V9XDIBSETPALETTETRANSLATECALL",
+    "DIB_EnumObjExt", "DIB_RealizeObjectExt",
+    "DIB_DibBltExt", "DIB_GetPaletteExt", "DIB_SetCursorExt",
+    "DIB_MoveCursorExt", "DIB_CheckCursorExt"
+)
+foreach ($symbol in $requiredRuntimeSymbols) {
+    if ($mapText -notmatch "(?m)^.*$([regex]::Escape($symbol)).*$") {
+        throw "The Win16 DDI map is missing runtime symbol $symbol."
+    }
+}
+
+$runtimeDisassembly = (& $disassembler "-a" $runtimeObject 2>&1) -join "`n"
+foreach ($instruction in @(
+    'mov\s+eax,80H', 'mov\s+eax,81H', 'mov\s+eax,82H',
+    'mov\s+eax,87H', 'mov\s+ecx,4b000H',
+    'mov\s+ax,seg RESETHIRESMODE', 'int\s+2fH'
+)) {
+    if ($runtimeDisassembly -notmatch $instruction) {
+        throw "The Win16 runtime is missing audited VDD handoff instruction $instruction."
+    }
+}
+
+$thunkDisassembly = (& $disassembler "-a" $thunkObject 2>&1) -join "`n"
+if ($thunkDisassembly -notmatch
+    '(?s)CheckCursor:.*?cmp\s+dword ptr es:_v9x_driver_pdevice,0.*?jmp\s+far ptr DIB_CheckCursorExt.*?retf') {
+    throw "The DIB CheckCursor thunk is missing its disabled-state guard."
+}
+
+Write-Output "Built active 640x480x8 Win16 DDI candidate: $driverPath"

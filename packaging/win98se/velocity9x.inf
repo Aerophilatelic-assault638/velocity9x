@@ -1,0 +1,60 @@
+; Velocity9x Windows 98SE bring-up package
+; First and only supported adapter: S3 ViRGE/DX 86C375, PCI 5333:8A01
+
+[Version]
+Signature="$CHICAGO$"
+Class=DISPLAY
+Provider=%Provider%
+
+[DestinationDirs]
+DefaultDestDir=11
+Velocity9x.Copy=11
+
+[SourceDisksNames]
+1=%DiskName%,,0
+
+[SourceDisksFiles]
+v9xdisp.drv=1
+v9xmini.vxd=1
+
+[Manufacturer]
+%Manufacturer%=Velocity9x.Models
+
+[Velocity9x.Models]
+%DeviceDesc%=Velocity9x.Install,PCI\VEN_5333&DEV_8A01
+
+[Velocity9x.Install]
+CopyFiles=Velocity9x.Copy
+DelReg=Velocity9x.Previous
+AddReg=Velocity9x.Registry
+
+[Velocity9x.Copy]
+v9xdisp.drv,,,8
+v9xmini.vxd,,,8
+
+[Velocity9x.Previous]
+HKR,,Ver
+HKR,,DevLoader
+HKR,DEFAULT
+HKR,MODES
+HKR,CURRENT
+
+[Velocity9x.Registry]
+HKR,,Ver,,4.0
+HKR,,DevLoader,,*vdd
+HKR,DEFAULT,Mode,,"8,640,480"
+HKR,DEFAULT,drv,,v9xdisp.drv
+HKR,DEFAULT,drv2,,v9xdisp.drv
+HKR,DEFAULT,vdd,,"*vdd,*vflatd"
+HKR,DEFAULT,minivdd,,v9xmini.vxd
+HKR,DEFAULT,RefreshRate,,-1
+HKR,DEFAULT,ExtModeSwitch,,0
+HKR,"MODES\4\640,480",drv,,vga.drv
+HKR,"MODES\4\640,480",vdd,,*vdd
+HKR,"MODES\8\640,480",,,60
+
+[Strings]
+Provider="Velocity9x Project"
+Manufacturer="Velocity9x"
+DeviceDesc="Velocity9x S3 ViRGE/DX 86C375 (640x480x8 bring-up)"
+DiskName="Velocity9x Windows 98SE driver-stage disk"

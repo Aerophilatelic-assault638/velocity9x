@@ -1,0 +1,42 @@
+VELOCITY9X ACTIVE 640x480x8 BRING-UP - READ FIRST
+
+This package is intentionally limited to PCI VEN_5333 DEV_8A01.
+It is an engineering bring-up build, not a release driver.
+V9XSET.EXE is a read-only settings/status panel and is safe to open before
+installation. It exposes no hardware programming controls in this build.
+V9XSTAGE.EXE is an optional one-click preflight. It loads the VxD lifecycle
+probe and asks the DRV only for GDIINFO/mode validation; it never sets a mode.
+V9XGDI.EXE is the post-boot framebuffer test. Run it only after the new desktop
+appears; it draws GDI primitives and checks tolerant pixel readback.
+
+PREREQUISITES
+
+1. Shut down Windows 98 completely.
+2. Make a cold copy of the active 86Box hard-disk image and NVR/CMOS files.
+3. Confirm the VM can boot the existing Standard PCI Graphics Adapter (VGA).
+4. Configure COM1 as the named-pipe server velocity9x-com1 and start capture.
+5. Mount this package directory as the 86Box folder CD-ROM.
+
+INSTALL
+
+1. Boot Windows 98 normally.
+2. Open Control Panel, System, Device Manager.
+3. Expand Display adapters and open the S3/standard PCI display adapter.
+4. Select Driver, Update Driver, then choose a specific driver/location.
+5. Use Have Disk and browse to this package directory.
+6. Select "Velocity9x S3 ViRGE/DX 86C375 (640x480x8 bring-up)".
+7. Let Windows copy the two files, but do not accept a different device ID.
+8. Shut down fully when prompted. Do not use a warm restart for the first test.
+9. Start COM1 capture, then cold-start the VM once.
+
+EXPECTED SERIAL CHECKPOINTS
+
+V9X-MINI init build=<id>
+V9X-MINI defaults-ok callbacks=0 build=<id>
+V9X-DRV load build=<id>
+V9X-DRV enable-query mode=640x480x8
+V9X-DRV lfb=0x........ bytes=00400000
+V9X-DRV enable-ok mode=640x480x8 lfb-mapped
+
+If the desktop does not appear, stop after the single boot attempt and follow
+RECOVER.TXT. Do not repeatedly reboot a failed image.

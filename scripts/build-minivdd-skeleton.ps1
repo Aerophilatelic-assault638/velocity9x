@@ -36,11 +36,18 @@ $objectPath = Join-Path $outputDir "loader.obj"
 $vxdPath = Join-Path $outputDir "v9xmini.vxd"
 $mapPath = Join-Path $outputDir "v9xmini.map"
 
-Set-Content -LiteralPath $buildInclude -Encoding Ascii -Value `
-    "db `"velocity9x:$BuildId`", 0"
+Set-Content -LiteralPath $buildInclude -Encoding Ascii -Value @(
+    "V9xMiniVddBuildId db `"velocity9x:$BuildId`", 0",
+    "V9xMiniInitLine db `"V9X-MINI init build=$BuildId`", 13, 10",
+    "V9xMiniInitLineLength equ `$ - V9xMiniInitLine",
+    "V9xMiniDefaultsLine db `"V9X-MINI defaults-ok callbacks=0 build=$BuildId`", 13, 10",
+    "V9xMiniDefaultsLineLength equ `$ - V9xMiniDefaultsLine",
+    "V9xMiniFailLine db `"V9X-MINI init-fail build=$BuildId`", 13, 10",
+    "V9xMiniFailLineLength equ `$ - V9xMiniFailLine"
+)
 Set-Content -LiteralPath $definitionFile -Encoding Ascii -Value @(
     "VXD V9XMINI DYNAMIC",
-    "DESCRIPTION 'Velocity9x inert mini-VDD ABI skeleton'",
+    "DESCRIPTION 'Velocity9x default-handler mini-VDD bring-up candidate'",
     "SEGMENTS",
     "    _LTEXT CLASS 'LCODE' PRELOAD NONDISCARDABLE",
     "    _LDATA CLASS 'LCODE' PRELOAD NONDISCARDABLE",
@@ -86,11 +93,21 @@ if ($bytes.Length -lt 64 -or $bytes[0] -ne 0x4d -or $bytes[1] -ne 0x5a -or
 }
 
 $imageText = [System.Text.Encoding]::ASCII.GetString($bytes)
-if (-not $imageText.Contains("velocity9x:$BuildId")) {
-    throw "The mini-VDD output does not contain the build identifier."
+foreach ($marker in @("velocity9x:$BuildId", "V9X-MINI init",
+                       "V9X-MINI defaults-ok", "V9XMINI_DDB")) {
+    if (-not $imageText.Contains($marker)) {
+        throw "The mini-VDD output is missing marker $marker."
+    }
 }
-if (-not $imageText.Contains("V9XMINI_DDB")) {
-    throw "The mini-VDD output does not export V9XMINI_DDB."
+$sourceText = Get-Content -LiteralPath $sourcePath -Raw
+if ($sourceText -match '(?m)^\s*MiniVDDDispatch\s+') {
+    throw "The default-handler mini-VDD must not install dispatch callbacks."
+}
+$mapText = Get-Content -LiteralPath $mapPath -Raw
+foreach ($symbol in @("V9xMini_Serial_Write", "MiniVDD_Dynamic_Init")) {
+    if ($mapText -notmatch "(?m)^.*$([regex]::Escape($symbol)).*$") {
+        throw "The mini-VDD map is missing symbol $symbol."
+    }
 }
 
-Write-Output "Built inert mini-VDD ABI skeleton: $vxdPath"
+Write-Output "Built boot-loadable default-handler mini-VDD candidate: $vxdPath"

@@ -3,10 +3,10 @@
 Velocity9x is a ground-up Windows 9x display-driver project. The first target is
 Windows 98 Second Edition on the S3 ViRGE/DX 86C375 (`5333:8A01`).
 
-The repository contains a preparatory Phase 1 scaffold while the Phase 0 ABI
-specification in [PLAN.md](PLAN.md) is completed. It currently contains original,
-host-testable driver core code. It does **not** yet produce an installable
-Windows 98 display driver.
+The repository contains the portable core, proven Phase 1 loader probes, and a
+host-audited 640x480x8 activation candidate. The candidate is not yet a release
+or a guest-proven installable driver; its first activation remains gated on a
+cold VM disk/NVR backup and recovery test.
 
 ## Current implementation
 
@@ -18,11 +18,13 @@ Windows 98 display driver.
 - lifecycle shells for the 16-bit display and 32-bit mini-VDD sides;
 - a hardware-inert dynamic VxD lifecycle probe with bounded COM1 logging;
 - a consolidated VxD-plus-Win16-DRV lifecycle test with one PASS/FAIL result;
+- a fixed-mode DIB Engine framebuffer candidate and default-handler mini-VDD;
+- a strict S3-only INF, recovery documentation, and read-only settings panel;
 - host tests and an Open Watcom build entry point.
 
-No acceleration capability is advertised yet. The operating-system ABI thunks,
-resource mapping, and mode programming remain gated on the Phase 0 ABI
-specification and the Phase 1 toolchain spike.
+No acceleration capability is advertised. The active candidate uses firmware
+mode entry and DPMI framebuffer mapping; guest activation evidence is still
+pending.
 
 ## Host build
 
@@ -64,8 +66,9 @@ skeleton with:
 ```
 
 That image exports the documented display ordinals and imports the system DIB
-Engine, but `Enable`, `ReEnable`, and `ValidateMode` deliberately reject use. It
-is a link/ABI artifact and remains unsafe to install.
+Engine. It now contains the quarantined 640x480x8 activation path; build the full
+package and follow its cold-backup procedure rather than installing this binary
+alone.
 
 The same external DDK supplies the MASM and linker needed to prove the 32-bit
 mini-VDD image path:
@@ -74,9 +77,20 @@ mini-VDD image path:
 ./scripts/build-minivdd-skeleton.ps1
 ```
 
-This produces `build/minivdd32/v9xmini.vxd`. Its initialization entry point
-always reports failure, so it cannot claim or program hardware. It is a build
-artifact only and must not be installed.
+This produces `build/minivdd32/v9xmini.vxd`. It verifies the master VDD table,
+logs its build, succeeds, and installs zero callbacks so the master VDD retains
+its defaults.
+
+Build the quarantined active package, Windows 98 settings/status panel, and
+post-boot GDI framebuffer test:
+
+```powershell
+./scripts/build-active-package.ps1
+```
+
+The output is `build/win98se-active`, also staged as `build/vm-probe/ACTIVE`.
+Read `FIRSTBOOT.TXT`, `INSTALL.TXT`, and `RECOVER.TXT`. Do not install it until
+86Box is completely stopped and the cold profile backup has completed.
 
 To check the repository structure without a compiler:
 
@@ -95,15 +109,17 @@ To prepare the safe VM transfer and COM1 smoke-test folder:
 
 Mount `build/vm-probe` as an 86Box virtual CD folder. `V9XSER.EXE` performs the
 COM1 smoke test; `V9XVXD.EXE` may be run with `V9XPROBE.VXD` beside it to
-perform the separate dynamic load/unload probe. The bundled `V9XDISP.DRV` and
-`V9XMINI.VXD` remain noninstallable link artifacts and must not be installed.
-`V9X16LD.EXE` may load `V9XDISP.DRV` strictly as an inactive Win16 library for
-the loader test; it never calls the display `Enable` entry point.
+perform the separate dynamic load/unload probe. The top-level `V9XDISP.DRV` and
+`V9XMINI.VXD` remain historical noninstallable probe artifacts. Only the
+quarantined `ACTIVE` subdirectory contains the activation INF. `V9X16LD.EXE`
+loads the candidate DRV as an inactive Win16 library, requests GDIINFO, and
+validates supported and unsupported modes; it never invokes the mode-setting
+`Enable` action.
 
 `V9XSTAGE.EXE` is the preferred consolidated Phase 1 test. It holds the
-hardware-inert VxD open while the Win16 helper loads and unloads the DRV, then
-reports a single result and writes the full lifecycle to COM1. It still does
-not install or activate the display driver.
+hardware-inert VxD open while the Win16 helper performs that query-only DRV
+preflight, then reports one result and writes the lifecycle to COM1. It still
+does not install or activate the display driver.
 
 For unbuffered host diagnostics, configure 86Box COM1 as a Named Pipe server
 named `velocity9x-com1`, then run:

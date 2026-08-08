@@ -5,6 +5,17 @@
 #endif
 
 static const char v9x_title[] = "Velocity9x Win16 probe " V9X_BUILD_ID;
+static BYTE v9x_gdi_info[128];
+
+typedef WORD (FAR PASCAL *V9X_ENABLE_PROC)(LPVOID, WORD, LPSTR, LPSTR, LPVOID);
+typedef WORD (FAR PASCAL *V9X_VALIDATE_PROC)(LPVOID);
+
+typedef struct v9x_probe_mode {
+    WORD size;
+    WORD bits_per_pixel;
+    short width;
+    short height;
+} V9X_PROBE_MODE;
 
 static int v9x_is_quiet(const char FAR *command_line)
 {
@@ -26,6 +37,10 @@ int PASCAL WinMain(HINSTANCE instance,
 #pragma on (unreferenced)
 {
     HINSTANCE driver;
+    V9X_ENABLE_PROC enable_proc;
+    V9X_VALIDATE_PROC validate_proc;
+    V9X_PROBE_MODE mode;
+    WORD FAR *gdi_words = (WORD FAR *)v9x_gdi_info;
     int quiet = v9x_is_quiet(command_line);
 
     driver = LoadLibrary("V9XDISP.DRV");
@@ -40,10 +55,57 @@ int PASCAL WinMain(HINSTANCE instance,
         return 1;
     }
 
+    enable_proc = (V9X_ENABLE_PROC)GetProcAddress(driver, "Enable");
+    validate_proc = (V9X_VALIDATE_PROC)GetProcAddress(driver, "ValidateMode");
+    if (enable_proc == 0 || validate_proc == 0) {
+        FreeLibrary(driver);
+        if (!quiet) {
+            MessageBox(0, "Required display entry points were not found.",
+                       v9x_title, MB_OK | MB_ICONHAND);
+        }
+        return 2;
+    }
+
+    if (enable_proc(v9x_gdi_info, 1u, 0, 0, 0) != 110u ||
+        gdi_words[0] != 0x0400u || gdi_words[4] != 640u ||
+        gdi_words[5] != 480u || gdi_words[6] != 8u ||
+        gdi_words[7] != 1u || gdi_words[13] <= 48u) {
+        FreeLibrary(driver);
+        if (!quiet) {
+            MessageBox(0, "The DIB Engine/GDIINFO inquiry failed.",
+                       v9x_title, MB_OK | MB_ICONHAND);
+        }
+        return 3;
+    }
+
+    mode.size = sizeof(mode);
+    mode.bits_per_pixel = 8u;
+    mode.width = 640;
+    mode.height = 480;
+    if (validate_proc(&mode) != 0u) {
+        FreeLibrary(driver);
+        if (!quiet) {
+            MessageBox(0, "The supported mode was rejected.",
+                       v9x_title, MB_OK | MB_ICONHAND);
+        }
+        return 4;
+    }
+    mode.width = 800;
+    mode.height = 600;
+    if (validate_proc(&mode) == 0u) {
+        FreeLibrary(driver);
+        if (!quiet) {
+            MessageBox(0, "An unsupported mode was incorrectly accepted.",
+                       v9x_title, MB_OK | MB_ICONHAND);
+        }
+        return 5;
+    }
+
     if (!quiet) {
         MessageBox(0,
-                   "V9XDISP.DRV loaded without enabling the display. "
-                   "Click OK to unload it.",
+                   "V9XDISP.DRV passed its DIB Engine inquiry and mode "
+                   "validation without enabling the display. Click OK to "
+                   "unload it.",
                    v9x_title,
                    MB_OK | MB_ICONINFORMATION);
     }

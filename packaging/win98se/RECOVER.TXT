@@ -1,0 +1,18 @@
+VELOCITY9X STANDARD-VGA RECOVERY
+
+Preferred recovery is to restore the cold pre-install disk and NVR/CMOS copy.
+That is the only recovery method that restores all registry and device state.
+
+If restoring the backup is inconvenient:
+
+1. Power off the VM.
+2. Start it and press F8 before Windows starts.
+3. Choose Safe Mode. If Safe Mode cannot display, use the backup instead.
+4. Open Control Panel, System, Device Manager, Display adapters.
+5. Remove the Velocity9x display adapter entry.
+6. Reboot and choose Standard PCI Graphics Adapter (VGA) when detected.
+7. After the standard VGA desktop works, remove V9XDISP.DRV and V9XMINI.VXD
+   from C:\WINDOWS\SYSTEM only if Windows no longer references them.
+
+Do not delete the active Velocity9x files before switching the adapter back to
+standard VGA. Do not overwrite the known-good backup with a failed boot.

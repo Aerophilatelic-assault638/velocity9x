@@ -17,8 +17,8 @@ Win16 `V9X16LD.EXE /quiet` helper, and keeps the VxD resident while that helper
 loads and unloads `V9XDISP.DRV` as a library. It then waits for the Win16 result,
 closes the VxD handle, and reports one combined PASS or FAIL result.
 
-The test does not call the display driver's `Enable` entry point, install an INF,
-register mini-VDD callbacks, set a display mode, or touch S3 registers.
+The tested build did not call the display driver's `Enable` entry point, install
+an INF, register mini-VDD callbacks, set a display mode, or touch S3 registers.
 
 ## Evidence
 
@@ -56,3 +56,11 @@ and `V9XMINI.VXD` still rejects initialization.
 The next implementation step is the minimum active DIB Engine framebuffer path,
 followed by static package audit, cold VM disk backup, installation, one boot,
 serial verification, and rollback.
+
+## Later preflight extension
+
+After this recorded result, the Win16 helper was extended to exercise only the
+non-activating `Enable` action 1 DIB Engine/GDIINFO inquiry and to test accepted
+and rejected modes. That newer preflight source is host-built but is not part of
+the `driver-stage-1` evidence or hashes above; it does not replace the pending
+cold-backed-up activation test.

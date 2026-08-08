@@ -1,6 +1,6 @@
 # Windows 9x driver boundary specification (working draft)
 
-Status: DDK-backed ABI baseline; implementation incomplete
+Status: DDK-backed ABI baseline; active candidate host-audited
 Target: Windows 98SE, S3 ViRGE/DX 86C375
 
 ## Proven project-owned boundary
@@ -34,15 +34,20 @@ The Windows 98 DDK establishes these requirements:
 - `ResetHiResMode` is a fixed-segment callback registered with the system VDD;
 - a linear framebuffer selector is created by the 16-bit display minidriver.
 
-Still unresolved before an NE image may be called installable:
+The first active candidate now implements:
 
-- initialization and teardown ordering;
-- complete `GDIINFO`, `DIBENGINE`, and selector construction;
-- VDD registration and full-screen transition behavior;
-- the legal and technical provenance of every header, import library, and tool.
+- the two-stage `Enable` contract and fixed-mode `GDIINFO` construction;
+- DIB Engine PDevice, palette, access callbacks, and extended forwarding thunks;
+- VBE 0x101 mode entry after exact read-only PCI BIOS identification;
+- S3 aperture validation, DPMI mapping, selector setup, and teardown;
+- master-VDD registration of the visible framebuffer and fixed
+  `ResetHiResMode` callback, followed by post-mode state save and symmetric
+  unregister/VGA-trap restoration.
 
-The source under `src/display16` is therefore a lifecycle shell, not a complete
-Windows display DDI implementation.
+The registration ABI is host-audited, but DOS/full-screen switching through the
+master VDD defaults and dynamic modes remain guest-unvalidated. The source is
+an activation candidate, not a release driver, until the cold-backed-up guest
+test and standard-VGA recovery test pass.
 
 ## 32-bit mini-VDD boundary
 
@@ -52,17 +57,15 @@ discovery, screen-state transitions, mappings, engine synchronization, logging,
 and recovery. The final split must reflect observed DDI constraints rather than
 the preferred architecture in the plan.
 
-Unresolved before an LE image may be called loadable:
+The LE candidate now has a valid descriptor/control path, verifies the master
+VDD dispatch-table ABI, logs at ring 0, and succeeds while registering zero
+callbacks. The following remain unresolved for later phases:
 
-- device descriptor block and loader entry format;
-- required mini-VDD services and dispatch ordinals;
 - interaction with the system VGA VDD and display DRV;
-- locked/pageable segment requirements;
-- port I/O, mapping, and ring/context restrictions;
-- required DDK tools, headers, libraries, and redistribution constraints.
+- DOS/full-screen transition callbacks and state save/restore;
+- device-specific virtualization and later hardware recovery callbacks.
 
-The source under `src/minivdd32` is a testable service-state shell. It deliberately
-does not include a guessed VxD loader thunk.
+The master VDD retains its default handlers for every unfilled callback.
 
 ## DirectDraw boundary
 
