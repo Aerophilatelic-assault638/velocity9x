@@ -1,6 +1,6 @@
 # Velocity9x Ground-Up Development Plan
 
-Status: planning baseline  
+Status: planning baseline, revision 2 (2026-08-08)  
 Initial target: Windows 98 Second Edition on S3 ViRGE/DX 86C375  
 Initial graphics scope: Windows GDI and DirectDraw  
 Deferred scope: Direct3D, S3D, OpenGL, video overlay, and additional chipsets
@@ -9,20 +9,20 @@ Deferred scope: Direct3D, S3D, OpenGL, video overlay, and additional chipsets
 
 Velocity9x will be a new Windows 9x display-driver family written from the ground up. The first release will support the S3 ViRGE/DX 86C375, initially under emulation and later on physical hardware. The design must allow later S3 Trio, Matrox, and 3dfx backends without tying the common driver code to one chipset.
 
-The project will own the copyright in its original implementation and postpone selection of a public software license. Until a license is deliberately selected, the code is **all rights reserved** and no permission to copy, modify, or redistribute it is granted.
+The project will own the copyright in its original implementation. The intended destination is release under an OSI-approved open-source license, to be selected and reviewed before the first public release (decision recorded 2026-08-08). Until a license is deliberately selected, the code is **all rights reserved** and no permission to copy, modify, or redistribute it is granted.
 
 The practical target for the first useful release is:
 
 - Reliable Windows 98SE installation, boot, shutdown, restart, and uninstall.
-- A linear framebuffer with stable 8-, 16-, and 32-bit display modes.
+- A linear framebuffer with stable 8- and 16-bit display modes, plus 24- or 32-bit modes as verified hardware support permits.
 - Correct software-rendered GDI through the Windows DIB Engine.
 - Hardware cursor, solid fills, and BitBlt acceleration.
 - A conservative DirectDraw HAL with video-memory surfaces, locking, blitting, color keys, page flipping, and vertical-blank synchronization.
 - Diagnostic logging, recovery controls, and accurate capability reporting.
 
-## 5. Supported systems and initial boundaries
+## 2. Supported systems and initial boundaries
 
-### 5.1 First supported configuration
+### 2.1 First supported configuration
 
 - Guest OS: Windows 98 Second Edition.
 - CPU model: Pentium II-class, one virtual CPU.
@@ -35,7 +35,7 @@ The practical target for the first useful release is:
 
 Windows 95 and Windows Me support are compatibility goals after the Win98SE DirectDraw milestone. Supporting all three during initial bring-up would multiply installer, DIB Engine, DirectX runtime, and screen-switching variables too early.
 
-### 5.2 Explicitly deferred
+### 2.2 Explicitly deferred
 
 - Direct3D and S3D.
 - OpenGL ICD or wrapper.
@@ -44,9 +44,10 @@ Windows 95 and Windows Me support are compatibility goals after the Win98SE Dire
 - Multiple monitors or multiple adapters.
 - Suspend/resume and advanced power management beyond safe default behavior.
 - Native EDID timing generation until fixed modes are stable.
+- A configuration GUI or control panel; the initial releases expose per-primitive registry switches only.
 - S3 Trio, other ViRGE variants, Matrox, and 3dfx backends.
 
-## 6. Driver architecture
+## 3. Driver architecture
 
 The design should minimize 16-bit code and keep portable logic testable on the host.
 
@@ -77,6 +78,8 @@ Windows GDI / DirectDraw runtime
        - blit/flip/lock/status
 ```
 
+This split is a working hypothesis, not a settled design. In shipped Windows 9x drivers, much of the mode-setting and hardware programming historically lived in the 16-bit display driver via the DIB Engine, and the mini-VDD's documented role centers on DOS-box screen switching and state save/restore. Pushing work into the 32-bit VXD is desirable but unproven; the toolchain spike must establish how much logic the 16-bit side is actually required to hold.
+
 Exact binary boundaries should be proven during the build spike. Expected outputs are:
 
 - A 16-bit DIB Engine display `.DRV`.
@@ -85,7 +88,7 @@ Exact binary boundaries should be proven during the build spike. Expected output
 - A Chicago-format installation `.INF`.
 - A DOS/Win32 diagnostic executable.
 
-### 6.1 Common core
+### 3.1 Common core
 
 Keep these modules independent of S3 where Windows 9x ABI constraints permit:
 
@@ -101,7 +104,7 @@ Keep these modules independent of S3 where Windows 9x ABI constraints permit:
 
 Host-build the pure portions of this core for unit and property testing on modern Windows.
 
-### 6.2 Chipset backend interface
+### 3.2 Chipset backend interface
 
 Define a small explicit interface rather than embedding S3 assumptions in common code:
 
@@ -121,7 +124,7 @@ Define a small explicit interface rather than embedding S3 assumptions in common
 
 Unsupported operations must return a clear fallback result. The driver must never advertise an acceleration capability until its conformance tests pass.
 
-### 6.3 Safety and recovery
+### 3.3 Safety and recovery
 
 All hardware waits require bounded timeouts. On timeout:
 
@@ -133,9 +136,9 @@ All hardware waits require bounded timeouts. On timeout:
 
 Provide registry switches for disabling each acceleration family independently. Begin with every optional primitive disabled and enable them one at a time as tests pass.
 
-## 7. Virtual-machine strategy
+## 4. Virtual-machine strategy
 
-### 7.1 Primary VM: 86Box with S3 ViRGE/DX
+### 4.1 Primary VM: 86Box with S3 ViRGE/DX
 
 This is the authoritative development VM because it exposes the target chipset rather than a paravirtual display interface.
 
@@ -161,7 +164,7 @@ Maintain snapshots at:
 
 The user must supply lawfully licensed Windows 98SE installation media and any required product key. Do not download or commit operating-system media.
 
-### 7.2 Secondary VM: VirtualBox reference system
+### 4.2 Secondary VM: VirtualBox reference system
 
 Use VirtualBox only as a comparison and productivity environment:
 
@@ -172,30 +175,35 @@ Use VirtualBox only as a comparison and productivity environment:
 
 Pin a known-working VirtualBox version for the reference image rather than silently updating it. Record the exact host version and VM configuration in the test manifest.
 
-### 7.3 Optional QEMU VM
+### 4.3 Optional QEMU VM
 
-QEMU `std-vga` plus VMDisp9x is useful for scripted boot and application-level test development. It is not a substitute for the 86Box S3 target.
+QEMU `std-vga` plus VMDisp9x is useful for scripted boot and application-level test development, and its GDB stub allows source-level debugging of guest code where 86Box's tooling is insufficient. It is not a substitute for the 86Box S3 target.
 
-### 7.4 Hyper-V
+### 4.4 Hyper-V
 
 Do not use Hyper-V as the primary guest platform. It does not provide the required S3-compatible adapter or a suitable Windows 9x synthetic display stack. Hyper-V may also affect the performance or availability of other hypervisors on a Windows host, so record whether it is enabled before installing VirtualBox or 86Box.
 
-### 7.5 Modern CPU compatibility
+### 4.5 Modern CPU compatibility
 
 Prepare a separate, reproducible installation-media patch step if Windows 98SE encounters modern CPU/TLB issues. Record every modified system file and its hash. The patch must remain a VM prerequisite, not part of the Velocity9x driver distribution.
 
-## 8. Build and repository design
+### 4.6 Debugging tooling
 
-### 8.1 Proposed repository layout
+Serial logging over COM1 is the primary diagnostic channel and must work from the skeleton driver onward. Beyond that:
+
+- Use 86Box's built-in debugger/monitor for register-level and memory inspection against the emulated ViRGE.
+- Use the QEMU GDB stub for source-level debugging of portable guest code where applicable.
+- Treat Microsoft debuggers (WDEB386 and other DDK-supplied tools) as potentially license-encumbered; decide during the toolchain spike whether they may be used locally, and never redistribute them.
+
+## 5. Build and repository design
+
+### 5.1 Proposed repository layout
 
 ```text
 velocity9x/
   PLAN.md
   README.md
   docs/
-    allowed-sources.md
-    source-register.yml
-    contributor-policy.md
     specifications/
     decisions/
   include/
@@ -221,7 +229,7 @@ velocity9x/
   scripts/
 ```
 
-### 8.2 Toolchain spike
+### 5.2 Toolchain spike
 
 Evaluate Open Watcom as the primary compiler because it can produce 16-bit and 32-bit x86 targets and keeps more code in C. Limit assembly to ABI thunks, port I/O, and instructions the compiler cannot express safely.
 
@@ -229,6 +237,8 @@ The spike must answer:
 
 - Can a minimal original 16-bit display `.DRV` be compiled and linked?
 - Can a minimal original `.VXD` load and emit a serial message?
+- How much logic must remain in the 16-bit display driver versus the 32-bit VXD, given the DIB Engine and DDI calling conventions?
+- Which debugger arrangement is workable: 86Box's debugger, QEMU's GDB stub, serial-only, or a DDK debugger?
 - Can the build run entirely from command-line scripts?
 - Which DDK tools, libraries, headers, or import definitions are unavoidable?
 - Can unavoidable licensed inputs remain external and unmodified?
@@ -237,17 +247,19 @@ The spike must answer:
 
 Record exact versions and hashes. Do not vendor Microsoft DDK files into the repository.
 
-## 9. Development phases and gates
+## 6. Development phases and gates
+
+When a phase begins, record a timebox estimate in `docs/decisions/`. A blown timebox triggers a recorded re-scope decision, not a silent overrun.
 
 ### Phase 0 - Setup
 
 Deliverables:
 
-- Initial Windows 9x ABI specification written without sample code.
+- Initial Windows 9x ABI specification covering the display driver, mini-VDD, and DirectDraw HAL boundaries, written from public documentation.
 
 Exit gate:
 
-- A reviewer can determine exactly which information an implementer may use.
+- The specification is complete enough that Phase 1 work can be reviewed against it.
 - No third-party source or binary is present in the implementation repository.
 
 ### Phase 1 - Reproducible toolchain and skeleton driver
@@ -284,7 +296,8 @@ Exit gate:
 
 Deliverables:
 
-- 640x480, 800x600, and 1024x768 at selected 8/16/32-bit depths permitted by VRAM.
+- 640x480, 800x600, and 1024x768 at 8- and 16-bit depths permitted by VRAM.
+- Verified determination of the ViRGE/DX's high-depth support (packed 24 bpp versus 32 bpp, and whether acceleration is available there) before any such mode is advertised.
 - Palette handling for 8 bpp.
 - Correct pitch and visible/off-screen memory accounting.
 - Mode change, shutdown, restart, and standard-VGA fallback.
@@ -392,15 +405,15 @@ After S3 ViRGE/DX is stable:
 - Matrox Millennium/Millennium II backend.
 - Physical ViRGE/DX testing.
 
-Each chipset receives its own public/manual source register, behavioral specification, backend tests, and capability mask. Do not generalize from the emulator without physical verification.
+Each chipset receives its own behavioral specification, backend tests, and capability mask. Do not generalize from the emulator without physical verification.
 
 ### Future phase - OpenGL and 3D
 
 OpenGL begins only after the DirectDraw release is stable and licensed. Treat it as a separate design project. Candidate directions include a software ICD, Mesa integration under compatible terms, or a new hardware backend. No OpenGL dependency or ABI decision should constrain the initial 2D driver.
 
-## 10. Test strategy
+## 7. Test strategy
 
-### 10.1 Host-side tests
+### 7.1 Host-side tests
 
 Run modern native tests for code that does not depend on Windows 9x:
 
@@ -414,7 +427,7 @@ Run modern native tests for code that does not depend on Windows 9x:
 
 Use property-based or randomized tests for dimensions, coordinates, pitches, color depths, and allocation sequences.
 
-### 10.2 Win98SE guest tests
+### 7.2 Win98SE guest tests
 
 Create original test applications for:
 
@@ -431,7 +444,7 @@ Create original test applications for:
 
 Tests should log machine-readable results to a virtual serial port or disk image. Visual screenshots are secondary evidence; pixel buffers and explicit status codes are primary.
 
-### 10.3 Reliability gates
+### 7.3 Reliability gates
 
 Before calling the DirectDraw milestone complete:
 
@@ -445,7 +458,7 @@ Before calling the DirectDraw milestone complete:
 
 The exact counts may be increased, but should not be reduced without a recorded decision.
 
-## 11. Diagnostics and release artifacts
+## 8. Diagnostics and release artifacts
 
 Every test build should expose:
 
@@ -469,18 +482,29 @@ A release candidate should contain only:
 
 It must not contain Windows files, DDK files, firmware, third-party drivers, or reference source.
 
-## 12. Immediate next actions
+## 9. Risks
+
+Recorded here so mitigations are deliberate rather than reactive:
+
+1. **Toolchain viability (highest kill-risk).** Open Watcom may prove unable to produce a working 16-bit display `.DRV` or LE-format `.VXD` without encumbered DDK components. Mitigation: the toolchain spike runs before any binary-boundary or architecture commitment.
+2. **Emulation fidelity.** 86Box's ViRGE model may differ from silicon in timing, FIFO behavior, or undocumented register semantics. Mitigation: program conservatively against documented behavior, avoid tuning to emulator quirks, and require physical verification in Phase 9 before claiming hardware support.
+3. **Documentation scarcity.** DIB Engine internals and parts of the Win9x display DDI are thinly documented. Mitigation: write the ABI specification first and validate it empirically against the skeleton driver.
+4. **High-depth mode support.** The ViRGE family's support above 16 bpp is generally packed 24 bpp rather than 32 bpp, and acceleration there is limited or absent. Mitigation: Phase 3 verifies actual hardware behavior before any high-depth mode is advertised; the release target treats depths above 16 bpp as conditional.
+5. **Architecture split.** The intended thin-16-bit/heavy-32-bit split may be impossible under the real DDI, forcing more logic into the 16-bit driver than planned. Mitigation: treated as a spike question; the common core stays portable either way.
+6. **Scope creep.** The deferred list (Section 2.2) and per-phase timeboxes are the controls; changes to either require a recorded decision.
+
+## 10. Immediate next actions
 
 1. Adopt this plan as the baseline and correct any scope decisions before coding.
-3. Move all downloaded/reference material outside the implementation repository.
-4. Create a clean Windows 98SE 86Box VM in standard VGA mode.
-5. Create the separate VirtualBox reference VM only after the S3 VM is reproducible.
-6. Write the first specifications: Win9x display ABI boundary, PCI/resource discovery, logging protocol, and framebuffer mode contract.
-8. Complete the Open Watcom/toolchain spike before committing to binary boundaries.
-9. Build and test the original skeleton driver.
-10. Do not begin S3 acceleration until the software framebuffer path and recovery procedure are reliable.
+2. Move all downloaded/reference material outside the implementation repository.
+3. Create a clean Windows 98SE 86Box VM in standard VGA mode.
+4. Create the separate VirtualBox reference VM only after the S3 VM is reproducible.
+5. Write the first specifications: Win9x display ABI boundary, PCI/resource discovery, logging protocol, and framebuffer mode contract.
+6. Complete the Open Watcom/toolchain spike before committing to binary boundaries.
+7. Build and test the original skeleton driver.
+8. Do not begin S3 acceleration until the software framebuffer path and recovery procedure are reliable.
 
-## 13. Definition of the first public-ready milestone
+## 11. Definition of the first public-ready milestone
 
 Velocity9x reaches its first public-ready milestone when:
 
@@ -488,10 +512,10 @@ Velocity9x reaches its first public-ready milestone when:
 - Supported GDI and DirectDraw operations pass the stated conformance and reliability gates.
 - Unsupported capabilities are not advertised.
 - The build is reproducible without redistributing restricted toolchain inputs.
-- An independent source/provenance audit finds no unexplained similarity to research-only implementations.
+- The repository and release artifacts contain no third-party source, binaries, or restricted materials.
 - The owner has selected and reviewed the distribution license.
 
-## 14. Planning references
+## 12. Planning references
 
 These references justify the planning decisions but are not implementation source:
 
@@ -499,3 +523,4 @@ These references justify the planning decisions but are not implementation sourc
 - VMDisp9x project overview: https://github.com/JHRobotics/vmdisp9x
 - SoftGPU project and VM compatibility matrix: https://github.com/JHRobotics/softgpu
 - VBEMP project information and license: https://bearwindows.zcm.com.au/vbe9x.htm
+- Background decision record: docs/decisions/2026-08-08-initial-direction.md
