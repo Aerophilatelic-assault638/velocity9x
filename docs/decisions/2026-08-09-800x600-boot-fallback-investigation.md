@@ -1,7 +1,9 @@
 # 800x600 boot fallback investigation
 
-Status: open; pause driver changes pending Windows 98 configuration diagnosis  
-Recorded: 2026-08-09
+Status: open; pause mode-programming changes pending Windows 98 configuration
+diagnosis. The `trace3` diagnostic rebuild (trace-only, adds the `libmain`
+stage) is staged in `D:\ACTIVE`.  
+Recorded: 2026-08-09; updated 2026-08-09 after host-side review fixes
 
 ## Summary
 
@@ -21,14 +23,22 @@ class and hardware-profile bindings have been identified.
 
 ## Current diagnostic package
 
-- Build ID: `diag-force-800x600x8-trace2`
+- Build ID: `diag-force-800x600x8-trace3`
 - Staged guest directory: `D:\ACTIVE`
 - Host directory: `C:\everything\velocity9x\build\vm-probe\ACTIVE`
 - `V9XDISP.DRV` SHA-256:
-  `571F2AA3B52C30D80F03B0E61B295AEFC9D04C2E304F8DB16A661D497631C30E`
+  `937958C5952380ABF972D70E46241DDBB3FF16699D3413DFE6BDEA1DEB5847DE`
 - Compile-time forced mode index: `1`, corresponding to 800x600x8
 - Boot tracing: enabled; expected output is `C:\V9XBOOT.INI`
+- New in `trace3`: `LibMain` writes `Stage=libmain` to `C:\V9XBOOT.INI` the
+  moment the DRV is loaded, before Windows decides whether to call `Enable`
 - Dynamic in-session mode switching: disabled
+
+The superseded `trace2` DRV (SHA-256
+`571F2AA3B52C30D80F03B0E61B295AEFC9D04C2E304F8DB16A661D497631C30E`) differed
+only in lacking the `libmain` stage. `trace3` contains no mode-programming
+changes; the driver-change moratorium below applies to mode programming, and
+this trace-only rebuild was made to close the load-versus-query ambiguity.
 
 The forced diagnostic selection bypasses the registry-selected resolution once
 the display driver's inquiry code is entered. Therefore a boot that loads this
@@ -139,15 +149,30 @@ Established:
 - the cold boot does not reach a trace point in the traced DRV, or does not use
   that exact traced copy of the DRV.
 
-A designed limitation of the INI trace: the earliest stage write
-(`query-start`) sits inside the `Enable` entry point in
-`src/display16/ddi.c`; `LibMain` writes nothing to `C:\V9XBOOT.INI`. The
-absence of the file therefore cannot distinguish "DRV never loaded" from "DRV
-loaded but Windows never called `Enable`". The existing discriminator is the
-COM1 serial output (see check 2 below): `LibMain` emits
-`V9X-DRV load build=<id>` over serial even when `Enable` is never called. If
-driver changes resume, a `LibMain`-stage INI marker would be the first
-candidate addition.
+A designed limitation of the `trace2` INI trace: its earliest stage write
+(`query-start`) sat inside the `Enable` entry point in
+`src/display16/ddi.c`; `LibMain` wrote nothing to `C:\V9XBOOT.INI`, so the
+absence of the file could not distinguish "DRV never loaded" from "DRV loaded
+but Windows never called `Enable`". `trace3` closes this: `LibMain` now writes
+`Stage=libmain` immediately on load. After a `trace3` boot, an absent
+`C:\V9XBOOT.INI` means the DRV was never loaded; `Stage=libmain` alone means
+it was loaded but never asked for its inquiry.
+
+The COM1 serial line `V9X-DRV load build=<id>` emitted by `LibMain` is **not**
+usable for this purpose: review of the existing boot captures in
+`build/vm-logs` shows it has never appeared in any boot capture, including the
+two successful `active-640-vdd1` boots where the DRV demonstrably loaded and
+drove the desktop. Ring-3 port writes from the DRV evidently do not reach the
+host serial log at boot; only the ring-0 mini-VDD lines do.
+
+The existing captures also contain unused evidence: on the failed forced-800
+boots (`com1-diag-force-800x600x8-v1.bin`, `...-trace1.bin`), the mini-VDD
+from the then-installed package printed `V9X-MINI init` and
+`V9X-MINI defaults-ok`. Windows therefore read the Velocity9x registry
+configuration far enough to load `v9xmini.vxd` at boot even while falling back
+to 640x480x16 for the display driver. The failure is specific to loading or
+using the display DRV, not a wholesale rejection of the device or its class
+configuration. No capture was recorded for the `trace2` boot.
 
 Not yet established:
 
@@ -163,55 +188,75 @@ Not yet established:
 
 ## Recommended next checks
 
-Perform read-only checks first and retain the outputs. Do not reinstall the
-driver or change Display Properties between checks.
+Record every output before changing anything. The only permitted change is
+the `trace3` installation at the end of check 1; do not change Display
+Properties between checks.
 
 ### 1. Verify the installed DRV bytes
 
-After refreshing the folder CD, run:
+`D:\ACTIVE` now holds the `trace3` package, and the superseded `trace2`
+binaries no longer exist on the host, so the installed files are expected to
+mismatch `D:\ACTIVE` until `trace3` is installed. Run the comparisons in this
+order, before overwriting anything, so the evidence of what was actually
+installed is preserved:
 
 ```bat
+FC /B C:\WINDOWS\SYSTEM\V9XDISP.DRV D:\PROBE\V9XDISP.DRV
+FC /B C:\WINDOWS\SYSTEM\V9XMINI.VXD D:\PROBE\V9XMINI.VXD
 FC /B C:\WINDOWS\SYSTEM\V9XDISP.DRV D:\ACTIVE\V9XDISP.DRV
 FC /B C:\WINDOWS\SYSTEM\V9XMINI.VXD D:\ACTIVE\V9XMINI.VXD
 ```
 
-Record whether each command reports no differences, a size difference, or a
-missing file. A mismatch would explain the missing boot trace without requiring
-any further registry theory.
+Record each result. "No differences" against `D:\PROBE` means the guest had
+the deliberately-failing probe binary installed and the entire boot failure is
+explained. Also record the installed files' sizes and dates
+(`DIR C:\WINDOWS\SYSTEM\V9X*.*`). Then install the `trace3` package from
+`D:\ACTIVE`, re-run the two `D:\ACTIVE` comparisons, and confirm "no
+differences" before performing the diagnostic boot in check 2.
 
-This check has a known concrete failure mode: the folder-CD root `D:\` carries
-a *different*, same-named `V9XDISP.DRV`/`V9XMINI.VXD` pair placed there by
-`scripts/prepare-vm-probe.ps1` (DRV SHA-256 prefix `BBB4DFED`). That probe
-build deliberately fails initialization and must never be installed. If any
-(re)install was ever pointed at `D:\` instead of `D:\ACTIVE`, the guest holds
-the wrong binary and the silent fallback with no trace is fully explained; the
-`FC /B` commands above would catch this.
+This check has a known concrete failure mode: until 2026-08-09 the folder-CD
+root `D:\` carried a *different*, same-named `V9XDISP.DRV`/`V9XMINI.VXD` pair
+placed there by `scripts/prepare-vm-probe.ps1` (DRV SHA-256 prefix
+`BBB4DFED`). That probe build deliberately fails initialization and must never
+be installed. If any past (re)install was pointed at `D:\` instead of
+`D:\ACTIVE`, the guest holds the wrong binary and the silent fallback with no
+trace is fully explained; the `FC /B` commands above would catch this. The
+probe bundle has since been relocated to `D:\PROBE` and the script updated, so
+the hazard cannot recur, but an installation that predates the move remains a
+candidate cause.
 
-### 2. Capture COM1 serial output during one failed cold boot
+### 2. Boot the `trace3` package once and read both boot signals
 
-Configure 86Box to log the guest's COM1 to a host file, then perform one cold
-boot into the failing state. No guest-side changes are required. The expected
-lines, in boot order, are:
+With `trace3` installed and byte-verified (check 1), delete any stale
+`C:\V9XBOOT.INI`, configure 86Box to log COM1 to a host file, and perform one
+cold boot. Two independent signals result:
+
+COM1 serial (mini-VDD only — the DRV's own serial line has never been
+observable at boot; see the limitation discussion above):
 
 ```text
-V9X-MINI init build=<id>
-V9X-MINI defaults-ok callbacks=0 build=<id>   (or: V9X-MINI init-fail build=<id>)
-V9X-DRV load build=<id>
+V9X-MINI init build=diag-force-800x600x8-trace3
+V9X-MINI defaults-ok callbacks=0 build=diag-force-800x600x8-trace3
 ```
 
-Interpretation:
+- Lines present with the `trace3` build ID: the installed mini-VDD is current
+  and Windows is reading the Velocity9x registry configuration at boot.
+- Lines present with an older build ID: the installed `V9XMINI.VXD` is stale —
+  corroborates a check-1 mismatch.
+- No lines: the mini-VDD is not loading — points at Config Manager/PnP
+  enumeration binding (check 3).
 
-- `V9X-DRV load` present but no `C:\V9XBOOT.INI`: the DRV loaded but Windows
-  never called `Enable` — the rejection happens after load, during display
-  (re)configuration.
-- `V9X-MINI` lines present but no `V9X-DRV load`: the mini-VDD loads at boot
-  but the display DRV is never loaded — points at driver/class selection.
-- No serial output at all: the mini-VDD is not loading either — points at
-  Config Manager/PnP enumeration binding (check 3).
+`C:\V9XBOOT.INI` (new `libmain` stage):
 
-This is the only pre-DRV boot instrumentation in the system and directly
-resolves the disjunction stated above, so it should be run before the registry
-checks.
+- File absent: Windows never loaded `V9XDISP.DRV` — driver/class selection
+  problem; proceed to checks 3-5.
+- `Stage=libmain` only: the DRV loaded but Windows never called `Enable` —
+  rejection happens during display configuration after load.
+- `Stage=query-ok` or later: the inquiry ran; the investigation moves past
+  pre-entry and into hardware enable.
+
+This combination directly resolves the disjunction stated above, so it should
+be run before the registry checks.
 
 ### 3. Identify the S3 PCI hardware-enumeration binding
 
@@ -273,12 +318,14 @@ depends on a normal Windows boot.
 ## Working diagnosis
 
 The leading diagnosis is that Windows 98 is selecting or rejecting the display
-device before entering the traced Velocity9x DRV. The most useful
-discriminators are now the exact installed-file comparison (which also rules
-out the decoy `D:\` probe binaries), the COM1 serial capture from one failed
-cold boot, and the S3 PCI enumeration node's `Driver` binding. If all three
-are clean, hardware-profile and boot-log evidence should be collected before
-modifying the driver again.
+device before entering the traced Velocity9x DRV. The existing COM1 captures
+already narrow this: the mini-VDD loads even on failed boots, so Windows reads
+the Velocity9x configuration but does not load (or does not use) the display
+DRV. The most useful discriminators are now the exact installed-file
+comparison (which also rules out the pre-move decoy probe binaries), one
+`trace3` cold boot read for the `Stage=libmain` marker, and the S3 PCI
+enumeration node's `Driver` binding. If all three are clean, hardware-profile
+and boot-log evidence should be collected before modifying the driver again.
 
 The 800x600 implementation itself remains unproven in the guest: the present
 failure occurs too early to count as either a pass or a hardware-mode failure.

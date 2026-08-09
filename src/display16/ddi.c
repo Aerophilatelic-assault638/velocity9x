@@ -227,6 +227,10 @@ static void v9x_select_requested_mode(void)
 void v9x_display_boot_log(void)
 {
     v9x_serial_write("V9X-DRV load build=" V9X_BUILD_ID "\r\n");
+    /* Boot-capture evidence shows ring-3 serial writes from LibMain do not
+     * reach the host log, so the INI trace is the only reliable proof that
+     * Windows loaded this DRV before deciding whether to call Enable. */
+    v9x_boot_trace("libmain");
 }
 
 static void v9x_set_color(RGBQUAD FAR *entry,

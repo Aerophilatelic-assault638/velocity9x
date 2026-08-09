@@ -6,7 +6,10 @@ param(
 
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$outputDir = Join-Path $repoRoot "build\vm-probe"
+# The probe bundle deliberately ships non-functional V9XDISP.DRV/V9XMINI.VXD
+# link artifacts. They must never sit at the folder-CD root (build\vm-probe),
+# where they shadow the installable package in D:\ACTIVE under the same names.
+$outputDir = Join-Path $repoRoot "build\vm-probe\PROBE"
 $logDir = Join-Path $repoRoot "build\vm-logs"
 
 . (Join-Path $PSScriptRoot "common.ps1")
@@ -46,6 +49,9 @@ Copy-Item -LiteralPath (Join-Path $repoRoot "build\minivdd32\v9xmini.vxd") `
 $readme = @(
     "Velocity9x VM probe bundle",
     "Build: $BuildId",
+    "",
+    "This PROBE folder is NOT the installable driver package.",
+    "Install only from D:\ACTIVE.",
     "",
     "SAFE ACTION: run V9XSER.EXE to send one Win32 COM1 smoke line.",
     "V9XDOS.EXE is a direct-UART fallback intended for pure DOS only.",
