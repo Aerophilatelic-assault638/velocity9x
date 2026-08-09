@@ -1,0 +1,12 @@
+REGEDIT4
+
+; Lab-VM diagnostic only. Display class instance 0001 was confirmed as Velocity9x.
+[HKEY_LOCAL_MACHINE\System\CurrentControlSet\Services\Class\Display\0001\CURRENT]
+"CHIPID"=hex:00,00,00,00,00,00
+"drv"="v9xdisp.drv"
+"drv2"="v9xdisp.drv"
+"ExtModeSwitch"="0"
+"minivdd"="v9xmini.vxd"
+"Mode"="8,800,600"
+"RefreshRate"="0"
+"vdd"="*vdd,*vflatd"
