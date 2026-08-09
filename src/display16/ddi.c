@@ -80,10 +80,10 @@ static WORD v9x_enabled;
 static WORD v9x_dpi = 96u;
 
 #ifdef V9X_BOOT_TRACE
-static void v9x_boot_trace(const char FAR *stage)
+static BOOL v9x_boot_trace(const char FAR *stage)
 {
-    (void)WritePrivateProfileString("Velocity9x", "Stage", stage,
-                                    "C:\\V9XBOOT.INI");
+    return WritePrivateProfileString("Velocity9x", "Stage", stage,
+                                     "C:\\V9XBOOT.INI");
 }
 
 static void v9x_trace_hardware_failure(void)
@@ -228,9 +228,14 @@ void v9x_display_boot_log(void)
 {
     v9x_serial_write("V9X-DRV load build=" V9X_BUILD_ID "\r\n");
     /* Boot-capture evidence shows ring-3 serial writes from LibMain do not
-     * reach the host log, so the INI trace is the only reliable proof that
-     * Windows loaded this DRV before deciding whether to call Enable. */
-    v9x_boot_trace("libmain");
+     * normally reach the host log. The INI marker is strong load evidence,
+     * but its absence is inconclusive because the early file write can fail. */
+#ifdef V9X_BOOT_TRACE
+    if (!v9x_boot_trace("libmain")) {
+        v9x_serial_write("V9X-DRV trace-write-fail stage=libmain build="
+                         V9X_BUILD_ID "\r\n");
+    }
+#endif
 }
 
 static void v9x_set_color(RGBQUAD FAR *entry,

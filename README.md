@@ -106,16 +106,19 @@ To prepare the safe VM transfer and COM1 smoke-test folder:
 ./scripts/prepare-vm-probe.ps1
 ```
 
-Mount `build/vm-probe` as an 86Box virtual CD folder. `V9XSER.EXE` performs the
-COM1 smoke test; `V9XVXD.EXE` may be run with `V9XPROBE.VXD` beside it to
-perform the separate dynamic load/unload probe. The top-level `V9XDISP.DRV` and
-`V9XMINI.VXD` remain historical noninstallable probe artifacts. Only the
-quarantined `ACTIVE` subdirectory contains the activation INF. `V9X16LD.EXE`
-loads the candidate DRV as an inactive Win16 library, requests GDIINFO, and
-validates supported and unsupported modes; it never invokes the mode-setting
-`Enable` action.
+Mount `build/vm-probe` as an 86Box virtual CD folder. The installable package is
+isolated under `D:\ACTIVE`; all noninstallable utilities and probe binaries are
+under `D:\PROBE`. The preparation script removes known legacy probe binaries
+from the folder-CD root and writes `START-HERE.TXT` identifying both areas.
 
-`V9XSTAGE.EXE` is the preferred consolidated Phase 1 test. It holds the
+Run `D:\PROBE\V9XSER.EXE` for the COM1 smoke test. `D:\PROBE\V9XVXD.EXE` may
+be run with `V9XPROBE.VXD` beside it to perform the separate dynamic
+load/unload probe. `D:\PROBE\V9X16LD.EXE` loads the probe DRV as an inactive
+Win16 library, requests GDIINFO, and validates supported and unsupported modes;
+it never invokes the mode-setting `Enable` action. Never install
+`V9XDISP.DRV` or `V9XMINI.VXD` from `D:\PROBE`.
+
+`D:\PROBE\V9XSTAGE.EXE` is the preferred consolidated Phase 1 test. It holds the
 hardware-inert VxD open while the Win16 helper performs that query-only DRV
 preflight, then reports one result and writes the lifecycle to COM1. It still
 does not install or activate the display driver.

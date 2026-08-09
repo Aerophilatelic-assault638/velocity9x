@@ -63,9 +63,14 @@ foreach ($source in $sources) {
         "-bt=windows", "-mc", "-zu", "-zc", "-bd", "-zq", "-wx",
         "-i=$includeDir", "-i=$(Join-Path $repoRoot 'src\display16')",
         "-dV9X_BUILD_ID=`"$BuildId`"",
-        "-dV9X_FORCE_MODE_INDEX=$ForceModeIndex",
         "-fo=$objectPath", $sourcePath
     )
+    # ddi.c already defaults V9X_FORCE_MODE_INDEX to -1. Passing a negative
+    # value through wcc's -d option is parsed as another command-line input by
+    # this Open Watcom snapshot (E1139), so only define an actual forced mode.
+    if ($ForceModeIndex -ge 0) {
+        $arguments = @("-dV9X_FORCE_MODE_INDEX=$ForceModeIndex") + $arguments
+    }
     if ($BootTrace) {
         $arguments = @("-dV9X_BOOT_TRACE=1") + $arguments
     }
@@ -165,8 +170,19 @@ if ($image -notmatch "DIBENG") {
 if ($image -notmatch "CODE\|FIXED\|SHARE\|PRELOAD") {
     throw "The Win16 DDI code segment is not fixed, shared, and preloaded."
 }
-
 $mapText = Get-Content -LiteralPath $mapPath -Raw
+if ($BootTrace) {
+    if ($mapText -notmatch "WRITEPRIVATEPROFILESTRING\s+KERNEL") {
+        throw "The traced Win16 DDI does not import WritePrivateProfileString."
+    }
+    $imageText = [System.Text.Encoding]::ASCII.GetString($bytes)
+    foreach ($marker in @("libmain", "trace-write-fail stage=libmain")) {
+        if (-not $imageText.Contains($marker)) {
+            throw "The traced Win16 DDI is missing marker $marker."
+        }
+    }
+}
+
 $requiredRuntimeSymbols = @(
     "V9XHARDWAREPRESENT", "V9XHARDWAREENABLE", "V9XHARDWAREDISABLE",
     "V9XHARDWARESTAGE",

@@ -1,8 +1,9 @@
 # 800x600 boot fallback investigation
 
 Status: open; pause mode-programming changes pending Windows 98 configuration
-diagnosis. The `trace3` diagnostic rebuild (trace-only, adds the `libmain`
-stage) is staged in `D:\ACTIVE`.  
+diagnosis. The `trace4` diagnostic rebuild (trace-only, adds the `libmain`
+stage and checks the profile-write result) is staged in `D:\ACTIVE`.
+
 Recorded: 2026-08-09; updated 2026-08-09 after host-side review fixes
 
 ## Summary
@@ -23,22 +24,25 @@ class and hardware-profile bindings have been identified.
 
 ## Current diagnostic package
 
-- Build ID: `diag-force-800x600x8-trace3`
+- Build ID: `diag-force-800x600x8-trace4`
 - Staged guest directory: `D:\ACTIVE`
 - Host directory: `C:\everything\velocity9x\build\vm-probe\ACTIVE`
 - `V9XDISP.DRV` SHA-256:
-  `937958C5952380ABF972D70E46241DDBB3FF16699D3413DFE6BDEA1DEB5847DE`
+  `47A14D4DA0E0591BD658570A7620726CDAD90A08AB36DA46934C28AC186C8504`
 - Compile-time forced mode index: `1`, corresponding to 800x600x8
 - Boot tracing: enabled; expected output is `C:\V9XBOOT.INI`
-- New in `trace3`: `LibMain` writes `Stage=libmain` to `C:\V9XBOOT.INI` the
-  moment the DRV is loaded, before Windows decides whether to call `Enable`
+- New in `trace4`: `LibMain` tries to write `Stage=libmain` to
+  `C:\V9XBOOT.INI` the moment the DRV is loaded, before Windows decides whether
+  to call `Enable`; a failed profile write also emits a best-effort serial line
 - Dynamic in-session mode switching: disabled
 
 The superseded `trace2` DRV (SHA-256
-`571F2AA3B52C30D80F03B0E61B295AEFC9D04C2E304F8DB16A661D497631C30E`) differed
-only in lacking the `libmain` stage. `trace3` contains no mode-programming
-changes; the driver-change moratorium below applies to mode programming, and
-this trace-only rebuild was made to close the load-versus-query ambiguity.
+`571F2AA3B52C30D80F03B0E61B295AEFC9D04C2E304F8DB16A661D497631C30E`) lacked
+the `libmain` stage. Superseded `trace3` (SHA-256
+`937958C5952380ABF972D70E46241DDBB3FF16699D3413DFE6BDEA1DEB5847DE`) added
+the marker but discarded the profile API's result. `trace4` checks that result
+and emits `V9X-DRV trace-write-fail stage=libmain build=<id>` as a best-effort
+secondary signal. These rebuilds contain no mode-programming changes.
 
 The forced diagnostic selection bypasses the registry-selected resolution once
 the display driver's inquiry code is entered. Therefore a boot that loads this
@@ -153,10 +157,12 @@ A designed limitation of the `trace2` INI trace: its earliest stage write
 (`query-start`) sat inside the `Enable` entry point in
 `src/display16/ddi.c`; `LibMain` wrote nothing to `C:\V9XBOOT.INI`, so the
 absence of the file could not distinguish "DRV never loaded" from "DRV loaded
-but Windows never called `Enable`". `trace3` closes this: `LibMain` now writes
-`Stage=libmain` immediately on load. After a `trace3` boot, an absent
-`C:\V9XBOOT.INI` means the DRV was never loaded; `Stage=libmain` alone means
-it was loaded but never asked for its inquiry.
+but Windows never called `Enable`". `trace4` narrows this: `LibMain` now tries
+to write `Stage=libmain` immediately on load. A successful marker proves the
+DRV loaded, and `Stage=libmain` alone means it was loaded but never asked for
+its inquiry. An absent `C:\V9XBOOT.INI` remains inconclusive because the early
+profile write can fail; it is strong evidence of no load only after the same
+trace channel has been calibrated during a known-good driver boot.
 
 The COM1 serial line `V9X-DRV load build=<id>` emitted by `LibMain` is **not**
 usable for this purpose: review of the existing boot captures in
@@ -189,14 +195,14 @@ Not yet established:
 ## Recommended next checks
 
 Record every output before changing anything. The only permitted change is
-the `trace3` installation at the end of check 1; do not change Display
+the `trace4` installation at the end of check 1; do not change Display
 Properties between checks.
 
 ### 1. Verify the installed DRV bytes
 
-`D:\ACTIVE` now holds the `trace3` package, and the superseded `trace2`
+`D:\ACTIVE` now holds the `trace4` package, and the superseded `trace2`
 binaries no longer exist on the host, so the installed files are expected to
-mismatch `D:\ACTIVE` until `trace3` is installed. Run the comparisons in this
+mismatch `D:\ACTIVE` until `trace4` is installed. Run the comparisons in this
 order, before overwriting anything, so the evidence of what was actually
 installed is preserved:
 
@@ -210,7 +216,7 @@ FC /B C:\WINDOWS\SYSTEM\V9XMINI.VXD D:\ACTIVE\V9XMINI.VXD
 Record each result. "No differences" against `D:\PROBE` means the guest had
 the deliberately-failing probe binary installed and the entire boot failure is
 explained. Also record the installed files' sizes and dates
-(`DIR C:\WINDOWS\SYSTEM\V9X*.*`). Then install the `trace3` package from
+(`DIR C:\WINDOWS\SYSTEM\V9X*.*`). Then install the `trace4` package from
 `D:\ACTIVE`, re-run the two `D:\ACTIVE` comparisons, and confirm "no
 differences" before performing the diagnostic boot in check 2.
 
@@ -221,13 +227,14 @@ placed there by `scripts/prepare-vm-probe.ps1` (DRV SHA-256 prefix
 be installed. If any past (re)install was pointed at `D:\` instead of
 `D:\ACTIVE`, the guest holds the wrong binary and the silent fallback with no
 trace is fully explained; the `FC /B` commands above would catch this. The
-probe bundle has since been relocated to `D:\PROBE` and the script updated, so
-the hazard cannot recur, but an installation that predates the move remains a
-candidate cause.
+probe bundle has since been relocated to `D:\PROBE`. When the updated
+preparation script completes, it removes the exact legacy generated files from
+the folder-CD root and writes `START-HERE.TXT` there. An installation that
+predates that cleanup remains a candidate cause.
 
-### 2. Boot the `trace3` package once and read both boot signals
+### 2. Boot the `trace4` package once and read both boot signals
 
-With `trace3` installed and byte-verified (check 1), delete any stale
+With `trace4` installed and byte-verified (check 1), delete any stale
 `C:\V9XBOOT.INI`, configure 86Box to log COM1 to a host file, and perform one
 cold boot. Two independent signals result:
 
@@ -235,11 +242,11 @@ COM1 serial (mini-VDD only — the DRV's own serial line has never been
 observable at boot; see the limitation discussion above):
 
 ```text
-V9X-MINI init build=diag-force-800x600x8-trace3
-V9X-MINI defaults-ok callbacks=0 build=diag-force-800x600x8-trace3
+V9X-MINI init build=diag-force-800x600x8-trace4
+V9X-MINI defaults-ok callbacks=0 build=diag-force-800x600x8-trace4
 ```
 
-- Lines present with the `trace3` build ID: the installed mini-VDD is current
+- Lines present with the `trace4` build ID: the installed mini-VDD is current
   and Windows is reading the Velocity9x registry configuration at boot.
 - Lines present with an older build ID: the installed `V9XMINI.VXD` is stale —
   corroborates a check-1 mismatch.
@@ -248,8 +255,9 @@ V9X-MINI defaults-ok callbacks=0 build=diag-force-800x600x8-trace3
 
 `C:\V9XBOOT.INI` (new `libmain` stage):
 
-- File absent: Windows never loaded `V9XDISP.DRV` — driver/class selection
-  problem; proceed to checks 3-5.
+- File absent: either Windows never loaded `V9XDISP.DRV` or the early profile
+  write failed. Byte verification plus a known-good trace-channel calibration
+  is required before treating this as a driver/class-selection result.
 - `Stage=libmain` only: the DRV loaded but Windows never called `Enable` —
   rejection happens during display configuration after load.
 - `Stage=query-ok` or later: the inquiry ran; the investigation moves past
@@ -323,7 +331,7 @@ already narrow this: the mini-VDD loads even on failed boots, so Windows reads
 the Velocity9x configuration but does not load (or does not use) the display
 DRV. The most useful discriminators are now the exact installed-file
 comparison (which also rules out the pre-move decoy probe binaries), one
-`trace3` cold boot read for the `Stage=libmain` marker, and the S3 PCI
+`trace4` cold boot read for the `Stage=libmain` marker, and the S3 PCI
 enumeration node's `Driver` binding. If all three are clean, hardware-profile
 and boot-log evidence should be collected before modifying the driver again.
 

@@ -6,10 +6,11 @@ param(
 
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
+$vmRoot = Join-Path $repoRoot "build\vm-probe"
 # The probe bundle deliberately ships non-functional V9XDISP.DRV/V9XMINI.VXD
 # link artifacts. They must never sit at the folder-CD root (build\vm-probe),
 # where they shadow the installable package in D:\ACTIVE under the same names.
-$outputDir = Join-Path $repoRoot "build\vm-probe\PROBE"
+$outputDir = Join-Path $vmRoot "PROBE"
 $logDir = Join-Path $repoRoot "build\vm-logs"
 
 . (Join-Path $PSScriptRoot "common.ps1")
@@ -28,7 +29,7 @@ if (-not $BuildId) {
 & (Join-Path $PSScriptRoot "build-minivdd-skeleton.ps1") `
     -BuildId $BuildId -DdkRoot $DdkRoot
 
-New-Item -ItemType Directory -Force -Path $outputDir,$logDir | Out-Null
+New-Item -ItemType Directory -Force -Path $vmRoot,$outputDir,$logDir | Out-Null
 Copy-Item -LiteralPath (Join-Path $repoRoot "build\win32-diag\v9xser.exe") `
     -Destination (Join-Path $outputDir "V9XSER.EXE") -Force
 Copy-Item -LiteralPath (Join-Path $repoRoot "build\dos-diag\v9xser.exe") `
@@ -81,6 +82,62 @@ $hashLines = Get-ChildItem -LiteralPath $outputDir -File |
 Set-Content -LiteralPath (Join-Path $outputDir "SHA256.TXT") `
     -Value $hashLines -Encoding Ascii
 
+# Older versions staged this deliberately noninstallable bundle at the mounted
+# folder-CD root. Remove only that exact generated file set after the new PROBE
+# bundle has been built successfully. ACTIVE and lab diagnostic files are not
+# touched.
+$legacyRootFiles = @(
+    "SHA256.TXT", "V9X16LD.EXE", "V9XDISP.DRV", "V9XDOS.EXE",
+    "V9XMINI.VXD", "V9XPROBE.VXD", "V9XSER.EXE", "V9XSTAGE.EXE",
+    "V9XVXD.EXE"
+)
+$vmRootFull = [IO.Path]::GetFullPath($vmRoot).TrimEnd('\')
+foreach ($name in $legacyRootFiles) {
+    $legacyPath = [IO.Path]::GetFullPath((Join-Path $vmRoot $name))
+    if ([IO.Path]::GetDirectoryName($legacyPath).TrimEnd('\') -ne $vmRootFull) {
+        throw "Refusing to remove legacy probe path outside $vmRootFull."
+    }
+    if (Test-Path -LiteralPath $legacyPath -PathType Leaf) {
+        Remove-Item -LiteralPath $legacyPath -Force
+    }
+}
+
+$rootIndex = @(
+    "Velocity9x VM transfer root",
+    "",
+    "INSTALLABLE DRIVER PACKAGE: D:\ACTIVE",
+    "NONINSTALLABLE TEST/PROBE BUNDLE: D:\PROBE",
+    "",
+    "Never install V9XDISP.DRV or V9XMINI.VXD from D:\PROBE.",
+    "Read D:\ACTIVE\FIRSTBOOT.TXT before installing the active package."
+)
+$rootIndexPath = Join-Path $vmRoot "START-HERE.TXT"
+try {
+    Set-Content -LiteralPath $rootIndexPath -Value $rootIndex -Encoding Ascii
+} catch [System.IO.IOException] {
+    Write-Warning "Could not refresh $rootIndexPath while the folder CD is in use. Eject it and rerun this script."
+}
+
+# README.TXT was the old root-level probe-bundle readme. It is harmless after
+# the executable cleanup above, but remove it when 86Box is not holding it open
+# so its obsolete paths do not compete with START-HERE.TXT.
+$legacyReadmePath = Join-Path $vmRoot "README.TXT"
+if (Test-Path -LiteralPath $legacyReadmePath -PathType Leaf) {
+    try {
+        Remove-Item -LiteralPath $legacyReadmePath -Force
+    } catch [System.IO.IOException] {
+        Write-Warning "Could not remove obsolete $legacyReadmePath while the folder CD is in use."
+    }
+}
+
+$remainingLegacyFiles = @($legacyRootFiles | Where-Object {
+    Test-Path -LiteralPath (Join-Path $vmRoot $_) -PathType Leaf
+})
+if ($remainingLegacyFiles.Count -ne 0) {
+    throw "Legacy probe files remain at the folder-CD root: $($remainingLegacyFiles -join ', ')"
+}
+
 Write-Output "Prepared VM probe folder: $outputDir"
+Write-Output "Folder-CD safety index: $rootIndexPath"
 Write-Output "Configure COM1 output file: $(Join-Path $logDir 'com1.log')"
 Write-Output "For live capture, configure COM1 as named-pipe server velocity9x-com1."
