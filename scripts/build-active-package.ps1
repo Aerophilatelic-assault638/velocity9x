@@ -3,7 +3,8 @@ param(
     [string]$BuildId,
     [string]$DdkRoot = "C:\98DDK",
     [ValidateRange(-1, 5)]
-    [int]$ForceModeIndex = -1
+    [int]$ForceModeIndex = -1,
+    [switch]$BootTrace
 )
 
 $ErrorActionPreference = "Stop"
@@ -19,7 +20,8 @@ if ($BuildId -notmatch '^[A-Za-z0-9._+-]+$') {
 }
 
 & (Join-Path $PSScriptRoot "build-win16-ddi-skeleton.ps1") `
-    -BuildId $BuildId -DdkRoot $DdkRoot -ForceModeIndex $ForceModeIndex
+    -BuildId $BuildId -DdkRoot $DdkRoot -ForceModeIndex $ForceModeIndex `
+    -BootTrace:$BootTrace
 & (Join-Path $PSScriptRoot "build-minivdd-skeleton.ps1") `
     -BuildId $BuildId -DdkRoot $DdkRoot
 & (Join-Path $PSScriptRoot "build-settings.ps1") -BuildId $BuildId
@@ -47,6 +49,19 @@ $defaultMode = if ($ForceModeIndex -ge 0) {
 }
 $infText = $infText.Replace('DEFAULT,Mode,,"8,640,480"',
                             "DEFAULT,Mode,,`"$defaultMode`"")
+$infText = $infText.Replace('CURRENT,Mode,,"8,640,480"',
+                            "CURRENT,Mode,,`"$defaultMode`"")
+$infText = $infText.Replace('Provider=%Provider%',
+                            'Provider="Velocity9x Project"')
+$infText = $infText.Replace('1=%DiskName%,,0',
+                            '1="Velocity9x Windows 98SE driver-stage disk",,0')
+$infText = $infText.Replace('%Manufacturer%=Velocity9x.Models',
+                            'Velocity9x=Velocity9x.Models')
+$infText = $infText.Replace('%DeviceDesc%=Velocity9x.Install',
+                            '"Velocity9x S3 ViRGE/DX 86C375 (Phase 3 mode matrix)"=Velocity9x.Install')
+if ($infText -match '%[A-Za-z][A-Za-z0-9_]*%') {
+    throw "The generated active INF contains an unresolved string token."
+}
 
 $hardwareIds = @([regex]::Matches(
     $infText, 'PCI\\VEN_[0-9A-Fa-f]{4}&DEV_[0-9A-Fa-f]{4}') |
@@ -63,6 +78,8 @@ foreach ($forbidden in @('MODES\24',
 }
 foreach ($required in @('v9xdisp.drv', 'v9xmini.vxd',
                          "DEFAULT,Mode,,`"$defaultMode`"",
+                         "CURRENT,Mode,,`"$defaultMode`"",
+                         'CURRENT,drv,,v9xdisp.drv',
                          'MODES\8\640,480', 'MODES\8\800,600',
                          'MODES\8\1024,768', 'MODES\16\640,480',
                          'MODES\16\800,600', 'MODES\16\1024,768',
@@ -87,8 +104,9 @@ Copy-Item -LiteralPath (Join-Path $repoRoot "build\win16-loader-probe\v9x16ld.ex
     -Destination (Join-Path $outputDir "V9X16LD.EXE") -Force
 Copy-Item -LiteralPath (Join-Path $repoRoot "build\driver-stage-probe\v9xstage.exe") `
     -Destination (Join-Path $outputDir "V9XSTAGE.EXE") -Force
+$infLines = [regex]::Split($infText.TrimEnd("`r", "`n"), "\r?\n")
 Set-Content -LiteralPath (Join-Path $outputDir "VELOCITY9X.INF") `
-    -Value $infText -Encoding Ascii
+    -Value $infLines -Encoding Ascii
 Copy-Item -LiteralPath $installSource `
     -Destination (Join-Path $outputDir "INSTALL.TXT") -Force
 Copy-Item -LiteralPath $recoverSource `
@@ -107,6 +125,7 @@ $manifest = @(
     "Target: Windows 98SE, PCI 5333:8A01 only",
     "Modes: 640x480, 800x600, 1024x768 at 8/16 bpp and 60 Hz",
     "Forced diagnostic mode index: $ForceModeIndex (-1 means registry-selected)",
+    "Boot trace: $BootTrace (writes C:\\V9XBOOT.INI)",
     "Rendering: Windows DIB Engine, no acceleration",
     "Mini-VDD callbacks: none (master VDD defaults)",
     "Settings: read-only bring-up status, report, and recovery shortcut",

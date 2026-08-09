@@ -3,7 +3,8 @@ param(
     [string]$BuildId,
     [string]$DdkRoot = "C:\98DDK",
     [ValidateRange(-1, 5)]
-    [int]$ForceModeIndex = -1
+    [int]$ForceModeIndex = -1,
+    [switch]$BootTrace
 )
 
 $ErrorActionPreference = "Stop"
@@ -65,6 +66,9 @@ foreach ($source in $sources) {
         "-dV9X_FORCE_MODE_INDEX=$ForceModeIndex",
         "-fo=$objectPath", $sourcePath
     )
+    if ($BootTrace) {
+        $arguments = @("-dV9X_BOOT_TRACE=1") + $arguments
+    }
     & $compiler @arguments
     if ($LASTEXITCODE -ne 0) {
         throw "Open Watcom 16-bit compilation failed for $($source.Path)."
@@ -165,6 +169,7 @@ if ($image -notmatch "CODE\|FIXED\|SHARE\|PRELOAD") {
 $mapText = Get-Content -LiteralPath $mapPath -Raw
 $requiredRuntimeSymbols = @(
     "V9XHARDWAREPRESENT", "V9XHARDWAREENABLE", "V9XHARDWAREDISABLE",
+    "V9XHARDWARESTAGE",
     "V9XVDDGETDISPLAYCONFIG", "V9XVDDREGISTER", "V9XVDDUNREGISTER",
     "V9XVDDPOSTMODE",
     "V9XCREATEDIBPDEVICECALL", "V9XDIBSETPALETTETRANSLATECALL",

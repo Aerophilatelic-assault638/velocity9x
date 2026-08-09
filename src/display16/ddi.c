@@ -38,6 +38,7 @@ extern DWORD FAR PASCAL V9xDibSetPaletteCall(WORD, WORD, LPVOID, LPVOID);
 extern DWORD FAR PASCAL V9xDibSetPaletteTranslateCall(LPVOID, LPVOID);
 extern WORD FAR PASCAL V9xHardwarePresent(void);
 extern WORD FAR PASCAL V9xHardwareEnable(void);
+extern WORD FAR PASCAL V9xHardwareStage(void);
 extern WORD FAR PASCAL V9xHardwareReset(void);
 extern DWORD FAR PASCAL V9xHardwareBase(void);
 extern void FAR PASCAL V9xHardwareDisable(void);
@@ -77,6 +78,31 @@ static WORD v9x_dib_pdevice_size;
 static WORD v9x_screen_selector;
 static WORD v9x_enabled;
 static WORD v9x_dpi = 96u;
+
+#ifdef V9X_BOOT_TRACE
+static void v9x_boot_trace(const char FAR *stage)
+{
+    (void)WritePrivateProfileString("Velocity9x", "Stage", stage,
+                                    "C:\\V9XBOOT.INI");
+}
+
+static void v9x_trace_hardware_failure(void)
+{
+    switch (V9xHardwareStage()) {
+    case 1u: v9x_boot_trace("fail-hardware-pci"); break;
+    case 2u: v9x_boot_trace("fail-hardware-vbe-mode"); break;
+    case 3u: v9x_boot_trace("fail-hardware-aperture"); break;
+    case 4u: v9x_boot_trace("fail-hardware-selector"); break;
+    case 5u: v9x_boot_trace("fail-hardware-dpmi-map"); break;
+    case 6u: v9x_boot_trace("fail-hardware-selector-base"); break;
+    case 7u: v9x_boot_trace("fail-hardware-selector-limit"); break;
+    default: v9x_boot_trace("fail-hardware-unknown"); break;
+    }
+}
+#else
+#define v9x_boot_trace(stage) ((void)0)
+#define v9x_trace_hardware_failure() ((void)0)
+#endif
 
 static BYTE v9x_port_in(WORD port);
 #pragma aux v9x_port_in = "in al,dx" parm [dx] value [al] modify exact [al]
@@ -285,12 +311,15 @@ static WORD v9x_fill_gdi_info(V9X_GDI_INFO FAR *info,
     WORD result;
     WORD extra_size;
 
+    v9x_boot_trace("query-start");
     if (v9x_enabled == 0u) {
         v9x_select_requested_mode();
     }
+    v9x_boot_trace("query-mode-selected");
 
     result = V9xDibEnableCall(info, 1u, destination_type, output_file, data);
     if (result == 0u || info->dpDEVICEsize <= 0) {
+        v9x_boot_trace("fail-dib-query");
         return 0u;
     }
 
@@ -347,6 +376,7 @@ static WORD v9x_fill_gdi_info(V9X_GDI_INFO FAR *info,
     info->dpCaps1 |= V9X_C1_DIBENGINE | V9X_C1_REINIT_ABLE |
                      V9X_C1_BYTE_PACKED | V9X_C1_COLORCURSOR |
                      V9X_C1_SLOW_CARD;
+    v9x_boot_trace("query-ok");
     return V9X_GDIINFO_SIZE;
 }
 
@@ -360,18 +390,23 @@ static WORD v9x_build_pdevice(LPVOID device_info,
     WORD pdevice_flags = V9X_DE_MINIDRIVER | V9X_DE_VRAM;
 
     if (v9x_dib_pdevice_size == 0u) {
+        v9x_boot_trace("fail-pdevice-size");
         return 0u;
     }
+    v9x_boot_trace("enable-start");
     if (V9xHardwarePresent() == 0u) {
+        v9x_boot_trace("fail-hardware-present");
         v9x_serial_write("V9X-DRV enable-fail stage=device-id\r\n");
         return 0u;
     }
     v9x_screen_selector = V9xHardwareEnable();
     if (v9x_screen_selector == 0u) {
+        v9x_trace_hardware_failure();
         v9x_serial_write("V9X-DRV enable-fail stage=mode-map\r\n");
         return 0u;
     }
     if (V9xVddRegister() == 0u) {
+        v9x_boot_trace("fail-vdd-register");
         v9x_serial_write("V9X-DRV enable-fail stage=vdd-register\r\n");
         V9xHardwareDisable();
         v9x_screen_selector = 0u;
@@ -380,6 +415,7 @@ static WORD v9x_build_pdevice(LPVOID device_info,
 
     if (V9xDibEnableCall(device_info, 0u, destination_type,
                          output_file, data) == 0u) {
+        v9x_boot_trace("fail-dib-enable");
         v9x_serial_write("V9X-DRV enable-fail stage=dib-enable\r\n");
         V9xVddUnregister();
         V9xHardwareDisable();
@@ -418,6 +454,7 @@ static WORD v9x_build_pdevice(LPVOID device_info,
                                      MAKELP(v9x_screen_selector, 0u),
                                      pdevice_flags);
     if (created == 0ul) {
+        v9x_boot_trace("fail-create-pdevice");
         v9x_serial_write("V9X-DRV enable-fail stage=create-pdevice\r\n");
         V9xVddUnregister();
         V9xHardwareDisable();
@@ -440,6 +477,7 @@ static WORD v9x_build_pdevice(LPVOID device_info,
     v9x_serial_write(" bytes=00400000\r\n");
     v9x_serial_write_mode("V9X-DRV enable-ok mode=");
     v9x_serial_write(" lfb-mapped\r\n");
+    v9x_boot_trace("enable-ok");
     return 1u;
 }
 

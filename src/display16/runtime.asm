@@ -18,6 +18,7 @@ V9xEnableResult   dw 0
 V9xVddEntryPoint dd 0
 V9xVmHandle       dw 0
 V9xVddRegistered dw 0
+V9xHardwareStageCode dw 0
 
 .code
 
@@ -306,21 +307,25 @@ V9XHARDWAREENABLE PROC FAR
     push    es
 
     mov     V9xEnableResult, 0
+    mov     V9xHardwareStageCode, 1
     call    V9xFindPciDevice
     or      ax, ax
     jnz     short V9xHardwareDeviceFound
     jmp     V9xHardwareEnableDone
 V9xHardwareDeviceFound:
+    mov     V9xHardwareStageCode, 2
     call    V9xSetVbeMode
     or      ax, ax
     jnz     short V9xHardwareModeSet
     jmp     V9xHardwareEnableDone
 V9xHardwareModeSet:
+    mov     V9xHardwareStageCode, 3
     call    V9xReadS3Aperture
     or      eax, eax
     jnz     short V9xHardwareBaseValid
     jmp     V9xHardwareEnableDone
 V9xHardwareBaseValid:
+    mov     V9xHardwareStageCode, 4
 
     cmp     V9xScreenSelector, 0
     je      short V9xHardwareAllocate
@@ -328,6 +333,7 @@ V9xHardwareBaseValid:
     je      short V9xHardwareReuse
     jmp     V9xHardwareEnableDone
 V9xHardwareReuse:
+    mov     V9xHardwareStageCode, 0
     mov     ax, V9xScreenSelector
     mov     V9xEnableResult, ax
     jmp     V9xHardwareEnableDone
@@ -340,6 +346,7 @@ V9xHardwareAllocate:
     jnc     short V9xHardwareSelectorAllocated
     jmp     V9xHardwareMapFailed
 V9xHardwareSelectorAllocated:
+    mov     V9xHardwareStageCode, 5
     mov     V9xScreenSelector, ax
 
     mov     eax, V9xPhysicalBase
@@ -353,6 +360,7 @@ V9xHardwareSelectorAllocated:
     jc      short V9xHardwareFreeSelector
     mov     word ptr V9xLinearAddress, cx
     mov     word ptr V9xLinearAddress+2, bx
+    mov     V9xHardwareStageCode, 6
 
     mov     bx, V9xScreenSelector
     mov     dx, word ptr V9xLinearAddress
@@ -360,6 +368,7 @@ V9xHardwareSelectorAllocated:
     mov     ax, 0007h
     int     31h
     jc      short V9xHardwareUnmap
+    mov     V9xHardwareStageCode, 7
 
     mov     bx, V9xScreenSelector
     mov     cx, 003fh
@@ -368,6 +377,7 @@ V9xHardwareSelectorAllocated:
     int     31h
     jc      short V9xHardwareUnmap
 
+    mov     V9xHardwareStageCode, 0
     mov     ax, V9xScreenSelector
     mov     V9xEnableResult, ax
     jmp     short V9xHardwareEnableDone
@@ -398,6 +408,12 @@ V9xHardwareEnableDone:
     mov     ax, V9xEnableResult
     retf
 V9XHARDWAREENABLE ENDP
+
+PUBLIC V9XHARDWARESTAGE
+V9XHARDWARESTAGE PROC FAR
+    mov     ax, V9xHardwareStageCode
+    retf
+V9XHARDWARESTAGE ENDP
 
 PUBLIC V9XHARDWARERESET
 V9XHARDWARERESET PROC FAR
