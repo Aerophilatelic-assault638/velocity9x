@@ -10,6 +10,7 @@
 #undef SetCursor
 
 #include "velocity9x/build.h"
+#include "velocity9x/s3_virge.h"
 #include "win9x_display_abi.h"
 
 #define V9X_BITMAP_HEADER_SIZE     40u
@@ -21,6 +22,7 @@
 #define V9X_COM1_LSR_PORT       0x03fdu
 #define V9X_COM1_TX_EMPTY          0x20u
 #define V9X_SERIAL_SPIN_LIMIT   0xffffu
+#define V9X_HARDWARE_INFO_PATH "C:\\V9XHW.INI"
 
 #define V9X_COLOR_NONSTATIC        0x80u
 #define V9X_COLOR_MAP_TO_WHITE     0x40u
@@ -111,6 +113,83 @@ static BYTE v9x_port_in(WORD port);
 
 static void v9x_port_out(WORD port, BYTE value);
 #pragma aux v9x_port_out = "out dx,al" parm [dx] [al] modify exact []
+
+static void v9x_format_u32(char *text, DWORD value)
+{
+    char reverse[11];
+    WORD length = 0u;
+    WORD index;
+
+    do {
+        reverse[length++] = (char)('0' + (value % 10ul));
+        value /= 10ul;
+    } while (value != 0ul && length < 10u);
+    for (index = 0u; index < length; ++index) {
+        text[index] = reverse[length - index - 1u];
+    }
+    text[length] = '\0';
+}
+
+static BYTE v9x_s3_read_sequencer(BYTE index)
+{
+    v9x_port_out(0x03c4u, index);
+    return v9x_port_in(0x03c5u);
+}
+
+static void v9x_publish_hardware_diagnostics(void)
+{
+    struct v9x_clock_info clocks;
+    BYTE saved_index = v9x_port_in(0x03c4u);
+    BYTE saved_unlock;
+    BYTE sr10;
+    BYTE sr11;
+    char number[11];
+    v9x_status status;
+
+    v9x_port_out(0x03c4u, 0x08u);
+    saved_unlock = v9x_port_in(0x03c5u);
+    v9x_port_out(0x03c5u, 0x06u);
+    sr10 = v9x_s3_read_sequencer(0x10u);
+    sr11 = v9x_s3_read_sequencer(0x11u);
+    v9x_port_out(0x03c4u, 0x08u);
+    v9x_port_out(0x03c5u, saved_unlock);
+    v9x_port_out(0x03c4u, saved_index);
+
+    WritePrivateProfileString("Velocity9xHardware", 0, 0,
+                              V9X_HARDWARE_INFO_PATH);
+    WritePrivateProfileString("Velocity9xHardware", "SchemaVersion", "1",
+                              V9X_HARDWARE_INFO_PATH);
+    WritePrivateProfileString("Velocity9xHardware", "Adapter",
+                              "S3 ViRGE/DX 86C375",
+                              V9X_HARDWARE_INFO_PATH);
+    WritePrivateProfileString("Velocity9xHardware", "VendorId", "5333",
+                              V9X_HARDWARE_INFO_PATH);
+    WritePrivateProfileString("Velocity9xHardware", "DeviceId", "8A01",
+                              V9X_HARDWARE_INFO_PATH);
+    WritePrivateProfileString("Velocity9xHardware", "ClockDetector",
+                              "s3-virge-pll-v1",
+                              V9X_HARDWARE_INFO_PATH);
+
+    status = v9x_s3_virge_decode_clock_pll(sr10, sr11, &clocks);
+    if (status != V9X_STATUS_OK) {
+        WritePrivateProfileString("Velocity9xHardware", "ClockStatus",
+                                  "unavailable",
+                                  V9X_HARDWARE_INFO_PATH);
+        return;
+    }
+    WritePrivateProfileString("Velocity9xHardware", "ClockStatus", "valid",
+                              V9X_HARDWARE_INFO_PATH);
+    v9x_format_u32(number, clocks.core_clock_khz);
+    WritePrivateProfileString("Velocity9xHardware", "CoreClockKHz", number,
+                              V9X_HARDWARE_INFO_PATH);
+    v9x_format_u32(number, clocks.memory_clock_khz);
+    WritePrivateProfileString("Velocity9xHardware", "MemoryClockKHz", number,
+                              V9X_HARDWARE_INFO_PATH);
+    WritePrivateProfileString("Velocity9xHardware", "CoreClockRelation",
+                              (clocks.flags & V9X_CLOCK_CORE_SHARED_MCLK) != 0u
+                                  ? "shared-memory-clock" : "independent",
+                              V9X_HARDWARE_INFO_PATH);
+}
 
 static void v9x_serial_write(const char FAR *message)
 {
@@ -493,6 +572,7 @@ static WORD v9x_build_pdevice(LPVOID device_info,
     v9x_serial_write(" bytes=00400000\r\n");
     v9x_serial_write_mode("V9X-DRV enable-ok mode=");
     v9x_serial_write(" lfb-mapped\r\n");
+    v9x_publish_hardware_diagnostics();
     v9x_boot_trace("enable-ok");
     return 1u;
 }
@@ -548,6 +628,7 @@ WORD __loadds FAR PASCAL ReEnable(LPVOID destination_device,
     if (v9x_palettized != 0u) {
         v9x_program_palette(0u, V9X_PALETTE_ENTRIES);
     }
+    v9x_publish_hardware_diagnostics();
     V9xVddPostMode();
     v9x_serial_write("V9X-DRV reenable-ok\r\n");
     return 1u;

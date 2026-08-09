@@ -343,6 +343,26 @@ static void test_probe_is_strict(void)
           V9X_STATUS_INVALID_STATE);
 }
 
+static void test_s3_virge_clock_decode(void)
+{
+    struct v9x_clock_info clocks;
+
+    /* 14.318 MHz * (65 + 2) / (18 + 2) / 1 = 47.965 MHz. */
+    CHECK(v9x_s3_virge_decode_clock_pll(0x12u, 0x41u, &clocks) ==
+          V9X_STATUS_OK);
+    CHECK(clocks.memory_clock_khz == 47965ul);
+    CHECK(clocks.core_clock_khz == clocks.memory_clock_khz);
+    CHECK((clocks.flags & V9X_CLOCK_CORE_VALID) != 0u);
+    CHECK((clocks.flags & V9X_CLOCK_MEMORY_VALID) != 0u);
+    CHECK((clocks.flags & V9X_CLOCK_CORE_SHARED_MCLK) != 0u);
+
+    CHECK(v9x_s3_virge_decode_clock_pll(0xffu, 0xffu, &clocks) ==
+          V9X_STATUS_UNSUPPORTED);
+    CHECK(clocks.flags == 0u);
+    CHECK(v9x_s3_virge_decode_clock_pll(0u, 0u, 0) ==
+          V9X_STATUS_INVALID_ARGUMENT);
+}
+
 static void test_components_and_log(void)
 {
     struct capture_sink sink;
@@ -391,6 +411,7 @@ int main(void)
     test_framebuffer_resource_validation();
     test_framebuffer_resource_properties();
     test_probe_is_strict();
+    test_s3_virge_clock_decode();
     test_components_and_log();
     test_build_identity();
 

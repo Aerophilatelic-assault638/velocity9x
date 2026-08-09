@@ -117,7 +117,7 @@ if ($bytes.Length -lt 64 -or $bytes[0] -ne 0x4d -or
 }
 $imageText = [System.Text.Encoding]::ASCII.GetString($bytes)
 foreach ($marker in @($BuildId, "Velocity9x Settings", "1024x768",
-                      "16-bit RGB 5:6:5",
+                      "Core / engine clock",
                        "Run GDI test")) {
     if (-not $imageText.Contains($marker)) {
         throw "The settings utility is missing marker $marker."

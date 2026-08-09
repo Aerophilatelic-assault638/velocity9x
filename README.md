@@ -6,7 +6,8 @@ Windows 98 Second Edition on the S3 ViRGE/DX 86C375 (`5333:8A01`).
 The repository contains the portable core, proven Phase 1 loader probes, and a
 guest-proven Phase 3 framebuffer candidate covering 640x480, 800x600, and
 1024x768 at 8 and 16 bpp. All six modes have passed cold-boot activation and
-software-GDI framebuffer checks under 86Box. It is not a release driver.
+software-GDI framebuffer checks under 86Box, including two consecutive full
+matrix repetitions. It is not a release driver.
 
 ## Current implementation
 
@@ -20,6 +21,8 @@ software-GDI framebuffer checks under 86Box. It is not a release driver.
 - a consolidated VxD-plus-Win16-DRV lifecycle test with one PASS/FAIL result;
 - a boot-selected DIB Engine framebuffer candidate and default-handler mini-VDD;
 - an unattended GDI framebuffer test with machine-readable Win98 results;
+- an unattended 8-bit palette animation and screen-readback test;
+- backend-neutral hardware diagnostics with S3 ViRGE PLL clock detection;
 - a strict S3-only INF, recovery documentation, and read-only settings panel;
 - host tests and an Open Watcom build entry point.
 
@@ -83,7 +86,7 @@ logs its build, succeeds, and installs zero callbacks so the master VDD retains
 its defaults.
 
 Build the quarantined active package, Windows 98 settings/status panel, and
-post-boot GDI framebuffer test:
+post-boot GDI and palette framebuffer tests:
 
 ```powershell
 ./scripts/build-active-package.ps1
@@ -111,7 +114,14 @@ online, run the complete reboot-selected mode matrix unattended with:
 
 The runner refuses a mismatched installed DRV/VXD pair, verifies the requested
 mode and `enable-ok` trace after every reboot, runs the machine-readable GDI
-test, and retains a screenshot and JSON summary per mode.
+test, runs palette animation/readback in every 8-bit mode, and retains a
+screenshot and JSON summary per mode. Use `-Repeat 2` (or higher) for repeated
+reliability passes.
+
+The settings panel reads the versioned `C:\V9XHW.INI` hardware-diagnostics
+contract. The current ViRGE/DX backend decodes MCLK from its PLL registers and
+reports the engine clock as shared with memory; unsupported backends display
+`Unavailable` instead of guessing.
 
 For a device already associated with Velocity9x, update a locked DRV/VXD pair
 without SetupX media prompts using:

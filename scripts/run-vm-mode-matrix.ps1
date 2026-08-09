@@ -11,6 +11,8 @@ param(
                         "640x480x16", "800x600x16", "1024x768x16"),
     [ValidateRange(30, 600)]
     [int]$BootTimeoutSeconds = 180,
+    [ValidateRange(1, 10)]
+    [int]$Repeat = 1,
     [switch]$Json
 )
 
@@ -29,7 +31,8 @@ foreach ($path in @($ControllerPath, $PackagePath)) {
         throw "Required path does not exist: $path"
     }
 }
-foreach ($file in @("V9XDISP.DRV", "V9XMINI.VXD", "V9XGDI.EXE")) {
+foreach ($file in @("V9XDISP.DRV", "V9XMINI.VXD", "V9XGDI.EXE",
+                    "V9XPAL.EXE")) {
     if (-not (Test-Path -LiteralPath (Join-Path $PackagePath $file))) {
         throw "Mode-matrix package is missing $file."
     }
@@ -103,24 +106,27 @@ foreach ($driverFile in @("V9XDISP.DRV", "V9XMINI.VXD")) {
 }
 
 $matrix = @()
-foreach ($name in $Mode) {
+for ($pass = 1; $pass -le $Repeat; ++$pass) {
+  foreach ($name in $Mode) {
     if ($name -notmatch '^(\d+)x(\d+)x(\d+)$') {
         throw "Invalid mode name: $name"
     }
     $width = [int]$Matches[1]
     $height = [int]$Matches[2]
     $bits = [int]$Matches[3]
-    $modeResults = Join-Path $results $name
+    $modeResults = Join-Path (Join-Path $results "pass-$pass") $name
     New-Item -ItemType Directory -Force -Path $modeResults | Out-Null
     $regFile = New-ModeRegistryFile $name $width $height $bits
     $null = Invoke-V9xCtlJson put @(
         "-Source", $regFile, "-Destination", "$GuestJob\MODE.REG")
     $null = Invoke-GuestShell "DEL C:\V9XBOOT.INI"
     $null = Invoke-GuestShell "DEL C:\V9XGDI.INI"
+    $null = Invoke-GuestShell "DEL C:\V9XPAL.INI"
     $null = Invoke-GuestShell "REGEDIT /S $GuestJob\MODE.REG"
 
     $reboot = Invoke-V9xCtlJson reboot @(
-        "-JobId", "matrix-$name", "-WaitSeconds", [string]$BootTimeoutSeconds)
+        "-JobId", "matrix-$pass-$name",
+        "-WaitSeconds", [string]$BootTimeoutSeconds)
     $desktop = Invoke-V9xCtlJson wait-desktop @(
         "-WaitSeconds", [string]$BootTimeoutSeconds)
     $info = Invoke-V9xCtlJson info
@@ -154,21 +160,51 @@ foreach ($name in $Mode) {
             throw "Mode $name GDI result is missing $expected."
         }
     }
+    $paletteResult = "N/A"
+    if ($bits -eq 8) {
+        $null = Invoke-GuestShell "START $GuestJob\V9XPAL.EXE /auto"
+        $palette = $null
+        for ($attempt = 0; $attempt -lt 20; ++$attempt) {
+            Start-Sleep -Milliseconds 500
+            $candidate = Invoke-GuestShell (
+                "IF EXIST C:\V9XPAL.INI TYPE C:\V9XPAL.INI")
+            if ($candidate.Stdout -match '(?m)^Result=(PASS|FAIL|SKIP)\s*$') {
+                $palette = $candidate
+                break
+            }
+        }
+        if (-not $palette -or
+            $palette.Stdout -notmatch '(?m)^Result=PASS\s*$') {
+            throw "Mode $name failed or timed out in the palette test."
+        }
+        foreach ($expected in @(
+            "Width=$width", "Height=$height", "BitsPerPixel=8")) {
+            if ($palette.Stdout -notmatch
+                "(?m)^$([regex]::Escape($expected))\s*$") {
+                throw "Mode $name palette result is missing $expected."
+            }
+        }
+        $paletteResult = "PASS"
+    }
     $screenshot = Invoke-V9xCtlJson screenshot @(
         "-Destination", (Join-Path $modeResults "desktop.bmp"))
     $matrix += [pscustomobject]@{
+        Pass = $pass
         Mode = $name
         BootCounter = $info.BootCounter
         DriverStage = "enable-ok"
         GdiResult = "PASS"
+        PaletteResult = $paletteResult
         Screenshot = $screenshot.Destination
     }
+  }
 }
 
 $summary = [pscustomobject]@{
     Success = $true
     PackagePath = [IO.Path]::GetFullPath($PackagePath)
     GuestJob = $GuestJob
+    Repeat = $Repeat
     ResultsDirectory = $results
     Upload = $upload
     Matrix = $matrix

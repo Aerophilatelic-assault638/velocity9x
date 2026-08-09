@@ -17,5 +17,9 @@ v9x_status v9x_s3_virge_validate_mode(struct v9x_backend_state *state,
                                       const struct v9x_mode_request *request,
                                       struct v9x_mode_layout *layout);
 const struct v9x_backend_ops *v9x_s3_virge_backend(void);
+v9x_status v9x_s3_virge_decode_clock_pll(
+    v9x_u8 sr10,
+    v9x_u8 sr11,
+    struct v9x_clock_info *clocks);
 
 #endif

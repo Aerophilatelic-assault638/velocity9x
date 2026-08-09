@@ -48,6 +48,6 @@ own end-to-end smoke run passed the same baseline on boot 31; the VM was left
 running there.
 
 This result proves reboot-selected fixed modes and software framebuffer GDI.
-It does not yet prove live mode switching, palette animation, DOS full-screen
-transitions, or repeated reliability counts required by the final Phase 3
-gate.
+Palette animation and two complete repeat passes were subsequently proven by
+the trace8c diagnostics run. Live mode switching, DOS full-screen transitions,
+and the larger reliability counts required by the final Phase 3 gate remain.

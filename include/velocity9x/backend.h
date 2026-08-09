@@ -11,6 +11,17 @@
 #define V9X_CAP_CPU_UPLOAD         ((v9x_u32)0x00000010ul)
 #define V9X_CAP_VBLANK_STATUS      ((v9x_u32)0x00000020ul)
 
+#define V9X_CLOCK_CORE_VALID       ((v9x_u16)0x0001u)
+#define V9X_CLOCK_MEMORY_VALID     ((v9x_u16)0x0002u)
+#define V9X_CLOCK_CORE_SHARED_MCLK ((v9x_u16)0x0004u)
+
+/* Common clock result published by chipset-specific detector backends. */
+struct v9x_clock_info {
+    v9x_u32 core_clock_khz;
+    v9x_u32 memory_clock_khz;
+    v9x_u16 flags;
+};
+
 struct v9x_pci_identity {
     v9x_u16 vendor_id;
     v9x_u16 device_id;

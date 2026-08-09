@@ -19,6 +19,10 @@ static HBITMAP v9x_logo_bitmap;
 static char v9x_recovery_path[MAX_PATH];
 static char v9x_gdi_path[MAX_PATH];
 static char v9x_active_mode[48];
+static char v9x_adapter_name[96];
+static char v9x_core_clock[96];
+static char v9x_memory_clock[64];
+static char v9x_clock_detector[64];
 static char v9x_driver_stage[80];
 static char v9x_framebuffer_status[96];
 static char v9x_gdi_status[160];
@@ -61,6 +65,59 @@ static void v9x_append_uint(char *destination, DWORD capacity, UINT value)
     v9x_append(destination, capacity, number);
 }
 
+static BOOL v9x_parse_u32(const char *text, DWORD *value)
+{
+    DWORD result = 0ul;
+    DWORD index = 0ul;
+
+    if (text == 0 || value == 0 || text[0] == '\0') {
+        return FALSE;
+    }
+    while (text[index] != '\0') {
+        DWORD digit;
+        if (text[index] < '0' || text[index] > '9') {
+            return FALSE;
+        }
+        digit = (DWORD)(text[index] - '0');
+        if (result > 429496729ul ||
+            (result == 429496729ul && digit > 5ul)) {
+            return FALSE;
+        }
+        result = result * 10ul + digit;
+        ++index;
+    }
+    *value = result;
+    return TRUE;
+}
+
+static void v9x_format_clock(char *destination,
+                             DWORD capacity,
+                             const char *khz_text,
+                             BOOL shared_memory)
+{
+    DWORD khz;
+    DWORD fraction;
+    char fraction_text[4];
+
+    destination[0] = '\0';
+    if (!v9x_parse_u32(khz_text, &khz) || khz == 0ul) {
+        v9x_append(destination, capacity, "Unavailable");
+        return;
+    }
+    v9x_append_uint(destination, capacity, (UINT)(khz / 1000ul));
+    v9x_append(destination, capacity, ".");
+    fraction = khz % 1000ul;
+    fraction_text[0] = (char)('0' + fraction / 100ul);
+    fraction_text[1] = (char)('0' + (fraction / 10ul) % 10ul);
+    fraction_text[2] = (char)('0' + fraction % 10ul);
+    fraction_text[3] = '\0';
+    v9x_append(destination, capacity, fraction_text);
+    v9x_append(destination, capacity, " MHz");
+    if (shared_memory) {
+        v9x_append(destination, capacity, " (shared with memory)");
+    }
+}
+
 static void v9x_build_runtime_status(void)
 {
     HDC display = GetDC(0);
@@ -73,6 +130,10 @@ static void v9x_build_runtime_status(void)
     char test_width[12];
     char test_height[12];
     char test_bits[12];
+    char clock_status[24];
+    char core_clock_khz[16];
+    char memory_clock_khz[16];
+    char core_relation[32];
     ReleaseDC(0, display);
 
     v9x_active_mode[0] = '\0';
@@ -82,6 +143,32 @@ static void v9x_build_runtime_status(void)
     v9x_append(v9x_active_mode, sizeof(v9x_active_mode), " x ");
     v9x_append_uint(v9x_active_mode, sizeof(v9x_active_mode), bits);
     v9x_append(v9x_active_mode, sizeof(v9x_active_mode), " bpp");
+
+    GetPrivateProfileStringA("Velocity9xHardware", "Adapter",
+        "Unknown VGA adapter", v9x_adapter_name, sizeof(v9x_adapter_name),
+        "C:\\V9XHW.INI");
+    GetPrivateProfileStringA("Velocity9xHardware", "ClockStatus",
+        "unavailable", clock_status, sizeof(clock_status),
+        "C:\\V9XHW.INI");
+    GetPrivateProfileStringA("Velocity9xHardware", "CoreClockKHz", "",
+        core_clock_khz, sizeof(core_clock_khz), "C:\\V9XHW.INI");
+    GetPrivateProfileStringA("Velocity9xHardware", "MemoryClockKHz", "",
+        memory_clock_khz, sizeof(memory_clock_khz), "C:\\V9XHW.INI");
+    GetPrivateProfileStringA("Velocity9xHardware", "CoreClockRelation", "",
+        core_relation, sizeof(core_relation), "C:\\V9XHW.INI");
+    GetPrivateProfileStringA("Velocity9xHardware", "ClockDetector",
+        "none", v9x_clock_detector, sizeof(v9x_clock_detector),
+        "C:\\V9XHW.INI");
+    if (lstrcmpiA(clock_status, "valid") == 0) {
+        v9x_format_clock(v9x_core_clock, sizeof(v9x_core_clock),
+            core_clock_khz,
+            lstrcmpiA(core_relation, "shared-memory-clock") == 0);
+        v9x_format_clock(v9x_memory_clock, sizeof(v9x_memory_clock),
+                         memory_clock_khz, FALSE);
+    } else {
+        v9x_format_clock(v9x_core_clock, sizeof(v9x_core_clock), "", FALSE);
+        v9x_format_clock(v9x_memory_clock, sizeof(v9x_memory_clock), "", FALSE);
+    }
 
     GetPrivateProfileStringA("Velocity9x", "Stage", "not recorded",
                              v9x_driver_stage, sizeof(v9x_driver_stage),
@@ -124,8 +211,16 @@ static void v9x_build_runtime_status(void)
     v9x_report[0] = '\0';
     v9x_append(v9x_report, sizeof(v9x_report),
         "Velocity9x settings report\r\nBuild: " V9X_BUILD_ID
-        "\r\nTarget: S3 ViRGE/DX 86C375 (PCI 5333:8A01)\r\nActive mode: ");
+        "\r\nAdapter: ");
+    v9x_append(v9x_report, sizeof(v9x_report), v9x_adapter_name);
+    v9x_append(v9x_report, sizeof(v9x_report), "\r\nActive mode: ");
     v9x_append(v9x_report, sizeof(v9x_report), v9x_active_mode);
+    v9x_append(v9x_report, sizeof(v9x_report), "\r\nCore / engine clock: ");
+    v9x_append(v9x_report, sizeof(v9x_report), v9x_core_clock);
+    v9x_append(v9x_report, sizeof(v9x_report), "\r\nMemory clock: ");
+    v9x_append(v9x_report, sizeof(v9x_report), v9x_memory_clock);
+    v9x_append(v9x_report, sizeof(v9x_report), "\r\nClock detector: ");
+    v9x_append(v9x_report, sizeof(v9x_report), v9x_clock_detector);
     v9x_append(v9x_report, sizeof(v9x_report), "\r\nDriver stage: ");
     v9x_append(v9x_report, sizeof(v9x_report), v9x_driver_stage);
     v9x_append(v9x_report, sizeof(v9x_report), "\r\nFramebuffer: ");
@@ -248,19 +343,19 @@ static void v9x_create_controls(HWND window)
                       BS_GROUPBOX, 14, 106, 402, 126, 0);
     (void)v9x_control(window, "STATIC", "Adapter:",
                       SS_LEFT, 28, 127, 76, 18, 0);
-    (void)v9x_control(window, "STATIC", "S3 ViRGE/DX 86C375 (5333:8A01)",
+    (void)v9x_control(window, "STATIC", v9x_adapter_name,
                       SS_LEFT, 110, 127, 278, 18, 0);
-    (void)v9x_control(window, "STATIC", "Resolutions:",
-                      SS_LEFT, 28, 151, 76, 18, 0);
-    (void)v9x_control(window, "STATIC", "640x480, 800x600, 1024x768",
-                      SS_LEFT, 110, 151, 278, 18, 0);
-    (void)v9x_control(window, "STATIC", "Colour depths:",
-                      SS_LEFT, 28, 175, 76, 18, 0);
-    (void)v9x_control(window, "STATIC", "8-bit indexed, 16-bit RGB 5:6:5",
-                      SS_LEFT, 110, 175, 278, 18, 0);
     (void)v9x_control(window, "STATIC", "Active mode:",
-                      SS_LEFT, 28, 199, 76, 18, 0);
+                      SS_LEFT, 28, 151, 76, 18, 0);
     (void)v9x_control(window, "STATIC", v9x_active_mode,
+                      SS_LEFT, 110, 151, 278, 18, 0);
+    (void)v9x_control(window, "STATIC", "Core clock:",
+                      SS_LEFT, 28, 175, 76, 18, 0);
+    (void)v9x_control(window, "STATIC", v9x_core_clock,
+                      SS_LEFT, 110, 175, 278, 18, 0);
+    (void)v9x_control(window, "STATIC", "Memory clock:",
+                      SS_LEFT, 28, 199, 76, 18, 0);
+    (void)v9x_control(window, "STATIC", v9x_memory_clock,
                       SS_LEFT, 110, 199, 278, 18, 0);
 
     (void)v9x_control(window, "BUTTON", "Rendering and safety",

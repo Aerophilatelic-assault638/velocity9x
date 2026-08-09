@@ -52,6 +52,7 @@ $sources = @(
     @{ Name = "mode"; Path = "src\common\mode.c" },
     @{ Name = "resources"; Path = "src\common\resources.c" },
     @{ Name = "virge_backend"; Path = "src\chipsets\s3\virge\backend.c" },
+    @{ Name = "virge_clocks"; Path = "src\chipsets\s3\virge\clocks.c" },
     @{ Name = "display_component"; Path = "src\display16\display_component.c" },
     @{ Name = "loader"; Path = "src\display16\loader.c" },
     @{ Name = "ddi"; Path = "src\display16\ddi.c" }

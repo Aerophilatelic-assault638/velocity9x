@@ -11,6 +11,7 @@ $required = @(
     "docs\decisions\2026-08-08-active-640-candidate.md",
     "docs\specifications\win9x-driver-boundaries.md",
     "docs\specifications\logging-protocol.md",
+    "docs\specifications\hardware-diagnostics.md",
     "include\velocity9x\backend.h",
     "packaging\win98se\velocity9x.inf",
     "packaging\win98se\INSTALL.TXT",
@@ -28,6 +29,7 @@ $required = @(
     "scripts\build-active-package.ps1",
     "scripts\build-settings.ps1",
     "scripts\build-gdi-smoke.ps1",
+    "scripts\build-palette-smoke.ps1",
     "scripts\backup-86box-profile.ps1",
     "scripts\build-dos-serial-smoke.ps1",
     "scripts\build-win32-serial-smoke.ps1",
@@ -37,6 +39,7 @@ $required = @(
     "src\common\mode.c",
     "src\common\resources.c",
     "src\chipsets\s3\virge\backend.c",
+    "src\chipsets\s3\virge\clocks.c",
     "src\display16\display_component.c",
     "src\display16\loader.c",
     "src\display16\ddi.c",
@@ -52,7 +55,8 @@ $required = @(
     "tools\diag\vxd_probe_win32.c",
     "tools\diag\win16_driver_loader.c",
     "tools\diag\settings_win32.c",
-    "tools\diag\gdi_smoke_win32.c"
+    "tools\diag\gdi_smoke_win32.c",
+    "tools\diag\palette_smoke_win32.c"
 )
 
 $missing = @($required | Where-Object {
