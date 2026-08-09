@@ -110,6 +110,18 @@ then created `0001\CURRENT` with values matching `DEFAULT`. The import file is
 `tools/diag/V9XCUR1.REG`; it is deliberately specific to this lab VM's confirmed
 display instance.
 
+Two anomalies in this data are worth recording:
+
+- The observed `0001\DEFAULT` value `RefreshRate = 0` does not match the
+  generated INF, which writes `HKR,DEFAULT,RefreshRate,,-1`. Either the value
+  above was transcribed loosely, or the observed `DEFAULT` key was not written
+  verbatim by the current INF — the latter would itself be evidence of a stale
+  or partial installation.
+- The INF's `[Velocity9x.Previous]` section performs `DelReg` on `HKR,CURRENT`
+  before the `AddReg` section runs. A setupx DelReg/AddReg ordering quirk is a
+  plausible mechanism for the missing `CURRENT` key, independent of the boot
+  failure.
+
 The next cold boot still fell back and produced no trace. Therefore the absent
 `CURRENT` key was a real installation anomaly but was not the sole cause of the
 boot failure.
@@ -126,6 +138,16 @@ Established:
   `v9xdisp.drv`, `v9xmini.vxd`, and 800x600x8;
 - the cold boot does not reach a trace point in the traced DRV, or does not use
   that exact traced copy of the DRV.
+
+A designed limitation of the INI trace: the earliest stage write
+(`query-start`) sits inside the `Enable` entry point in
+`src/display16/ddi.c`; `LibMain` writes nothing to `C:\V9XBOOT.INI`. The
+absence of the file therefore cannot distinguish "DRV never loaded" from "DRV
+loaded but Windows never called `Enable`". The existing discriminator is the
+COM1 serial output (see check 2 below): `LibMain` emits
+`V9X-DRV load build=<id>` over serial even when `Enable` is never called. If
+driver changes resume, a `LibMain`-stage INI marker would be the first
+candidate addition.
 
 Not yet established:
 
@@ -157,7 +179,41 @@ Record whether each command reports no differences, a size difference, or a
 missing file. A mismatch would explain the missing boot trace without requiring
 any further registry theory.
 
-### 2. Identify the S3 PCI hardware-enumeration binding
+This check has a known concrete failure mode: the folder-CD root `D:\` carries
+a *different*, same-named `V9XDISP.DRV`/`V9XMINI.VXD` pair placed there by
+`scripts/prepare-vm-probe.ps1` (DRV SHA-256 prefix `BBB4DFED`). That probe
+build deliberately fails initialization and must never be installed. If any
+(re)install was ever pointed at `D:\` instead of `D:\ACTIVE`, the guest holds
+the wrong binary and the silent fallback with no trace is fully explained; the
+`FC /B` commands above would catch this.
+
+### 2. Capture COM1 serial output during one failed cold boot
+
+Configure 86Box to log the guest's COM1 to a host file, then perform one cold
+boot into the failing state. No guest-side changes are required. The expected
+lines, in boot order, are:
+
+```text
+V9X-MINI init build=<id>
+V9X-MINI defaults-ok callbacks=0 build=<id>   (or: V9X-MINI init-fail build=<id>)
+V9X-DRV load build=<id>
+```
+
+Interpretation:
+
+- `V9X-DRV load` present but no `C:\V9XBOOT.INI`: the DRV loaded but Windows
+  never called `Enable` — the rejection happens after load, during display
+  (re)configuration.
+- `V9X-MINI` lines present but no `V9X-DRV load`: the mini-VDD loads at boot
+  but the display DRV is never loaded — points at driver/class selection.
+- No serial output at all: the mini-VDD is not loading either — points at
+  Config Manager/PnP enumeration binding (check 3).
+
+This is the only pre-DRV boot instrumentation in the system and directly
+resolves the disjunction stated above, so it should be run before the registry
+checks.
+
+### 3. Identify the S3 PCI hardware-enumeration binding
 
 In Registry Editor, locate the S3 node beneath:
 
@@ -175,7 +231,7 @@ the complete device-instance key, especially these values when present:
 If `Driver` points to `Display\0000`, an absent instance, or anything other than
 `Display\0001`, that binding takes priority over editing `0001\CURRENT`.
 
-### 3. Inspect the active hardware-profile display settings
+### 4. Inspect the active hardware-profile display settings
 
 Export or photograph these keys if present:
 
@@ -187,7 +243,7 @@ HKEY_LOCAL_MACHINE\Config\0001\Display\Settings
 Record `BitsPerPixel`, `Resolution`, `RefreshRate`, and any adapter/device
 selection values. Do not edit them yet.
 
-### 4. Inspect the legacy display-loader setting
+### 5. Inspect the legacy display-loader setting
 
 At a DOS prompt run:
 
@@ -199,7 +255,7 @@ Record the exact result. On a PnP-managed Windows 98 installation this may name
 the PnP display loader rather than the final vendor DRV; the result is evidence,
 not an instruction to edit `SYSTEM.INI`.
 
-### 5. Collect boot-loader evidence
+### 6. Collect boot-loader evidence
 
 If normal boot logging can be enabled without entering Safe Mode, retain
 `C:\BOOTLOG.TXT` from one failed cold boot and search it for:
@@ -217,10 +273,12 @@ depends on a normal Windows boot.
 ## Working diagnosis
 
 The leading diagnosis is that Windows 98 is selecting or rejecting the display
-device before entering the traced Velocity9x DRV. The most useful discriminator
-is now the combination of an exact installed-file comparison and the S3 PCI
-enumeration node's `Driver` binding. If both are correct, hardware-profile and
-boot-log evidence should be collected before modifying the driver again.
+device before entering the traced Velocity9x DRV. The most useful
+discriminators are now the exact installed-file comparison (which also rules
+out the decoy `D:\` probe binaries), the COM1 serial capture from one failed
+cold boot, and the S3 PCI enumeration node's `Driver` binding. If all three
+are clean, hardware-profile and boot-log evidence should be collected before
+modifying the driver again.
 
 The 800x600 implementation itself remains unproven in the guest: the present
 failure occurs too early to count as either a pass or a hardware-mode failure.
