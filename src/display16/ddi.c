@@ -42,6 +42,7 @@ extern WORD FAR PASCAL V9xHardwareStage(void);
 extern WORD FAR PASCAL V9xHardwareReset(void);
 extern DWORD FAR PASCAL V9xHardwareBase(void);
 extern void FAR PASCAL V9xHardwareDisable(void);
+extern WORD FAR PASCAL V9xVddPreMode(void);
 extern WORD FAR PASCAL V9xVddRegister(void);
 extern void FAR PASCAL V9xVddPostMode(void);
 extern void FAR PASCAL V9xVddUnregister(void);
@@ -96,6 +97,7 @@ static void v9x_trace_hardware_failure(void)
     case 5u: v9x_boot_trace("fail-hardware-dpmi-map"); break;
     case 6u: v9x_boot_trace("fail-hardware-selector-base"); break;
     case 7u: v9x_boot_trace("fail-hardware-selector-limit"); break;
+    case 8u: v9x_boot_trace("fail-hardware-s3-linear-aperture"); break;
     default: v9x_boot_trace("fail-hardware-unknown"); break;
     }
 }
@@ -406,6 +408,11 @@ static WORD v9x_build_pdevice(LPVOID device_info,
     if (V9xHardwarePresent() == 0u) {
         v9x_boot_trace("fail-hardware-present");
         v9x_serial_write("V9X-DRV enable-fail stage=device-id\r\n");
+        return 0u;
+    }
+    if (V9xVddPreMode() == 0u) {
+        v9x_boot_trace("fail-vdd-pre-mode");
+        v9x_serial_write("V9X-DRV enable-fail stage=vdd-pre-mode\r\n");
         return 0u;
     }
     v9x_screen_selector = V9xHardwareEnable();

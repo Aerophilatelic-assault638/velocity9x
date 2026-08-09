@@ -35,6 +35,7 @@ VDD_DRIVER_REGISTER    EQU 0080h
 VDD_DRIVER_UNREGISTER  EQU 0081h
 VDD_SAVE_DRIVER_STATE  EQU 0082h
 VDD_GET_DISPLAY_CONFIG EQU 0085h
+VDD_PRE_MODE_CHANGE    EQU 0086h
 VDD_POST_MODE_CHANGE   EQU 0087h
 STOP_IO_TRAP           EQU 4000h
 START_IO_TRAP          EQU 4007h
@@ -135,6 +136,35 @@ V9xVddGetConfigDone:
     retf    4
 V9XVDDGETDISPLAYCONFIG ENDP
 
+PUBLIC V9XVDDPREMODE
+V9XVDDPREMODE PROC FAR
+    push    bx
+    push    cx
+    push    dx
+    push    si
+    push    di
+    push    es
+
+    call    V9xVddInitialize
+    or      ax, ax
+    jz      short V9xVddPreModeFailed
+    mov     eax, VDD_PRE_MODE_CHANGE
+    movzx   ebx, V9xVmHandle
+    call    dword ptr V9xVddEntryPoint
+    mov     ax, 1
+    jmp     short V9xVddPreModeDone
+V9xVddPreModeFailed:
+    xor     ax, ax
+V9xVddPreModeDone:
+    pop     es
+    pop     di
+    pop     si
+    pop     dx
+    pop     cx
+    pop     bx
+    retf
+V9XVDDPREMODE ENDP
+
 PUBLIC V9XVDDREGISTER
 V9XVDDREGISTER PROC FAR
     push    bx
@@ -224,7 +254,10 @@ V9XVDDUNREGISTER ENDP
 V9xSetVbeMode PROC NEAR
     mov     ax, 4f02h
     mov     bx, _v9x_active_vbe_mode
-    or      bx, 4000h
+    ; The Windows 98 S3 ViRGE sample uses the S3/VBE no-clear flag for these
+    ; modes. It only requests the generic VBE linear-framebuffer bit on GX2,
+    ; not on the 86C375 ViRGE/DX targeted here.
+    or      bx, 8000h
     int     10h
     cmp     ax, 004fh
     jne     short V9xSetVbeModeFailed
@@ -297,6 +330,34 @@ V9xReadS3ApertureFailed:
     ret
 V9xReadS3Aperture ENDP
 
+V9xEnableS3LinearAperture PROC NEAR
+    ; Unlock the S3 system-extension registers, select a 4-MiB aperture in
+    ; CR58[1:0], and explicitly enable linear addressing in CR58[4]. This is
+    ; the sequence used by the Windows 98 S3 display sample after 4F02h.
+    mov     dx, 03d4h
+    mov     ax, 4838h
+    out     dx, ax
+    mov     ax, 0a039h
+    out     dx, ax
+
+    mov     al, 58h
+    out     dx, al
+    inc     dx
+    in      al, dx
+    and     al, 0fch
+    or      al, 13h
+    out     dx, al
+    in      al, dx
+    and     al, 13h
+    cmp     al, 13h
+    jne     short V9xEnableS3LinearApertureFailed
+    mov     ax, 1
+    ret
+V9xEnableS3LinearApertureFailed:
+    xor     ax, ax
+    ret
+V9xEnableS3LinearAperture ENDP
+
 PUBLIC V9XHARDWAREENABLE
 V9XHARDWAREENABLE PROC FAR
     push    bx
@@ -325,6 +386,15 @@ V9xHardwareModeSet:
     jnz     short V9xHardwareBaseValid
     jmp     V9xHardwareEnableDone
 V9xHardwareBaseValid:
+    mov     V9xHardwareStageCode, 8
+    push    eax
+    call    V9xEnableS3LinearAperture
+    mov     dx, ax
+    pop     eax
+    or      dx, dx
+    jnz     short V9xHardwareApertureEnabled
+    jmp     V9xHardwareEnableDone
+V9xHardwareApertureEnabled:
     mov     V9xHardwareStageCode, 4
 
     cmp     V9xScreenSelector, 0
@@ -419,6 +489,10 @@ PUBLIC V9XHARDWARERESET
 V9XHARDWARERESET PROC FAR
     push    bx
     call    V9xSetVbeMode
+    or      ax, ax
+    jz      short V9xHardwareResetDone
+    call    V9xEnableS3LinearAperture
+V9xHardwareResetDone:
     pop     bx
     retf
 V9XHARDWARERESET ENDP

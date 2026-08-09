@@ -49,8 +49,6 @@ $defaultMode = if ($ForceModeIndex -ge 0) {
 }
 $infText = $infText.Replace('DEFAULT,Mode,,"8,640,480"',
                             "DEFAULT,Mode,,`"$defaultMode`"")
-$infText = $infText.Replace('CURRENT,Mode,,"8,640,480"',
-                            "CURRENT,Mode,,`"$defaultMode`"")
 $infText = $infText.Replace('Provider=%Provider%',
                             'Provider="Velocity9x Project"')
 $infText = $infText.Replace('1=%DiskName%,,0',
@@ -78,15 +76,18 @@ foreach ($forbidden in @('MODES\24',
 }
 foreach ($required in @('v9xdisp.drv', 'v9xmini.vxd',
                          "DEFAULT,Mode,,`"$defaultMode`"",
-                         "CURRENT,Mode,,`"$defaultMode`"",
-                         'CURRENT,drv,,v9xdisp.drv',
                          'MODES\8\640,480', 'MODES\8\800,600',
                          'MODES\8\1024,768', 'MODES\16\640,480',
                          'MODES\16\800,600', 'MODES\16\1024,768',
-                         'DEFAULT,vdd,,"*vdd,*vflatd"')) {
+                         'DEFAULT,vdd,,"*vdd,*vflatd"',
+                         'DEFAULT,RefreshRate,,0',
+                         'DEFAULT,PCIRebalance,,1')) {
     if ($infText.IndexOf($required, [StringComparison]::OrdinalIgnoreCase) -lt 0) {
         throw "The active INF is missing required entry $required."
     }
+}
+if ($infText -match '(?im)^HKR,CURRENT,') {
+    throw "The active INF must let Windows create the volatile CURRENT display key."
 }
 
 New-Item -ItemType Directory -Force -Path $outputDir | Out-Null

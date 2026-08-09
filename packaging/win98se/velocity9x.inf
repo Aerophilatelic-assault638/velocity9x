@@ -47,15 +47,9 @@ HKR,DEFAULT,drv,,v9xdisp.drv
 HKR,DEFAULT,drv2,,v9xdisp.drv
 HKR,DEFAULT,vdd,,"*vdd,*vflatd"
 HKR,DEFAULT,minivdd,,v9xmini.vxd
-HKR,DEFAULT,RefreshRate,,-1
+HKR,DEFAULT,RefreshRate,,0
+HKR,DEFAULT,PCIRebalance,,1
 HKR,DEFAULT,ExtModeSwitch,,0
-HKR,CURRENT,Mode,,"8,640,480"
-HKR,CURRENT,drv,,v9xdisp.drv
-HKR,CURRENT,drv2,,v9xdisp.drv
-HKR,CURRENT,vdd,,"*vdd,*vflatd"
-HKR,CURRENT,minivdd,,v9xmini.vxd
-HKR,CURRENT,RefreshRate,,-1
-HKR,CURRENT,ExtModeSwitch,,0
 HKR,"MODES\4\640,480",drv,,vga.drv
 HKR,"MODES\4\640,480",vdd,,*vdd
 HKR,"MODES\8\640,480",,,60

@@ -1,39 +1,56 @@
 # 800x600 boot fallback investigation
 
-Status: open; pause mode-programming changes pending Windows 98 configuration
-diagnosis. The `trace4` diagnostic rebuild (trace-only, adds the `libmain`
-stage and checks the profile-write result) is staged in `D:\ACTIVE`.
+Status: open; `trace6-loader` proved that the canonical display DRV loads and
+isolated the fallback to the BIOS VBE mode-set call. `trace7-s3-law` replaces
+the inappropriate generic VBE LFB request with the S3 ViRGE/DX sequence from
+the Windows 98 DDK and is staged in `D:\ACTIVE` for one controlled cold boot.
 
 Recorded: 2026-08-09; updated 2026-08-09 after host-side review fixes
 
 ## Summary
 
-The current diagnostic package does not become the active Windows 98 display
-driver during boot. Windows reaches the desktop in its 640x480x16-colour
-troubleshooting fallback instead of the forced 800x600x8 mode. After deleting
-the previous trace file and performing a full shutdown and cold boot,
-`C:\V9XBOOT.INI` was not created.
+The canonical `trace6-loader` package reached the display DRV at boot. Its
+serial trace reported `enable-fail stage=mode-map`, and its INI marker was
+`Stage=fail-hardware-vbe-mode`. The failure is therefore the `INT 10h,
+AX=4F02h` request, not device binding, NE loading, DIB inquiry, or mode-table
+validation.
 
-This is currently a pre-entry/install-selection problem, not evidence that the
-800x600 hardware-mode code failed. The same traced `V9XDISP.DRV`, when loaded
-manually with `V9X16LD.EXE`, completes its DIB Engine inquiry and six-mode
-validation and writes `Stage=query-ok` to `C:\V9XBOOT.INI`.
+The same traced `V9XDISP.DRV`, when loaded manually with `V9X16LD.EXE`,
+completed its DIB Engine inquiry and six-mode validation and wrote
+`Stage=query-ok` to `C:\V9XBOOT.INI`. Absence of the early profile marker at
+boot remains inconclusive because that write can fail before the desktop is
+available.
 
-Do not make further mode-programming changes until the active Windows display
-class and hardware-profile bindings have been identified.
+The active S3 PCI enumeration node has now been identified and is correctly
+bound to `Display\0001`, with display class GUID, `ConfigFlags=0`,
+`FailReason=0`, and the expected PCI hardware ID. PnP/class binding is no
+longer the leading diagnosis.
 
 ## Current diagnostic package
 
-- Build ID: `diag-force-800x600x8-trace4`
+- Build ID: `diag-force-800x600x8-trace7-s3-law`
 - Staged guest directory: `D:\ACTIVE`
 - Host directory: `C:\everything\velocity9x\build\vm-probe\ACTIVE`
-- `V9XDISP.DRV` SHA-256:
-  `47A14D4DA0E0591BD658570A7620726CDAD90A08AB36DA46934C28AC186C8504`
+- `V9XDISP.DRV`: 8,852 bytes, SHA-256
+  `39D270A6DF3E07E098068B0F61E999A025AB75C13375D1CF54BA2AEF1C5C0C55`
+- `V9XMINI.VXD`: 4,748 bytes, SHA-256
+  `BC19C95AC8B7656FDF8A1DDBCD21EEEA5A72EABD52C9B9DD8A3F3DA3B4922279`
 - Compile-time forced mode index: `1`, corresponding to 800x600x8
 - Boot tracing: enabled; expected output is `C:\V9XBOOT.INI`
-- New in `trace4`: `LibMain` tries to write `Stage=libmain` to
-  `C:\V9XBOOT.INI` the moment the DRV is loaded, before Windows decides whether
-  to call `Enable`; a failed profile write also emits a best-effort serial line
+- Retained from `trace5-pre`: immediately before the BIOS mode set, the DRV
+  calls `VDD_PRE_MODE_CHANGE` as required by the Windows 98 DDK and by
+  `vmdisp9x`. The INF deletes stale `CURRENT` state but does not pre-populate
+  values in that volatile key.
+- Retained from `trace6-loader`: the DRV uses explicit `DriverInit`, `initglobal`,
+  internal module name `DISPLAY`, and a fixed/preloaded single data segment.
+  The ordinary C DLL startup and `LibMain` have been removed
+- New in `trace7-s3-law`: mode `0103h` is requested with S3's `8000h`
+  no-clear flag instead of generic VBE bit `4000h`. After the BIOS accepts the
+  mode, the DRV reads the aperture base from `CR59/CR5A`, selects the configured
+  4-MiB aperture, enables linear addressing through `CR58`, and verifies the
+  `CR58` bits by reading them back.
+- New failure marker: `Stage=fail-hardware-s3-linear-aperture` distinguishes a
+  successful BIOS mode set followed by failed `CR58` programming.
 - Dynamic in-session mode switching: disabled
 
 The superseded `trace2` DRV (SHA-256
@@ -90,6 +107,21 @@ A cold VM backup predating activation is available at:
 
 8. After a clean deletion of `C:\V9XBOOT.INI`, a full shutdown, and another
    boot, Windows again used 640x480x16 and did not recreate the file.
+9. The canonical `trace6-loader` build then produced both ring-0 and display
+   DRV serial output. The decisive lines were:
+
+   ```text
+   V9X-MINI init build=diag-force-800x600x8-trace6-loader
+   V9X-MINI defaults-ok callbacks=0 build=diag-force-800x600x8-trace6-loader
+   V9X-DRV load build=diag-force-800x600x8-trace6-loader
+   V9X-DRV enable-fail stage=mode-map
+   ```
+
+   `C:\V9XBOOT.INI` contained `Stage=fail-hardware-vbe-mode`.
+10. Review of `C:\98DDK\src\display\mini\s3v\VGA.ASM` showed that the
+    ViRGE path does not set generic VBE LFB bit `4000h`; it sets `8000h`, reads
+    `CR59/CR5A`, and explicitly configures and enables the linear aperture in
+    `CR58`. This is the narrowly scoped change in `trace7-s3-law`.
 
 ## Registry evidence
 
@@ -325,15 +357,49 @@ depends on a normal Windows boot.
 
 ## Working diagnosis
 
-The leading diagnosis is that Windows 98 is selecting or rejecting the display
-device before entering the traced Velocity9x DRV. The existing COM1 captures
-already narrow this: the mini-VDD loads even on failed boots, so Windows reads
-the Velocity9x configuration but does not load (or does not use) the display
-DRV. The most useful discriminators are now the exact installed-file
-comparison (which also rules out the pre-move decoy probe binaries), one
-`trace4` cold boot read for the `Stage=libmain` marker, and the S3 PCI
-enumeration node's `Driver` binding. If all three are clean, hardware-profile
-and boot-log evidence should be collected before modifying the driver again.
+The S3 PCI enumeration node proves that Windows binds the physical adapter to
+Velocity9x `Display\0001` without a Config Manager failure. Review of both
+`C:\everything\vmdisp9x` and the Windows 98 DDK found that they issue
+`VDD_PRE_MODE_CHANGE` immediately before programming a display mode. Velocity9x
+did not. The omission is especially relevant because the known-good 640 mode
+could succeed while already close to the firmware/standard-VGA starting state,
+whereas the first transition to 800x600 consistently falls back.
 
-The 800x600 implementation itself remains unproven in the guest: the present
-failure occurs too early to count as either a pass or a hardware-mode failure.
+The reference INF also deletes `CURRENT` and writes only `DEFAULT`; Windows
+creates `CURRENT` as runtime state. Velocity9x had begun pre-populating both
+keys during the debugging cycle. `trace5-pre` corrects both discrepancies
+without changing the DRV's NE linker model, DIB PDevice construction, or mode
+table, keeping the next boot narrowly attributable.
+
+## Resolution: trace7 S3 linear-aperture boot
+
+`diag-force-800x600x8-trace7-s3-law` passed the target stage on 2026-08-09.
+The decisive clean test began from a healthy stock S3 boot and performed a
+non-destructive merge into the existing `Display\0001` PnP instance. The
+installed DRV and mini-VDD were byte-compared with the staged package before
+reboot. Windows retained `display.drv=pnpdrvr.drv`; no direct `SYSTEM.INI`
+replacement was required.
+
+Boot 18 reconnected through the remote agent at 800x600x8 and reached an
+Explorer-ready desktop. `C:\V9XBOOT.INI` contained `Stage=enable-ok`. The GDI
+framebuffer test reported PASS for display writes, BitBlt, and tolerant pixel
+readback. Boot 19 repeated the cold-start path and again reached an
+Explorer-ready 800x600x8 desktop with `Stage=enable-ok`.
+
+The earlier apparent regression to the stock S3 driver was a Windows Registry
+Checker rollback after an interrupted/unclean installation cycle. It was not
+evidence that trace7 had executed and failed. The reliable activation retained
+the stock S3 class entry's `PCIRebalance=1` policy and selected automatic
+refresh (`RefreshRate=0`); both values are now explicit in the Velocity9x INF.
+
+Evidence is retained beneath
+`build/driver-results/trace7-s3-law/boot18` and `boot19`. The stage proves the
+800x600x8 linear-framebuffer path and software GDI after two consecutive boots.
+It does not yet prove the complete Phase 3 mode matrix or live mode switching.
+
+All DDK display samples and `vmdisp9x` use an explicit `DriverInit` entry,
+`initglobal`, module name `DISPLAY`, and fixed single data. Velocity9x still
+uses ordinary `LibMain`, `initinstance`, module name `v9xdisp`, and movable
+shared data. This is a real conformance gap, but the preserved guest-proven
+`active-640-vdd1` binary has the same layout. It is therefore deferred to a
+separate test rather than being mixed into `trace5-pre`.

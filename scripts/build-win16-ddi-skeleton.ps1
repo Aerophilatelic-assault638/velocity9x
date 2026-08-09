@@ -30,8 +30,9 @@ $linker = Join-Path $watcomRoot "binnt\wlink.exe"
 $dumper = Join-Path $watcomRoot "binnt64\wdump.exe"
 $disassembler = Join-Path $watcomRoot "binnt64\wdis.exe"
 $dibEngineLibrary = Join-Path $DdkRoot "lib\win98\DIBENG.LIB"
+$runtimeLibrary = Join-Path $watcomRoot "lib286\win\clibc.lib"
 $requiredTools = @($compiler, $assembler, $linker, $dumper, $disassembler,
-                   $dibEngineLibrary)
+                   $dibEngineLibrary, $runtimeLibrary)
 $missingTools = @($requiredTools | Where-Object {
     -not (Test-Path -LiteralPath $_)
 })
@@ -60,7 +61,7 @@ foreach ($source in $sources) {
     $sourcePath = Join-Path $repoRoot $source.Path
     $objectPath = Join-Path $outputDir "$($source.Name).obj"
     $arguments = @(
-        "-bt=windows", "-mc", "-zu", "-zc", "-bd", "-zq", "-wx",
+        "-bt=windows", "-mc", "-zu", "-zc", "-zls", "-s", "-zq", "-wx",
         "-i=$includeDir", "-i=$(Join-Path $repoRoot 'src\display16')",
         "-dV9X_BUILD_ID=`"$BuildId`"",
         "-fo=$objectPath", $sourcePath
@@ -99,12 +100,15 @@ $mapPath = Join-Path $outputDir "v9xdisp.map"
 $linkFile = Join-Path $outputDir "v9xdisp.lnk"
 $objectNames = @($sources.Name) + @("dib_thunks", "runtime")
 $linkLines = @(
-    "system windows dll initinstance memory",
+    "system windows dll initglobal",
     "name '$driverPath'",
+    "option start=DriverInit_",
+    "option modname=DISPLAY",
     "option map='$mapPath'",
     "option caseexact",
     "option oneautodata",
     "option heapsize=1024",
+    "segment type data preload fixed",
     "segment '_TEXT' preload fixed shared"
 )
 $linkLines += $objectNames | ForEach-Object {
@@ -112,7 +116,7 @@ $linkLines += $objectNames | ForEach-Object {
 }
 $linkLines += @(
     "libfile '$dibEngineLibrary'",
-    "libfile libentry",
+    "library '$runtimeLibrary'",
     "reference RESETHIRESMODE",
     "export BitBlt.1", "export ColorInfo.2", "export Control.3",
     "export Disable.4=DISABLE", "export Enable.5=ENABLE", "export EnumDFonts.6",
@@ -170,7 +174,22 @@ if ($image -notmatch "DIBENG") {
 if ($image -notmatch "CODE\|FIXED\|SHARE\|PRELOAD") {
     throw "The Win16 DDI code segment is not fixed, shared, and preloaded."
 }
+if ($image -notmatch "DATA\|FIXED\|(SHARE\|)?PRELOAD\|READWRITE") {
+    throw "The Win16 DDI data segment is not fixed and preloaded."
+}
+if ($image -notmatch "(?m)^DISPLAY\s+unknown ordinal 0000$") {
+    throw "The Win16 DDI internal module name is not DISPLAY."
+}
 $mapText = Get-Content -LiteralPath $mapPath -Raw
+if ($mapText -notmatch "(?m)^.*DriverInit.*$") {
+    throw "The Win16 DDI map is missing the DriverInit entry point."
+}
+foreach ($forbiddenStartup in @('__DLLstart_', 'WINMAIN', 'DEFAULTWINMAIN',
+                                 'main_')) {
+    if ($mapText -match [regex]::Escape($forbiddenStartup)) {
+        throw "The Win16 DDI pulled forbidden C startup symbol $forbiddenStartup."
+    }
+}
 if ($BootTrace) {
     if ($mapText -notmatch "WRITEPRIVATEPROFILESTRING\s+KERNEL") {
         throw "The traced Win16 DDI does not import WritePrivateProfileString."
@@ -186,7 +205,7 @@ if ($BootTrace) {
 $requiredRuntimeSymbols = @(
     "V9XHARDWAREPRESENT", "V9XHARDWAREENABLE", "V9XHARDWAREDISABLE",
     "V9XHARDWARESTAGE",
-    "V9XVDDGETDISPLAYCONFIG", "V9XVDDREGISTER", "V9XVDDUNREGISTER",
+    "V9XVDDGETDISPLAYCONFIG", "V9XVDDPREMODE", "V9XVDDREGISTER", "V9XVDDUNREGISTER",
     "V9XVDDPOSTMODE",
     "V9XCREATEDIBPDEVICECALL", "V9XDIBSETPALETTETRANSLATECALL",
     "DIB_EnumObjExt", "DIB_RealizeObjectExt",
@@ -202,17 +221,22 @@ foreach ($symbol in $requiredRuntimeSymbols) {
 $runtimeDisassembly = (& $disassembler "-a" $runtimeObject 2>&1) -join "`n"
 foreach ($instruction in @(
     'mov\s+eax,80H', 'mov\s+eax,81H', 'mov\s+eax,82H',
-    'mov\s+eax,85H', 'mov\s+eax,87H',
+    'mov\s+eax,85H', 'mov\s+eax,86H', 'mov\s+eax,87H',
     'push\s+esi', 'push\s+edi',
     'movzx\s+edi,word ptr 6\[bp\]',
     'xor\s+edx,edx',
     'mov\s+ecx,dword ptr DGROUP:_v9x_active_visible_bytes',
     'mov\s+bx,word ptr DGROUP:_v9x_active_vbe_mode',
+    'or\s+bx,8000H',
+    'mov\s+al,58H', 'and\s+al,0FCH', 'or\s+al,13H',
     'mov\s+ax,seg RESETHIRESMODE', 'int\s+2fH'
 )) {
     if ($runtimeDisassembly -notmatch $instruction) {
         throw "The Win16 runtime is missing audited VDD handoff instruction $instruction."
     }
+}
+if ($runtimeDisassembly -match 'or\s+bx,4000H') {
+    throw "The ViRGE/DX runtime must not request the GX2-only VBE LFB flag."
 }
 
 $thunkDisassembly = (& $disassembler "-a" $thunkObject 2>&1) -join "`n"
