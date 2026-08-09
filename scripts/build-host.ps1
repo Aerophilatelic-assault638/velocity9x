@@ -39,11 +39,13 @@ New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
 $executable = Join-Path $outputDir "v9x-host-tests.exe"
 $sourceNames = @(
     "src\common\build.c",
+    "src\common\backend_registry.c",
     "src\common\mode.c",
     "src\common\log.c",
     "src\common\resources.c",
     "src\chipsets\s3\virge\backend.c",
     "src\chipsets\s3\virge\clocks.c",
+    "src\chipsets\matrox\millennium2\mga2_backend.c",
     "src\display16\display_component.c",
     "src\minivdd32\minivdd_component.c",
     "tests\host\test_main.c"

@@ -3,6 +3,8 @@
 
 #include "velocity9x/build.h"
 #include "velocity9x/components.h"
+#include "velocity9x/backend_registry.h"
+#include "velocity9x/matrox_millennium2.h"
 #include "velocity9x/s3_virge.h"
 
 static unsigned int failures = 0u;
@@ -363,6 +365,54 @@ static void test_s3_virge_clock_decode(void)
           V9X_STATUS_INVALID_ARGUMENT);
 }
 
+static void test_backend_registry_and_millennium2(void)
+{
+    struct v9x_backend_state state;
+    struct v9x_pci_identity pci;
+    struct v9x_pci_bar_resource bar;
+    struct v9x_mode_request request;
+    struct v9x_mode_layout layout;
+    const struct v9x_backend_ops *ops;
+
+    memset(&state, 0, sizeof(state));
+    pci.vendor_id = V9X_PCI_VENDOR_MATROX;
+    pci.device_id = V9X_PCI_DEVICE_MILLENNIUM_II;
+    pci.revision = 0u;
+    ops = v9x_backend_for_pci(&pci);
+    CHECK(ops == v9x_matrox_millennium2_backend());
+    CHECK(ops->probe(&state, &pci) == V9X_STATUS_OK);
+    CHECK(state.initialized == V9X_TRUE);
+    CHECK(state.pci.vendor_id == 0x102bu);
+    CHECK(state.pci.device_id == 0x051bu);
+
+    bar.physical_base = 0xe0000000ul;
+    bar.aperture_bytes = 16ul * 1024ul * 1024ul;
+    bar.flags = V9X_PCI_BAR_MEMORY | V9X_PCI_BAR_PREFETCHABLE;
+    CHECK(ops->bind_framebuffer(&state, &bar, 8ul * 1024ul * 1024ul, 0ul) ==
+          V9X_STATUS_OK);
+    CHECK(state.vram_bytes == 8ul * 1024ul * 1024ul);
+    CHECK(state.capabilities == 0ul);
+
+    request.width = 1024u;
+    request.height = 768u;
+    request.bits_per_pixel = 16u;
+    request.pitch_alignment = 8u;
+    request.framebuffer_bytes = 1ul;
+    CHECK(ops->validate_mode(&state, &request, &layout) == V9X_STATUS_OK);
+    CHECK(layout.pitch_bytes == 2048ul);
+
+    pci.device_id = 0x051au; /* Mystique is a separate future backend. */
+    CHECK(v9x_backend_for_pci(&pci) == 0);
+    CHECK(v9x_matrox_millennium2_probe(&state, &pci) ==
+          V9X_STATUS_UNSUPPORTED);
+    CHECK(state.initialized == V9X_FALSE);
+
+    pci.vendor_id = V9X_PCI_VENDOR_S3;
+    pci.device_id = V9X_PCI_DEVICE_VIRGE_DX;
+    CHECK(v9x_backend_for_pci(&pci) == v9x_s3_virge_backend());
+    CHECK(v9x_backend_for_pci(0) == 0);
+}
+
 static void test_components_and_log(void)
 {
     struct capture_sink sink;
@@ -412,6 +462,7 @@ int main(void)
     test_framebuffer_resource_properties();
     test_probe_is_strict();
     test_s3_virge_clock_decode();
+    test_backend_registry_and_millennium2();
     test_components_and_log();
     test_build_identity();
 
