@@ -36,6 +36,17 @@ $firstBootSource = Join-Path $repoRoot "packaging\win98se\FIRSTBOOT.TXT"
 $normalRepairSource = Join-Path $repoRoot "packaging\win98se\V9XFIX.BAT"
 $normalRepairInfSource = Join-Path $repoRoot "packaging\win98se\V9XFIX.INF"
 $infText = Get-Content -LiteralPath $infSource -Raw
+$forcedModes = @(
+    "8,640,480", "8,800,600", "8,1024,768",
+    "16,640,480", "16,800,600", "16,1024,768"
+)
+$defaultMode = if ($ForceModeIndex -ge 0) {
+    $forcedModes[$ForceModeIndex]
+} else {
+    "8,640,480"
+}
+$infText = $infText.Replace('DEFAULT,Mode,,"8,640,480"',
+                            "DEFAULT,Mode,,`"$defaultMode`"")
 
 $hardwareIds = @([regex]::Matches(
     $infText, 'PCI\\VEN_[0-9A-Fa-f]{4}&DEV_[0-9A-Fa-f]{4}') |
@@ -51,7 +62,7 @@ foreach ($forbidden in @('MODES\24',
     }
 }
 foreach ($required in @('v9xdisp.drv', 'v9xmini.vxd',
-                         'DEFAULT,Mode,,"8,640,480"',
+                         "DEFAULT,Mode,,`"$defaultMode`"",
                          'MODES\8\640,480', 'MODES\8\800,600',
                          'MODES\8\1024,768', 'MODES\16\640,480',
                          'MODES\16\800,600', 'MODES\16\1024,768',
@@ -76,8 +87,8 @@ Copy-Item -LiteralPath (Join-Path $repoRoot "build\win16-loader-probe\v9x16ld.ex
     -Destination (Join-Path $outputDir "V9X16LD.EXE") -Force
 Copy-Item -LiteralPath (Join-Path $repoRoot "build\driver-stage-probe\v9xstage.exe") `
     -Destination (Join-Path $outputDir "V9XSTAGE.EXE") -Force
-Copy-Item -LiteralPath $infSource `
-    -Destination (Join-Path $outputDir "VELOCITY9X.INF") -Force
+Set-Content -LiteralPath (Join-Path $outputDir "VELOCITY9X.INF") `
+    -Value $infText -Encoding Ascii
 Copy-Item -LiteralPath $installSource `
     -Destination (Join-Path $outputDir "INSTALL.TXT") -Force
 Copy-Item -LiteralPath $recoverSource `
