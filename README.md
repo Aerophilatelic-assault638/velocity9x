@@ -113,6 +113,17 @@ The runner refuses a mismatched installed DRV/VXD pair, verifies the requested
 mode and `enable-ok` trace after every reboot, runs the machine-readable GDI
 test, and retains a screenshot and JSON summary per mode.
 
+For a device already associated with Velocity9x, update a locked DRV/VXD pair
+without SetupX media prompts using:
+
+```powershell
+./scripts/update-associated-driver.ps1
+```
+
+The updater verifies the existing class binding, runs the loader preflight,
+refuses to overwrite unrelated pending `WININIT.INI` work, stages both files
+for atomic boot-time replacement, reboots, and byte-verifies the installation.
+
 To prepare the safe VM transfer and COM1 smoke-test folder:
 
 ```powershell

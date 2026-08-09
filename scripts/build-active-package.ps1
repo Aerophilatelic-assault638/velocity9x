@@ -36,7 +36,6 @@ $installSource = Join-Path $repoRoot "packaging\win98se\INSTALL.TXT"
 $recoverSource = Join-Path $repoRoot "packaging\win98se\RECOVER.TXT"
 $firstBootSource = Join-Path $repoRoot "packaging\win98se\FIRSTBOOT.TXT"
 $normalRepairSource = Join-Path $repoRoot "packaging\win98se\V9XFIX.BAT"
-$normalRepairInfSource = Join-Path $repoRoot "packaging\win98se\V9XFIX.INF"
 $infText = Get-Content -LiteralPath $infSource -Raw
 $forcedModes = @(
     "8,640,480", "8,800,600", "8,1024,768",
@@ -91,6 +90,8 @@ if ($infText -match '(?im)^HKR,CURRENT,') {
 }
 
 New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
+Remove-Item -LiteralPath (Join-Path $outputDir "V9XFIX.INF") -Force `
+    -ErrorAction SilentlyContinue
 Copy-Item -LiteralPath (Join-Path $repoRoot "build\win16-ddi\v9xdisp.drv") `
     -Destination (Join-Path $outputDir "V9XDISP.DRV") -Force
 Copy-Item -LiteralPath (Join-Path $repoRoot "build\minivdd32\v9xmini.vxd") `
@@ -117,8 +118,6 @@ Copy-Item -LiteralPath $firstBootSource `
 $normalRepairLines = Get-Content -LiteralPath $normalRepairSource
 Set-Content -LiteralPath (Join-Path $outputDir "V9XFIX.BAT") `
     -Value $normalRepairLines -Encoding Ascii
-Copy-Item -LiteralPath $normalRepairInfSource `
-    -Destination (Join-Path $outputDir "V9XFIX.INF") -Force
 
 $manifest = @(
     "Velocity9x active display bring-up package",
@@ -151,7 +150,7 @@ Set-Content -LiteralPath (Join-Path $outputDir "SHA256.TXT") `
 
 $expectedPackageFiles = @(
     "FIRSTBOOT.TXT", "INSTALL.TXT", "MANIFEST.TXT", "RECOVER.TXT", "SHA256.TXT",
-    "V9X16LD.EXE", "V9XDISP.DRV", "V9XFIX.BAT", "V9XFIX.INF",
+    "V9X16LD.EXE", "V9XDISP.DRV", "V9XFIX.BAT",
     "V9XGDI.EXE", "V9XMINI.VXD", "V9XPROBE.VXD",
     "V9XSET.EXE", "V9XSTAGE.EXE", "VELOCITY9X.INF"
 )
@@ -167,6 +166,8 @@ if ($unexpectedPackageFiles.Count -ne 0 -or $missingPackageFiles.Count -ne 0) {
 
 $vmStageDir = Join-Path $repoRoot "build\vm-probe\ACTIVE"
 New-Item -ItemType Directory -Force -Path $vmStageDir | Out-Null
+Remove-Item -LiteralPath (Join-Path $vmStageDir "V9XFIX.INF") -Force `
+    -ErrorAction SilentlyContinue
 Get-ChildItem -LiteralPath $outputDir -File | ForEach-Object {
     Copy-Item -LiteralPath $_.FullName -Destination $vmStageDir -Force
 }

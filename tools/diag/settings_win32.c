@@ -10,22 +10,19 @@
 #define V9X_ID_RECOVERY     1002
 #define V9X_ID_CLOSE        1003
 #define V9X_ID_GDI_TEST     1004
+#define V9X_ID_LOGO_BITMAP  101
 
 static const char v9x_class_name[] = "Velocity9xSettingsWindow";
 static const char v9x_window_title[] = "Velocity9x Settings";
-static const char v9x_report[] =
-    "Velocity9x settings report\r\n"
-    "Build: " V9X_BUILD_ID "\r\n"
-    "Target: S3 ViRGE/DX 86C375 (PCI 5333:8A01)\r\n"
-    "Resolutions: 640x480, 800x600, 1024x768\r\n"
-    "Color depths: 8-bit indexed; 16-bit RGB 5:6:5\r\n"
-    "Rendering: Windows DIB Engine (software)\r\n"
-    "Acceleration: disabled\r\n"
-    "Mini-VDD callbacks: master VDD defaults\r\n";
-
 static HFONT v9x_ui_font;
+static HBITMAP v9x_logo_bitmap;
 static char v9x_recovery_path[MAX_PATH];
 static char v9x_gdi_path[MAX_PATH];
+static char v9x_active_mode[48];
+static char v9x_driver_stage[80];
+static char v9x_framebuffer_status[96];
+static char v9x_gdi_status[160];
+static char v9x_report[1024];
 
 static DWORD v9x_string_length(const char *text)
 {
@@ -34,6 +31,112 @@ static DWORD v9x_string_length(const char *text)
         ++length;
     }
     return length;
+}
+
+static void v9x_append(char *destination, DWORD capacity, const char *text)
+{
+    DWORD offset = v9x_string_length(destination);
+    DWORD index = 0ul;
+    while (text[index] != '\0' && offset + index + 1ul < capacity) {
+        destination[offset + index] = text[index];
+        ++index;
+    }
+    destination[offset + index] = '\0';
+}
+
+static void v9x_append_uint(char *destination, DWORD capacity, UINT value)
+{
+    char reverse[12];
+    char number[12];
+    int count = 0;
+    int index;
+    do {
+        reverse[count++] = (char)('0' + value % 10u);
+        value /= 10u;
+    } while (value != 0u);
+    for (index = 0; index < count; ++index) {
+        number[index] = reverse[count - index - 1];
+    }
+    number[count] = '\0';
+    v9x_append(destination, capacity, number);
+}
+
+static void v9x_build_runtime_status(void)
+{
+    HDC display = GetDC(0);
+    UINT width = (UINT)GetDeviceCaps(display, HORZRES);
+    UINT height = (UINT)GetDeviceCaps(display, VERTRES);
+    UINT bits = (UINT)(GetDeviceCaps(display, BITSPIXEL) *
+                       GetDeviceCaps(display, PLANES));
+    char result[16];
+    char test_build[80];
+    char test_width[12];
+    char test_height[12];
+    char test_bits[12];
+    ReleaseDC(0, display);
+
+    v9x_active_mode[0] = '\0';
+    v9x_append_uint(v9x_active_mode, sizeof(v9x_active_mode), width);
+    v9x_append(v9x_active_mode, sizeof(v9x_active_mode), " x ");
+    v9x_append_uint(v9x_active_mode, sizeof(v9x_active_mode), height);
+    v9x_append(v9x_active_mode, sizeof(v9x_active_mode), " x ");
+    v9x_append_uint(v9x_active_mode, sizeof(v9x_active_mode), bits);
+    v9x_append(v9x_active_mode, sizeof(v9x_active_mode), " bpp");
+
+    GetPrivateProfileStringA("Velocity9x", "Stage", "not recorded",
+                             v9x_driver_stage, sizeof(v9x_driver_stage),
+                             "C:\\V9XBOOT.INI");
+    v9x_framebuffer_status[0] = '\0';
+    if (lstrcmpiA(v9x_driver_stage, "enable-ok") == 0) {
+        v9x_append(v9x_framebuffer_status, sizeof(v9x_framebuffer_status),
+                   "Active - S3 linear aperture mapped");
+    } else {
+        v9x_append(v9x_framebuffer_status, sizeof(v9x_framebuffer_status),
+                   "Not confirmed - stage: ");
+        v9x_append(v9x_framebuffer_status, sizeof(v9x_framebuffer_status),
+                   v9x_driver_stage);
+    }
+
+    GetPrivateProfileStringA("Velocity9xGDI", "Result", "not run", result,
+                             sizeof(result), "C:\\V9XGDI.INI");
+    GetPrivateProfileStringA("Velocity9xGDI", "Build", "unknown", test_build,
+                             sizeof(test_build), "C:\\V9XGDI.INI");
+    GetPrivateProfileStringA("Velocity9xGDI", "Width", "?", test_width,
+                             sizeof(test_width), "C:\\V9XGDI.INI");
+    GetPrivateProfileStringA("Velocity9xGDI", "Height", "?", test_height,
+                             sizeof(test_height), "C:\\V9XGDI.INI");
+    GetPrivateProfileStringA("Velocity9xGDI", "BitsPerPixel", "?", test_bits,
+                             sizeof(test_bits), "C:\\V9XGDI.INI");
+    v9x_gdi_status[0] = '\0';
+    v9x_append(v9x_gdi_status, sizeof(v9x_gdi_status), result);
+    if (lstrcmpiA(result, "not run") != 0) {
+        v9x_append(v9x_gdi_status, sizeof(v9x_gdi_status), " - ");
+        v9x_append(v9x_gdi_status, sizeof(v9x_gdi_status), test_width);
+        v9x_append(v9x_gdi_status, sizeof(v9x_gdi_status), "x");
+        v9x_append(v9x_gdi_status, sizeof(v9x_gdi_status), test_height);
+        v9x_append(v9x_gdi_status, sizeof(v9x_gdi_status), "x");
+        v9x_append(v9x_gdi_status, sizeof(v9x_gdi_status), test_bits);
+        v9x_append(v9x_gdi_status, sizeof(v9x_gdi_status), " (");
+        v9x_append(v9x_gdi_status, sizeof(v9x_gdi_status), test_build);
+        v9x_append(v9x_gdi_status, sizeof(v9x_gdi_status), ")");
+    }
+
+    v9x_report[0] = '\0';
+    v9x_append(v9x_report, sizeof(v9x_report),
+        "Velocity9x settings report\r\nBuild: " V9X_BUILD_ID
+        "\r\nTarget: S3 ViRGE/DX 86C375 (PCI 5333:8A01)\r\nActive mode: ");
+    v9x_append(v9x_report, sizeof(v9x_report), v9x_active_mode);
+    v9x_append(v9x_report, sizeof(v9x_report), "\r\nDriver stage: ");
+    v9x_append(v9x_report, sizeof(v9x_report), v9x_driver_stage);
+    v9x_append(v9x_report, sizeof(v9x_report), "\r\nFramebuffer: ");
+    v9x_append(v9x_report, sizeof(v9x_report), v9x_framebuffer_status);
+    v9x_append(v9x_report, sizeof(v9x_report), "\r\nLast GDI test: ");
+    v9x_append(v9x_report, sizeof(v9x_report), v9x_gdi_status);
+    v9x_append(v9x_report, sizeof(v9x_report),
+        "\r\nSupported modes: 640x480, 800x600, 1024x768 at 8/16 bpp"
+        "\r\nRendering: Windows DIB Engine (software)"
+        "\r\nAcceleration: disabled"
+        "\r\nMini-VDD callbacks: master VDD defaults\r\n");
 }
 
 static void v9x_set_font(HWND control)
@@ -131,50 +234,71 @@ static void v9x_create_controls(HWND window)
 {
     HWND control;
 
+    control = v9x_control(window, "STATIC", "",
+        SS_BITMAP | SS_CENTERIMAGE, 25, 6, 390, 78, 0);
+    if (control != 0 && v9x_logo_bitmap != 0) {
+        SendMessageA(control, STM_SETIMAGE, IMAGE_BITMAP,
+                     (LPARAM)v9x_logo_bitmap);
+    }
     control = v9x_control(window, "STATIC",
         "Engineering bring-up build - conservative features are locked on.",
-        SS_CENTER, 16, 14, 388, 20, 0);
+        SS_CENTER, 16, 86, 398, 16, 0);
 
     (void)v9x_control(window, "BUTTON", "Display",
-                      BS_GROUPBOX, 14, 42, 392, 102, 0);
+                      BS_GROUPBOX, 14, 106, 402, 126, 0);
     (void)v9x_control(window, "STATIC", "Adapter:",
-                      SS_LEFT, 28, 63, 76, 18, 0);
+                      SS_LEFT, 28, 127, 76, 18, 0);
     (void)v9x_control(window, "STATIC", "S3 ViRGE/DX 86C375 (5333:8A01)",
-                      SS_LEFT, 110, 63, 278, 18, 0);
+                      SS_LEFT, 110, 127, 278, 18, 0);
     (void)v9x_control(window, "STATIC", "Resolutions:",
-                      SS_LEFT, 28, 87, 76, 18, 0);
+                      SS_LEFT, 28, 151, 76, 18, 0);
     (void)v9x_control(window, "STATIC", "640x480, 800x600, 1024x768",
-                      SS_LEFT, 110, 87, 278, 18, 0);
+                      SS_LEFT, 110, 151, 278, 18, 0);
     (void)v9x_control(window, "STATIC", "Colour depths:",
-                      SS_LEFT, 28, 111, 76, 18, 0);
+                      SS_LEFT, 28, 175, 76, 18, 0);
     (void)v9x_control(window, "STATIC", "8-bit indexed, 16-bit RGB 5:6:5",
-                      SS_LEFT, 110, 111, 278, 18, 0);
+                      SS_LEFT, 110, 175, 278, 18, 0);
+    (void)v9x_control(window, "STATIC", "Active mode:",
+                      SS_LEFT, 28, 199, 76, 18, 0);
+    (void)v9x_control(window, "STATIC", v9x_active_mode,
+                      SS_LEFT, 110, 199, 278, 18, 0);
 
     (void)v9x_control(window, "BUTTON", "Rendering and safety",
-                      BS_GROUPBOX, 14, 154, 392, 100, 0);
+                      BS_GROUPBOX, 14, 242, 402, 86, 0);
     control = v9x_control(window, "BUTTON", "Windows DIB Engine rendering",
-                          BS_AUTOCHECKBOX | WS_DISABLED, 28, 176, 250, 20, 0);
+                          BS_AUTOCHECKBOX | WS_DISABLED, 28, 262, 250, 20, 0);
     SendMessageA(control, BM_SETCHECK, BST_CHECKED, 0);
     control = v9x_control(window, "BUTTON", "Hardware acceleration",
-                          BS_AUTOCHECKBOX | WS_DISABLED, 28, 199, 250, 20, 0);
+                          BS_AUTOCHECKBOX | WS_DISABLED, 28, 285, 250, 20, 0);
     SendMessageA(control, BM_SETCHECK, BST_UNCHECKED, 0);
     control = v9x_control(window, "BUTTON", "Extended mode switching",
-                          BS_AUTOCHECKBOX | WS_DISABLED, 28, 222, 190, 20, 0);
+                          BS_AUTOCHECKBOX | WS_DISABLED, 28, 308, 190, 20, 0);
     SendMessageA(control, BM_SETCHECK, BST_UNCHECKED, 0);
     (void)v9x_control(window, "STATIC", "Build: " V9X_BUILD_ID,
-                      SS_RIGHT, 228, 224, 160, 18, 0);
+                      SS_RIGHT, 218, 310, 180, 18, 0);
+
+    (void)v9x_control(window, "BUTTON", "Runtime diagnostics",
+                      BS_GROUPBOX, 14, 338, 402, 62, 0);
+    (void)v9x_control(window, "STATIC", "Driver / framebuffer:",
+                      SS_LEFT, 28, 358, 116, 18, 0);
+    (void)v9x_control(window, "STATIC", v9x_framebuffer_status,
+                      SS_LEFT, 148, 358, 250, 18, 0);
+    (void)v9x_control(window, "STATIC", "Last GDI test:",
+                      SS_LEFT, 28, 380, 116, 18, 0);
+    (void)v9x_control(window, "STATIC", v9x_gdi_status,
+                      SS_LEFT, 148, 380, 250, 18, 0);
 
     (void)v9x_control(window, "BUTTON", "Copy report",
-                      BS_PUSHBUTTON | WS_TABSTOP, 15, 270, 92, 28,
+                      BS_PUSHBUTTON | WS_TABSTOP, 15, 412, 92, 28,
                       V9X_ID_COPY_REPORT);
     (void)v9x_control(window, "BUTTON", "Run GDI test",
-                      BS_PUSHBUTTON | WS_TABSTOP, 113, 270, 94, 28,
+                      BS_PUSHBUTTON | WS_TABSTOP, 113, 412, 94, 28,
                       V9X_ID_GDI_TEST);
     (void)v9x_control(window, "BUTTON", "Recovery guide",
-                      BS_PUSHBUTTON | WS_TABSTOP, 213, 270, 104, 28,
+                      BS_PUSHBUTTON | WS_TABSTOP, 213, 412, 104, 28,
                       V9X_ID_RECOVERY);
     (void)v9x_control(window, "BUTTON", "Close",
-                      BS_DEFPUSHBUTTON | WS_TABSTOP, 323, 270, 83, 28,
+                      BS_DEFPUSHBUTTON | WS_TABSTOP, 323, 412, 93, 28,
                       V9X_ID_CLOSE);
 }
 
@@ -220,6 +344,10 @@ static LRESULT CALLBACK v9x_window_proc(HWND window,
         DestroyWindow(window);
         return 0;
     case WM_DESTROY:
+        if (v9x_logo_bitmap != 0) {
+            DeleteObject(v9x_logo_bitmap);
+            v9x_logo_bitmap = 0;
+        }
         PostQuitMessage(0);
         return 0;
     }
@@ -250,12 +378,15 @@ void WINAPI V9xSettingsEntry(void)
     }
 
     v9x_ui_font = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
-    x = (GetSystemMetrics(SM_CXSCREEN) - 430) / 2;
-    y = (GetSystemMetrics(SM_CYSCREEN) - 340) / 2;
+    v9x_logo_bitmap = LoadBitmapA(instance,
+                                  MAKEINTRESOURCEA(V9X_ID_LOGO_BITMAP));
+    v9x_build_runtime_status();
+    x = (GetSystemMetrics(SM_CXSCREEN) - 440) / 2;
+    y = (GetSystemMetrics(SM_CYSCREEN) - 475) / 2;
     window = CreateWindowExA(WS_EX_DLGMODALFRAME,
                              v9x_class_name, v9x_window_title,
                              WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
-                             x, y, 430, 340, 0, 0, instance, 0);
+                             x, y, 440, 475, 0, 0, instance, 0);
     if (window == 0) {
         ExitProcess(2ul);
     }

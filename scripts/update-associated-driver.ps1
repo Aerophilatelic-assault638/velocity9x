@@ -1,0 +1,155 @@
+[CmdletBinding()]
+param(
+    [string]$PackagePath,
+    [string]$ControllerPath =
+        "C:\everything\claude\personal\v9x-remote-agent\scripts\v9xctl.ps1",
+    [string]$JobId = ("update-{0}" -f (Get-Date -Format "yyyyMMdd-HHmmss")),
+    [string]$ResultsDirectory,
+    [ValidateRange(30, 600)]
+    [int]$BootTimeoutSeconds = 180,
+    [switch]$NoReboot,
+    [switch]$Json
+)
+
+$ErrorActionPreference = "Stop"
+$repoRoot = Split-Path -Parent $PSScriptRoot
+if (-not $PackagePath) {
+    $PackagePath = Join-Path $repoRoot "build\vm-probe\ACTIVE"
+}
+if (-not $ResultsDirectory) {
+    $ResultsDirectory = Join-Path $repoRoot "build\driver-results\$JobId"
+}
+if ($JobId -notmatch '^[A-Za-z0-9._-]+$') {
+    throw "JobId contains unsupported characters."
+}
+$package = [IO.Path]::GetFullPath($PackagePath)
+$results = [IO.Path]::GetFullPath($ResultsDirectory)
+foreach ($path in @($ControllerPath, $package)) {
+    if (-not (Test-Path -LiteralPath $path)) {
+        throw "Required path does not exist: $path"
+    }
+}
+foreach ($file in @("V9XDISP.DRV", "V9XMINI.VXD", "V9X16LD.EXE")) {
+    if (-not (Test-Path -LiteralPath (Join-Path $package $file))) {
+        throw "Driver package is missing $file."
+    }
+}
+New-Item -ItemType Directory -Force -Path $results | Out-Null
+$guestJob = "C:\V9XREMOTE\JOBS\$JobId"
+$powershell = Join-Path $PSHOME "powershell.exe"
+
+function Invoke-V9xCtlJson {
+    param([string]$Operation, [string[]]$OperationArguments = @())
+    $arguments = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+                   $ControllerPath, $Operation, "-Json") + $OperationArguments
+    $lastFailure = ""
+    for ($attempt = 1; $attempt -le 3; ++$attempt) {
+        try {
+            $lines = @(& $powershell @arguments 2>&1)
+            $nativeExit = $LASTEXITCODE
+        } catch {
+            $lines = @($_.Exception.Message)
+            $nativeExit = 1
+        }
+        $jsonLine = $lines | Where-Object {
+            $_ -is [string] -and $_.TrimStart().StartsWith("{")
+        } | Select-Object -Last 1
+        if ($nativeExit -eq 0 -and $jsonLine) {
+            return $jsonLine | ConvertFrom-Json
+        }
+        $lastFailure = $lines -join [Environment]::NewLine
+        if ($attempt -lt 3) { Start-Sleep -Seconds 1 }
+    }
+    throw "v9xctl $Operation failed after 3 attempts: $lastFailure"
+}
+
+function Invoke-GuestShell {
+    param([string]$Command)
+    Invoke-V9xCtlJson shell @("-Command", $Command)
+}
+
+$initialInfo = Invoke-V9xCtlJson info
+$upload = Invoke-V9xCtlJson push-tree @(
+    "-Source", $package, "-Destination", $guestJob)
+$preflight = Invoke-V9xCtlJson exec @(
+    "-Application", "$guestJob\V9X16LD.EXE", "-Arguments", "/quiet",
+    "-WorkingDirectory", $guestJob, "-TimeoutSeconds", "120")
+
+$null = Invoke-GuestShell (
+    'REGEDIT /E C:\V9XREMOTE\V9XDISPLAY.REG ' +
+    '"HKEY_LOCAL_MACHINE\System\CurrentControlSet\Services\Class\Display"')
+$bindingPath = Join-Path $results "DISPLAY-BEFORE.REG"
+$null = Invoke-V9xCtlJson get @(
+    "-Source", "C:\V9XREMOTE\V9XDISPLAY.REG", "-Destination", $bindingPath)
+$binding = Get-Content -LiteralPath $bindingPath -Raw
+if ($binding -notmatch '(?i)Velocity9x' -or
+    $binding -notmatch '(?im)^"drv"="v9xdisp\.drv"\s*$') {
+    throw "The active display class is not already associated with Velocity9x."
+}
+$pending = Invoke-GuestShell (
+    "IF EXIST C:\WINDOWS\WININIT.INI ECHO EXISTS")
+if ($pending.Stdout -match "EXISTS") {
+    throw "C:\WINDOWS\WININIT.INI already exists; complete or inspect that pending update first."
+}
+
+$null = Invoke-GuestShell (
+    "COPY /Y $guestJob\V9XDISP.DRV C:\V9XNDRV.BIN")
+$null = Invoke-GuestShell (
+    "COPY /Y $guestJob\V9XMINI.VXD C:\V9XNVXD.BIN")
+foreach ($pair in @(
+    @("C:\V9XNDRV.BIN", "$guestJob\V9XDISP.DRV"),
+    @("C:\V9XNVXD.BIN", "$guestJob\V9XMINI.VXD"))) {
+    $compare = Invoke-GuestShell "FC /B $($pair[0]) $($pair[1])"
+    if ($compare.Stdout -notmatch "no differences encountered") {
+        throw "Guest staging verification failed for $($pair[0])."
+    }
+}
+
+$wininitPath = Join-Path $results "WININIT.INI"
+$wininit = @(
+    "[Rename]",
+    "NUL=C:\WINDOWS\SYSTEM\V9XDISP.DRV",
+    "C:\WINDOWS\SYSTEM\V9XDISP.DRV=C:\V9XNDRV.BIN",
+    "NUL=C:\WINDOWS\SYSTEM\V9XMINI.VXD",
+    "C:\WINDOWS\SYSTEM\V9XMINI.VXD=C:\V9XNVXD.BIN")
+[IO.File]::WriteAllLines($wininitPath, $wininit, [Text.Encoding]::ASCII)
+$stage = Invoke-V9xCtlJson put @(
+    "-Source", $wininitPath, "-Destination", "C:\WINDOWS\WININIT.INI")
+
+$reboot = $null
+$desktop = $null
+$screenshot = $null
+if (-not $NoReboot) {
+    $reboot = Invoke-V9xCtlJson reboot @(
+        "-JobId", $JobId, "-WaitSeconds", [string]$BootTimeoutSeconds)
+    $desktop = Invoke-V9xCtlJson wait-desktop @(
+        "-WaitSeconds", [string]$BootTimeoutSeconds)
+    foreach ($driverFile in @("V9XDISP.DRV", "V9XMINI.VXD")) {
+        $compare = Invoke-GuestShell (
+            "FC /B C:\WINDOWS\SYSTEM\$driverFile $guestJob\$driverFile")
+        if ($compare.Stdout -notmatch "no differences encountered") {
+            throw "Installed $driverFile failed post-reboot verification."
+        }
+    }
+    $screenshot = Invoke-V9xCtlJson screenshot @(
+        "-Destination", (Join-Path $results "DESKTOP.BMP"))
+}
+
+$summary = [pscustomobject]@{
+    Success = $true
+    Scope = "already-associated-driver-only"
+    JobId = $JobId
+    PackagePath = $package
+    GuestJobPath = $guestJob
+    InitialInfo = $initialInfo
+    Upload = $upload
+    Preflight = $preflight
+    BootTimeStage = $stage
+    Reboot = $reboot
+    Desktop = $desktop
+    Screenshot = $screenshot
+}
+$summary | ConvertTo-Json -Depth 6 |
+    Set-Content -LiteralPath (Join-Path $results "update.json") -Encoding UTF8
+if ($Json) { $summary | ConvertTo-Json -Depth 6 -Compress }
+else { $summary | Format-List }

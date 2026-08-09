@@ -1,29 +1,35 @@
 @ECHO OFF
 ECHO Velocity9x normal-mode repair for the currently staged build
 ECHO.
-IF NOT EXIST D:\ACTIVE\V9XFIX.INF GOTO MISSING
 IF NOT EXIST D:\ACTIVE\V9XDISP.DRV GOTO MISSING
 IF NOT EXIST D:\ACTIVE\V9XMINI.VXD GOTO MISSING
-IF NOT EXIST C:\WINDOWS\RUNDLL.EXE GOTO NORUNDLL
-IF NOT EXIST C:\WINDOWS\SYSTEM\SETUPX.DLL GOTO NORUNDLL
+IF EXIST C:\WINDOWS\WININIT.INI GOTO PENDING
 
-ECHO Asking Windows Setup to replace the installed driver on reboot...
-C:\WINDOWS\RUNDLL.EXE C:\WINDOWS\SYSTEM\SETUPX.DLL,InstallHinfSection DefaultInstall 132 D:\ACTIVE\V9XFIX.INF
+ECHO Copying the new files to safe temporary names...
+COPY /Y D:\ACTIVE\V9XDISP.DRV C:\V9XNDRV.BIN
 IF ERRORLEVEL 1 GOTO FAILED
+COPY /Y D:\ACTIVE\V9XMINI.VXD C:\V9XNVXD.BIN
+IF ERRORLEVEL 1 GOTO FAILED
+ECHO [Rename]>C:\WINDOWS\WININIT.INI
+ECHO NUL=C:\WINDOWS\SYSTEM\V9XDISP.DRV>>C:\WINDOWS\WININIT.INI
+ECHO C:\WINDOWS\SYSTEM\V9XDISP.DRV=C:\V9XNDRV.BIN>>C:\WINDOWS\WININIT.INI
+ECHO NUL=C:\WINDOWS\SYSTEM\V9XMINI.VXD>>C:\WINDOWS\WININIT.INI
+ECHO C:\WINDOWS\SYSTEM\V9XMINI.VXD=C:\V9XNVXD.BIN>>C:\WINDOWS\WININIT.INI
 ECHO.
-ECHO Repair request completed. Shut down Windows normally, then cold-start once.
+ECHO Update staged without SetupX. Shut down Windows normally, then boot once.
 GOTO DONE
 
 :MISSING
 ECHO FAIL: D:\ACTIVE does not contain the complete repair package.
 GOTO DONE
 
-:NORUNDLL
-ECHO FAIL: Windows 98 RUNDLL.EXE or SETUPX.DLL was not found.
+:PENDING
+ECHO FAIL: C:\WINDOWS\WININIT.INI already contains pending work.
+ECHO Complete or inspect it before staging another update.
 GOTO DONE
 
 :FAILED
-ECHO FAIL: Windows Setup could not stage the corrected driver files.
+ECHO FAIL: Could not stage the corrected driver files.
 
 :DONE
 PAUSE
