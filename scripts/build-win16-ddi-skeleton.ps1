@@ -1,7 +1,9 @@
 [CmdletBinding()]
 param(
     [string]$BuildId,
-    [string]$DdkRoot = "C:\98DDK"
+    [string]$DdkRoot = "C:\98DDK",
+    [ValidateRange(-1, 5)]
+    [int]$ForceModeIndex = -1
 )
 
 $ErrorActionPreference = "Stop"
@@ -60,6 +62,7 @@ foreach ($source in $sources) {
         "-bt=windows", "-mc", "-zu", "-zc", "-bd", "-zq", "-wx",
         "-i=$includeDir", "-i=$(Join-Path $repoRoot 'src\display16')",
         "-dV9X_BUILD_ID=`"$BuildId`"",
+        "-dV9X_FORCE_MODE_INDEX=$ForceModeIndex",
         "-fo=$objectPath", $sourcePath
     )
     & $compiler @arguments
@@ -181,6 +184,7 @@ foreach ($instruction in @(
     'mov\s+eax,85H', 'mov\s+eax,87H',
     'push\s+esi', 'push\s+edi',
     'movzx\s+edi,word ptr 6\[bp\]',
+    'xor\s+edx,edx',
     'mov\s+ecx,dword ptr DGROUP:_v9x_active_visible_bytes',
     'mov\s+bx,word ptr DGROUP:_v9x_active_vbe_mode',
     'mov\s+ax,seg RESETHIRESMODE', 'int\s+2fH'

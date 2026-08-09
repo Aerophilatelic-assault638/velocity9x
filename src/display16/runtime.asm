@@ -113,6 +113,7 @@ V9XVDDGETDISPLAYCONFIG PROC FAR
     mov     eax, VDD_GET_DISPLAY_CONFIG
     movzx   ebx, V9xVmHandle
     mov     ecx, 34
+    xor     edx, edx
     call    dword ptr V9xVddEntryPoint
     cmp     eax, VDD_GET_DISPLAY_CONFIG
     je      short V9xVddGetConfigFailed

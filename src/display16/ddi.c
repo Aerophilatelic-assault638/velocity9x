@@ -25,6 +25,10 @@
 #define V9X_COLOR_NONSTATIC        0x80u
 #define V9X_COLOR_MAP_TO_WHITE     0x40u
 
+#ifndef V9X_FORCE_MODE_INDEX
+#define V9X_FORCE_MODE_INDEX         -1
+#endif
+
 extern WORD FAR PASCAL V9xDibEnableCall(LPVOID, WORD, LPSTR, LPSTR, LPVOID);
 extern DWORD FAR PASCAL V9xCreateDibPDeviceCall(LPBITMAPINFO, LPVOID,
                                                 LPVOID, WORD);
@@ -164,9 +168,13 @@ static const V9X_DISPLAY_MODE *v9x_find_mode(WORD width,
 
 static void v9x_select_requested_mode(void)
 {
+    const V9X_DISPLAY_MODE *requested = 0;
+
+#if V9X_FORCE_MODE_INDEX >= 0
+    requested = &v9x_modes[V9X_FORCE_MODE_INDEX];
+#else
     V9X_DISPLAY_INFO display_info;
     BYTE *bytes = (BYTE *)&display_info;
-    const V9X_DISPLAY_MODE *requested = 0;
     WORD index;
 
     for (index = 0u; index < sizeof(display_info); ++index) {
@@ -179,6 +187,7 @@ static void v9x_select_requested_mode(void)
             v9x_dpi = display_info.dpi;
         }
     }
+#endif
     if (requested == 0) {
         requested = &v9x_modes[0];
     }

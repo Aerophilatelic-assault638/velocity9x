@@ -1,7 +1,9 @@
 [CmdletBinding()]
 param(
     [string]$BuildId,
-    [string]$DdkRoot = "C:\98DDK"
+    [string]$DdkRoot = "C:\98DDK",
+    [ValidateRange(-1, 5)]
+    [int]$ForceModeIndex = -1
 )
 
 $ErrorActionPreference = "Stop"
@@ -17,7 +19,7 @@ if ($BuildId -notmatch '^[A-Za-z0-9._+-]+$') {
 }
 
 & (Join-Path $PSScriptRoot "build-win16-ddi-skeleton.ps1") `
-    -BuildId $BuildId -DdkRoot $DdkRoot
+    -BuildId $BuildId -DdkRoot $DdkRoot -ForceModeIndex $ForceModeIndex
 & (Join-Path $PSScriptRoot "build-minivdd-skeleton.ps1") `
     -BuildId $BuildId -DdkRoot $DdkRoot
 & (Join-Path $PSScriptRoot "build-settings.ps1") -BuildId $BuildId
@@ -93,6 +95,7 @@ $manifest = @(
     "Build: $BuildId",
     "Target: Windows 98SE, PCI 5333:8A01 only",
     "Modes: 640x480, 800x600, 1024x768 at 8/16 bpp and 60 Hz",
+    "Forced diagnostic mode index: $ForceModeIndex (-1 means registry-selected)",
     "Rendering: Windows DIB Engine, no acceleration",
     "Mini-VDD callbacks: none (master VDD defaults)",
     "Settings: read-only bring-up status, report, and recovery shortcut",

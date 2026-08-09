@@ -1,5 +1,5 @@
 @ECHO OFF
-ECHO Velocity9x phase3-matrix-v2 normal-mode repair
+ECHO Velocity9x normal-mode repair for the currently staged build
 ECHO.
 IF NOT EXIST D:\ACTIVE\V9XFIX.INF GOTO MISSING
 IF NOT EXIST D:\ACTIVE\V9XDISP.DRV GOTO MISSING
