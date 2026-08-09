@@ -5,11 +5,11 @@ param(
 
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$outputDir = Join-Path $repoRoot "build\settings"
+$outputDir = Join-Path $repoRoot "build\settings-page"
 
 . (Join-Path $PSScriptRoot "common.ps1")
 if (-not $BuildId) {
-    $BuildId = Get-V9xBuildId -RepoRoot $repoRoot -Fallback "settings-local"
+    $BuildId = Get-V9xBuildId -RepoRoot $repoRoot -Fallback "settings-page-local"
 }
 if ($BuildId -notmatch '^[A-Za-z0-9._+-]+$') {
     throw "BuildId may contain only letters, digits, dot, underscore, plus, and hyphen."
@@ -31,14 +31,14 @@ $libraries = @(
     (Join-Path $watcomRoot "lib386\nt\kernel32.lib"),
     (Join-Path $watcomRoot "lib386\nt\user32.lib"),
     (Join-Path $watcomRoot "lib386\nt\gdi32.lib"),
-    (Join-Path $watcomRoot "lib386\nt\shell32.lib")
+    (Join-Path $watcomRoot "lib386\nt\comctl32.lib")
 )
 $logoSource = Join-Path $repoRoot "logo\velocity9x-logo-concept.png"
 $missingInputs = @(@($compiler, $linker, $dumper, $resourceCompiler,
                      $logoSource) + $libraries |
     Where-Object { -not (Test-Path -LiteralPath $_) })
 if ($missingInputs.Count -ne 0) {
-    throw "Required settings build inputs are missing: $($missingInputs -join ', ')"
+    throw "Required settings-page build inputs are missing: $($missingInputs -join ', ')"
 }
 
 $env:WATCOM = $watcomRoot
@@ -48,19 +48,21 @@ New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
 
 $diagDir = Join-Path $repoRoot "tools\diag"
 $sources = @(
-    (Join-Path $diagDir "settings_win32.c"),
+    (Join-Path $diagDir "settings_propsheet.c"),
     (Join-Path $diagDir "settings_status.c")
 )
-$executable = Join-Path $outputDir "v9xset.exe"
-$mapFile = Join-Path $outputDir "v9xset.map"
-$linkFile = Join-Path $outputDir "v9xset.lnk"
+$objects = @()
+$library = Join-Path $outputDir "v9xsetp.dll"
+$mapFile = Join-Path $outputDir "v9xsetp.map"
+$linkFile = Join-Path $outputDir "v9xsetp.lnk"
 $logoBitmap = Join-Path $outputDir "velocity9x-logo-settings.bmp"
-$resourceFile = Join-Path $outputDir "settings.rc"
+$resourceSource = Join-Path $diagDir "settings_propsheet.rc"
+$resourceFile = Join-Path $outputDir "settings_propsheet.rc"
 
 Add-Type -AssemblyName System.Drawing
 $sourceImage = [Drawing.Image]::FromFile($logoSource)
 try {
-    $bitmap = New-Object Drawing.Bitmap 390, 78,
+    $bitmap = New-Object Drawing.Bitmap 355, 71,
         ([Drawing.Imaging.PixelFormat]::Format24bppRgb)
     try {
         $graphics = [Drawing.Graphics]::FromImage($bitmap)
@@ -68,7 +70,7 @@ try {
             $graphics.Clear([Drawing.Color]::White)
             $graphics.InterpolationMode =
                 [Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-            $destination = New-Object Drawing.Rectangle 0, 0, 390, 78
+            $destination = New-Object Drawing.Rectangle 0, 0, 355, 71
             $sourceRectangle = New-Object Drawing.Rectangle 45, 300, 1680, 340
             $graphics.DrawImage($sourceImage, $destination, $sourceRectangle,
                                 [Drawing.GraphicsUnit]::Pixel)
@@ -76,14 +78,15 @@ try {
         $bitmap.Save($logoBitmap, [Drawing.Imaging.ImageFormat]::Bmp)
     } finally { $bitmap.Dispose() }
 } finally { $sourceImage.Dispose() }
-Set-Content -LiteralPath $resourceFile -Encoding Ascii -Value (
-    '101 BITMAP "{0}"' -f $logoBitmap.Replace('\', '\\'))
 
-$objects = @()
+$resourceText = Get-Content -LiteralPath $resourceSource -Raw
+$resourceText += "`r`n101 BITMAP `"{0}`"`r`n" -f $logoBitmap.Replace('\', '\\')
+Set-Content -LiteralPath $resourceFile -Encoding Ascii -Value $resourceText
+
 foreach ($source in $sources) {
     $object = Join-Path $outputDir (
         [IO.Path]::GetFileNameWithoutExtension($source) + ".obj")
-    & $compiler "-bt=nt" "-zq" "-wx" "-zl" "-s" `
+    & $compiler "-bt=nt" "-bd" "-zq" "-wx" "-zl" "-s" `
         "-i=$diagDir" `
         "-dV9X_BUILD_ID=`"$BuildId`"" "-fo=$object" $source
     if ($LASTEXITCODE -ne 0) {
@@ -93,28 +96,31 @@ foreach ($source in $sources) {
 }
 
 $linkLines = @(
-    "format windows nt",
+    "format windows nt dll",
     "runtime windows=4.0",
     "option quiet",
     "option nodefaultlibs",
-    "option start='_V9xSettingsEntry@0'",
-    "option stack=65536",
+    "option start='_V9xPageEntry@12'",
+    "alias '__DLLstart_'='_V9xPageEntry@12'",
     "option map='$mapFile'",
-    "name '$executable'"
+    "option modname='V9XSETP'",
+    "export DllGetClassObject='_DllGetClassObject@12'",
+    "export DllCanUnloadNow='_DllCanUnloadNow@0'",
+    "name '$library'"
 )
 $linkLines += $objects | ForEach-Object { "file '$_'" }
 $linkLines += $libraries | ForEach-Object { "library '$_'" }
 Set-Content -LiteralPath $linkFile -Encoding Ascii -Value $linkLines
 & $linker "@$linkFile"
 if ($LASTEXITCODE -ne 0) {
-    throw "Open Watcom failed to link the runtime-free settings utility."
+    throw "Open Watcom failed to link the settings property-sheet DLL."
 }
-& $resourceCompiler "-q" "-bt=nt" $resourceFile $executable
+& $resourceCompiler "-q" "-bt=nt" "-i=$diagDir" $resourceFile $library
 if ($LASTEXITCODE -ne 0) {
-    throw "Open Watcom failed to embed the Velocity9x logo resource."
+    throw "Open Watcom failed to embed the settings-page resources."
 }
 
-$bytes = [System.IO.File]::ReadAllBytes($executable)
+$bytes = [System.IO.File]::ReadAllBytes($library)
 $newHeaderOffset = if ($bytes.Length -ge 64) {
     [System.BitConverter]::ToInt32($bytes, 0x3c)
 } else { -1 }
@@ -123,35 +129,43 @@ if ($bytes.Length -lt 64 -or $bytes[0] -ne 0x4d -or
     $newHeaderOffset + 1 -ge $bytes.Length -or
     $bytes[$newHeaderOffset] -ne 0x50 -or
     $bytes[$newHeaderOffset + 1] -ne 0x45) {
-    throw "The settings utility is not an MZ/PE executable."
+    throw "The settings page is not an MZ/PE image."
 }
 $imageText = [System.Text.Encoding]::ASCII.GetString($bytes)
-foreach ($marker in @($BuildId, "Velocity9x Settings", "1024x768",
-                      "Core / engine clock",
-                       "Run GDI test")) {
+foreach ($marker in @($BuildId, "Velocity9x Settings",
+                      "Velocity9x settings report")) {
     if (-not $imageText.Contains($marker)) {
-        throw "The settings utility is missing marker $marker."
+        throw "The settings page is missing marker $marker."
     }
 }
 
-$dumpText = (@(& $dumper -e $executable 2>&1)) -join "`n"
+$dumpText = (@(& $dumper -e $library 2>&1)) -join "`n"
 if ($LASTEXITCODE -ne 0) {
-    throw "Open Watcom could not inspect the settings utility."
+    throw "Open Watcom could not inspect the settings page."
 }
-$resourceDump = (@(& $dumper -r $executable 2>&1)) -join "`n"
-if ($LASTEXITCODE -ne 0 -or $resourceDump -notmatch '(?i)BITMAP') {
-    throw "The settings utility is missing its embedded logo bitmap."
+foreach ($export in @("DllGetClassObject", "DllCanUnloadNow")) {
+    if ($dumpText -notmatch [regex]::Escape($export)) {
+        throw "The settings page does not export $export."
+    }
+}
+# PE resources are listed by numeric type: 2 = RT_BITMAP id 101 (0x65),
+# 5 = RT_DIALOG id 2000 (0x7D0).
+$resourceDump = (@(& $dumper -r $library 2>&1)) -join "`n"
+if ($LASTEXITCODE -ne 0 -or
+    $resourceDump -notmatch '(?m)^00000002\s+00000065' -or
+    $resourceDump -notmatch '(?m)^00000005\s+000007D0') {
+    throw "The settings page is missing its dialog or logo resource."
 }
 $dllNames = [regex]::Matches($dumpText, "DLL name = <([^>]+)>") |
     ForEach-Object { $_.Groups[1].Value.ToUpperInvariant() } |
     Sort-Object -Unique
 $unexpectedDlls = @($dllNames | Where-Object {
-    $_ -notin @("KERNEL32.DLL", "USER32.DLL", "GDI32.DLL", "SHELL32.DLL")
+    $_ -notin @("KERNEL32.DLL", "USER32.DLL", "GDI32.DLL", "COMCTL32.DLL")
 })
 if ($unexpectedDlls.Count -ne 0 -or
     $dumpText -match "GetCommandLineW|GetModuleFileNameW|__CHK") {
-    throw "The settings utility contains an incompatible runtime import."
+    throw "The settings page contains an incompatible runtime import."
 }
 
-Write-Output "Built Windows 98 settings and diagnostics utility: $executable"
+Write-Output "Built Display Properties settings page: $library"
 Write-Output "Verified runtime-free imports: $($dllNames -join ', ')"

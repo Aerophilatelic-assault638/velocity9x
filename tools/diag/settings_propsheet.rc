@@ -1,0 +1,45 @@
+// Velocity9x Display Properties page dialog template.
+// The logo bitmap resource (101) is appended by the build script.
+#include <windows.h>
+#include "settings_propsheet.h"
+
+V9X_ID_PAGE_DIALOG DIALOG 0, 0, 252, 218
+STYLE DS_3DLOOK | WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "Velocity9x"
+FONT 8, "MS Sans Serif"
+BEGIN
+    CONTROL         "#101", -1, "STATIC", SS_BITMAP | SS_CENTERIMAGE,
+                    7, 4, 238, 30
+    LTEXT           "Engineering bring-up build - conservative features are locked on.",
+                    V9X_IDC_NOTICE, 7, 36, 238, 10
+
+    GROUPBOX        "Display", -1, 7, 48, 238, 62
+    LTEXT           "Adapter:", -1, 15, 60, 52, 8
+    LTEXT           "", V9X_IDC_ADAPTER, 70, 60, 168, 8
+    LTEXT           "Active mode:", -1, 15, 72, 52, 8
+    LTEXT           "", V9X_IDC_ACTIVE_MODE, 70, 72, 168, 8
+    LTEXT           "Core clock:", -1, 15, 84, 52, 8
+    LTEXT           "", V9X_IDC_CORE_CLOCK, 70, 84, 168, 8
+    LTEXT           "Memory clock:", -1, 15, 96, 52, 8
+    LTEXT           "", V9X_IDC_MEMORY_CLOCK, 70, 96, 168, 8
+
+    GROUPBOX        "Rendering and safety", -1, 7, 114, 238, 56
+    CONTROL         "Windows DIB Engine rendering", V9X_IDC_DIB_CHECK,
+                    "BUTTON", BS_AUTOCHECKBOX | WS_DISABLED,
+                    15, 126, 150, 10
+    CONTROL         "Hardware acceleration", V9X_IDC_ACCEL_CHECK,
+                    "BUTTON", BS_AUTOCHECKBOX | WS_DISABLED,
+                    15, 138, 150, 10
+    CONTROL         "Extended mode switching", V9X_IDC_MODESW_CHECK,
+                    "BUTTON", BS_AUTOCHECKBOX | WS_DISABLED,
+                    15, 150, 150, 10
+    RTEXT           "", V9X_IDC_BUILD, 130, 156, 108, 8
+
+    GROUPBOX        "Runtime diagnostics", -1, 7, 174, 238, 38
+    LTEXT           "Driver / framebuffer:", -1, 15, 186, 68, 8
+    LTEXT           "", V9X_IDC_FRAMEBUFFER, 86, 186, 152, 8
+    LTEXT           "Last GDI test:", -1, 15, 198, 68, 8
+    LTEXT           "", V9X_IDC_GDI_TEST, 86, 198, 100, 8
+
+    PUSHBUTTON      "Copy report", V9X_IDC_COPY_REPORT, 190, 196, 55, 14
+END

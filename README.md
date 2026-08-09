@@ -24,6 +24,8 @@ matrix repetitions. It is not a release driver.
 - an unattended 8-bit palette animation and screen-readback test;
 - backend-neutral hardware diagnostics with S3 ViRGE PLL clock detection;
 - a strict S3-only INF, recovery documentation, and read-only settings panel;
+- a read-only "Velocity9x" page inside native Display Properties, installed as
+  a shell property-sheet extension by the INF;
 - host tests and an Open Watcom build entry point.
 
 No acceleration capability is advertised. The active candidate uses firmware

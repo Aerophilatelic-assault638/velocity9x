@@ -4,6 +4,8 @@ This package is intentionally limited to PCI VEN_5333 DEV_8A01.
 It is an engineering bring-up build, not a release driver.
 V9XSET.EXE is a read-only settings/status panel and is safe to open before
 installation. It exposes no hardware programming controls in this build.
+V9XSETP.DLL adds the same read-only status as a "Velocity9x" tab inside the
+native Display Properties dialog. It is copied and registered by the INF.
 V9XSTAGE.EXE is an optional one-click preflight. It loads the VxD lifecycle
 probe and asks the DRV only for GDIINFO/mode validation; it never sets a mode.
 V9XGDI.EXE is the post-boot framebuffer test. Run it only after the new desktop
@@ -27,7 +29,7 @@ INSTALL
 4. Select Driver, Update Driver, then choose a specific driver/location.
 5. Use Have Disk and browse to this package directory.
 6. Select "Velocity9x S3 ViRGE/DX 86C375 (Phase 3 mode matrix)".
-7. Let Windows copy the two files, but do not accept a different device ID.
+7. Let Windows copy the driver files, but do not accept a different device ID.
 8. Shut down fully when prompted. Do not use a warm restart for the first test.
 9. Start COM1 capture, then cold-start the VM once.
 

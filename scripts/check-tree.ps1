@@ -28,6 +28,7 @@ $required = @(
     "scripts\build-minivdd-skeleton.ps1",
     "scripts\build-active-package.ps1",
     "scripts\build-settings.ps1",
+    "scripts\build-settings-page.ps1",
     "scripts\build-gdi-smoke.ps1",
     "scripts\build-palette-smoke.ps1",
     "scripts\backup-86box-profile.ps1",
@@ -55,6 +56,11 @@ $required = @(
     "tools\diag\vxd_probe_win32.c",
     "tools\diag\win16_driver_loader.c",
     "tools\diag\settings_win32.c",
+    "tools\diag\settings_status.c",
+    "tools\diag\settings_status.h",
+    "tools\diag\settings_propsheet.c",
+    "tools\diag\settings_propsheet.h",
+    "tools\diag\settings_propsheet.rc",
     "tools\diag\gdi_smoke_win32.c",
     "tools\diag\palette_smoke_win32.c"
 )

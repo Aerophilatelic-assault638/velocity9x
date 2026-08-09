@@ -25,6 +25,7 @@ if ($BuildId -notmatch '^[A-Za-z0-9._+-]+$') {
 & (Join-Path $PSScriptRoot "build-minivdd-skeleton.ps1") `
     -BuildId $BuildId -DdkRoot $DdkRoot
 & (Join-Path $PSScriptRoot "build-settings.ps1") -BuildId $BuildId
+& (Join-Path $PSScriptRoot "build-settings-page.ps1") -BuildId $BuildId
 & (Join-Path $PSScriptRoot "build-gdi-smoke.ps1") -BuildId $BuildId
 & (Join-Path $PSScriptRoot "build-palette-smoke.ps1") -BuildId $BuildId
 & (Join-Path $PSScriptRoot "build-vxd-loader-probe.ps1") `
@@ -74,7 +75,9 @@ foreach ($forbidden in @('MODES\24',
         throw "The active INF contains out-of-scope entry $forbidden."
     }
 }
-foreach ($required in @('v9xdisp.drv', 'v9xmini.vxd',
+foreach ($required in @('v9xdisp.drv', 'v9xmini.vxd', 'v9xsetp.dll',
+                         'PropertySheetHandlers\Velocity9x',
+                         'CLSID\{91925DA2-2EF0-4E20-B4E9-A53ED37E14B1}\InProcServer32',
                          "DEFAULT,Mode,,`"$defaultMode`"",
                          'MODES\8\640,480', 'MODES\8\800,600',
                          'MODES\8\1024,768', 'MODES\16\640,480',
@@ -99,6 +102,8 @@ Copy-Item -LiteralPath (Join-Path $repoRoot "build\minivdd32\v9xmini.vxd") `
     -Destination (Join-Path $outputDir "V9XMINI.VXD") -Force
 Copy-Item -LiteralPath (Join-Path $repoRoot "build\settings\v9xset.exe") `
     -Destination (Join-Path $outputDir "V9XSET.EXE") -Force
+Copy-Item -LiteralPath (Join-Path $repoRoot "build\settings-page\v9xsetp.dll") `
+    -Destination (Join-Path $outputDir "V9XSETP.DLL") -Force
 Copy-Item -LiteralPath (Join-Path $repoRoot "build\gdi-smoke\v9xgdi.exe") `
     -Destination (Join-Path $outputDir "V9XGDI.EXE") -Force
 Copy-Item -LiteralPath (Join-Path $repoRoot "build\palette-smoke\v9xpal.exe") `
@@ -132,6 +137,7 @@ $manifest = @(
     "Rendering: Windows DIB Engine, no acceleration",
     "Mini-VDD callbacks: none (master VDD defaults)",
     "Settings: read-only bring-up status, report, and recovery shortcut",
+    "Display Properties: read-only Velocity9x tab via V9XSETP.DLL",
     "GDI test: on-screen primitives, blits, and tolerant pixel readback",
     "Palette test: 8-bit reserved-entry animation and screen readback",
     "Preflight: V9XSTAGE.EXE (no mode change and no installation)",
@@ -156,7 +162,7 @@ $expectedPackageFiles = @(
     "FIRSTBOOT.TXT", "INSTALL.TXT", "MANIFEST.TXT", "RECOVER.TXT", "SHA256.TXT",
     "V9X16LD.EXE", "V9XDISP.DRV", "V9XFIX.BAT",
     "V9XGDI.EXE", "V9XPAL.EXE", "V9XMINI.VXD", "V9XPROBE.VXD",
-    "V9XSET.EXE", "V9XSTAGE.EXE", "VELOCITY9X.INF"
+    "V9XSET.EXE", "V9XSETP.DLL", "V9XSTAGE.EXE", "VELOCITY9X.INF"
 )
 $actualPackageFiles = @(Get-ChildItem -LiteralPath $outputDir -File |
     ForEach-Object { $_.Name } | Sort-Object)

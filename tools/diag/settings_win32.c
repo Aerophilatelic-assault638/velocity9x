@@ -2,6 +2,8 @@
 #include <windows.h>
 #include <shellapi.h>
 
+#include "settings_status.h"
+
 #ifndef V9X_BUILD_ID
 #define V9X_BUILD_ID "local"
 #endif
@@ -18,221 +20,7 @@ static HFONT v9x_ui_font;
 static HBITMAP v9x_logo_bitmap;
 static char v9x_recovery_path[MAX_PATH];
 static char v9x_gdi_path[MAX_PATH];
-static char v9x_active_mode[48];
-static char v9x_adapter_name[96];
-static char v9x_core_clock[96];
-static char v9x_memory_clock[64];
-static char v9x_clock_detector[64];
-static char v9x_driver_stage[80];
-static char v9x_framebuffer_status[96];
-static char v9x_gdi_status[160];
-static char v9x_report[1024];
-
-static DWORD v9x_string_length(const char *text)
-{
-    DWORD length = 0ul;
-    while (text[length] != '\0') {
-        ++length;
-    }
-    return length;
-}
-
-static void v9x_append(char *destination, DWORD capacity, const char *text)
-{
-    DWORD offset = v9x_string_length(destination);
-    DWORD index = 0ul;
-    while (text[index] != '\0' && offset + index + 1ul < capacity) {
-        destination[offset + index] = text[index];
-        ++index;
-    }
-    destination[offset + index] = '\0';
-}
-
-static void v9x_append_uint(char *destination, DWORD capacity, UINT value)
-{
-    char reverse[12];
-    char number[12];
-    int count = 0;
-    int index;
-    do {
-        reverse[count++] = (char)('0' + value % 10u);
-        value /= 10u;
-    } while (value != 0u);
-    for (index = 0; index < count; ++index) {
-        number[index] = reverse[count - index - 1];
-    }
-    number[count] = '\0';
-    v9x_append(destination, capacity, number);
-}
-
-static BOOL v9x_parse_u32(const char *text, DWORD *value)
-{
-    DWORD result = 0ul;
-    DWORD index = 0ul;
-
-    if (text == 0 || value == 0 || text[0] == '\0') {
-        return FALSE;
-    }
-    while (text[index] != '\0') {
-        DWORD digit;
-        if (text[index] < '0' || text[index] > '9') {
-            return FALSE;
-        }
-        digit = (DWORD)(text[index] - '0');
-        if (result > 429496729ul ||
-            (result == 429496729ul && digit > 5ul)) {
-            return FALSE;
-        }
-        result = result * 10ul + digit;
-        ++index;
-    }
-    *value = result;
-    return TRUE;
-}
-
-static void v9x_format_clock(char *destination,
-                             DWORD capacity,
-                             const char *khz_text,
-                             BOOL shared_memory)
-{
-    DWORD khz;
-    DWORD fraction;
-    char fraction_text[4];
-
-    destination[0] = '\0';
-    if (!v9x_parse_u32(khz_text, &khz) || khz == 0ul) {
-        v9x_append(destination, capacity, "Unavailable");
-        return;
-    }
-    v9x_append_uint(destination, capacity, (UINT)(khz / 1000ul));
-    v9x_append(destination, capacity, ".");
-    fraction = khz % 1000ul;
-    fraction_text[0] = (char)('0' + fraction / 100ul);
-    fraction_text[1] = (char)('0' + (fraction / 10ul) % 10ul);
-    fraction_text[2] = (char)('0' + fraction % 10ul);
-    fraction_text[3] = '\0';
-    v9x_append(destination, capacity, fraction_text);
-    v9x_append(destination, capacity, " MHz");
-    if (shared_memory) {
-        v9x_append(destination, capacity, " (shared with memory)");
-    }
-}
-
-static void v9x_build_runtime_status(void)
-{
-    HDC display = GetDC(0);
-    UINT width = (UINT)GetDeviceCaps(display, HORZRES);
-    UINT height = (UINT)GetDeviceCaps(display, VERTRES);
-    UINT bits = (UINT)(GetDeviceCaps(display, BITSPIXEL) *
-                       GetDeviceCaps(display, PLANES));
-    char result[16];
-    char test_build[80];
-    char test_width[12];
-    char test_height[12];
-    char test_bits[12];
-    char clock_status[24];
-    char core_clock_khz[16];
-    char memory_clock_khz[16];
-    char core_relation[32];
-    ReleaseDC(0, display);
-
-    v9x_active_mode[0] = '\0';
-    v9x_append_uint(v9x_active_mode, sizeof(v9x_active_mode), width);
-    v9x_append(v9x_active_mode, sizeof(v9x_active_mode), " x ");
-    v9x_append_uint(v9x_active_mode, sizeof(v9x_active_mode), height);
-    v9x_append(v9x_active_mode, sizeof(v9x_active_mode), " x ");
-    v9x_append_uint(v9x_active_mode, sizeof(v9x_active_mode), bits);
-    v9x_append(v9x_active_mode, sizeof(v9x_active_mode), " bpp");
-
-    GetPrivateProfileStringA("Velocity9xHardware", "Adapter",
-        "Unknown VGA adapter", v9x_adapter_name, sizeof(v9x_adapter_name),
-        "C:\\V9XHW.INI");
-    GetPrivateProfileStringA("Velocity9xHardware", "ClockStatus",
-        "unavailable", clock_status, sizeof(clock_status),
-        "C:\\V9XHW.INI");
-    GetPrivateProfileStringA("Velocity9xHardware", "CoreClockKHz", "",
-        core_clock_khz, sizeof(core_clock_khz), "C:\\V9XHW.INI");
-    GetPrivateProfileStringA("Velocity9xHardware", "MemoryClockKHz", "",
-        memory_clock_khz, sizeof(memory_clock_khz), "C:\\V9XHW.INI");
-    GetPrivateProfileStringA("Velocity9xHardware", "CoreClockRelation", "",
-        core_relation, sizeof(core_relation), "C:\\V9XHW.INI");
-    GetPrivateProfileStringA("Velocity9xHardware", "ClockDetector",
-        "none", v9x_clock_detector, sizeof(v9x_clock_detector),
-        "C:\\V9XHW.INI");
-    if (lstrcmpiA(clock_status, "valid") == 0) {
-        v9x_format_clock(v9x_core_clock, sizeof(v9x_core_clock),
-            core_clock_khz,
-            lstrcmpiA(core_relation, "shared-memory-clock") == 0);
-        v9x_format_clock(v9x_memory_clock, sizeof(v9x_memory_clock),
-                         memory_clock_khz, FALSE);
-    } else {
-        v9x_format_clock(v9x_core_clock, sizeof(v9x_core_clock), "", FALSE);
-        v9x_format_clock(v9x_memory_clock, sizeof(v9x_memory_clock), "", FALSE);
-    }
-
-    GetPrivateProfileStringA("Velocity9x", "Stage", "not recorded",
-                             v9x_driver_stage, sizeof(v9x_driver_stage),
-                             "C:\\V9XBOOT.INI");
-    v9x_framebuffer_status[0] = '\0';
-    if (lstrcmpiA(v9x_driver_stage, "enable-ok") == 0) {
-        v9x_append(v9x_framebuffer_status, sizeof(v9x_framebuffer_status),
-                   "Active - S3 linear aperture mapped");
-    } else {
-        v9x_append(v9x_framebuffer_status, sizeof(v9x_framebuffer_status),
-                   "Not confirmed - stage: ");
-        v9x_append(v9x_framebuffer_status, sizeof(v9x_framebuffer_status),
-                   v9x_driver_stage);
-    }
-
-    GetPrivateProfileStringA("Velocity9xGDI", "Result", "not run", result,
-                             sizeof(result), "C:\\V9XGDI.INI");
-    GetPrivateProfileStringA("Velocity9xGDI", "Build", "unknown", test_build,
-                             sizeof(test_build), "C:\\V9XGDI.INI");
-    GetPrivateProfileStringA("Velocity9xGDI", "Width", "?", test_width,
-                             sizeof(test_width), "C:\\V9XGDI.INI");
-    GetPrivateProfileStringA("Velocity9xGDI", "Height", "?", test_height,
-                             sizeof(test_height), "C:\\V9XGDI.INI");
-    GetPrivateProfileStringA("Velocity9xGDI", "BitsPerPixel", "?", test_bits,
-                             sizeof(test_bits), "C:\\V9XGDI.INI");
-    v9x_gdi_status[0] = '\0';
-    v9x_append(v9x_gdi_status, sizeof(v9x_gdi_status), result);
-    if (lstrcmpiA(result, "not run") != 0) {
-        v9x_append(v9x_gdi_status, sizeof(v9x_gdi_status), " - ");
-        v9x_append(v9x_gdi_status, sizeof(v9x_gdi_status), test_width);
-        v9x_append(v9x_gdi_status, sizeof(v9x_gdi_status), "x");
-        v9x_append(v9x_gdi_status, sizeof(v9x_gdi_status), test_height);
-        v9x_append(v9x_gdi_status, sizeof(v9x_gdi_status), "x");
-        v9x_append(v9x_gdi_status, sizeof(v9x_gdi_status), test_bits);
-        v9x_append(v9x_gdi_status, sizeof(v9x_gdi_status), " (");
-        v9x_append(v9x_gdi_status, sizeof(v9x_gdi_status), test_build);
-        v9x_append(v9x_gdi_status, sizeof(v9x_gdi_status), ")");
-    }
-
-    v9x_report[0] = '\0';
-    v9x_append(v9x_report, sizeof(v9x_report),
-        "Velocity9x settings report\r\nBuild: " V9X_BUILD_ID
-        "\r\nAdapter: ");
-    v9x_append(v9x_report, sizeof(v9x_report), v9x_adapter_name);
-    v9x_append(v9x_report, sizeof(v9x_report), "\r\nActive mode: ");
-    v9x_append(v9x_report, sizeof(v9x_report), v9x_active_mode);
-    v9x_append(v9x_report, sizeof(v9x_report), "\r\nCore / engine clock: ");
-    v9x_append(v9x_report, sizeof(v9x_report), v9x_core_clock);
-    v9x_append(v9x_report, sizeof(v9x_report), "\r\nMemory clock: ");
-    v9x_append(v9x_report, sizeof(v9x_report), v9x_memory_clock);
-    v9x_append(v9x_report, sizeof(v9x_report), "\r\nClock detector: ");
-    v9x_append(v9x_report, sizeof(v9x_report), v9x_clock_detector);
-    v9x_append(v9x_report, sizeof(v9x_report), "\r\nDriver stage: ");
-    v9x_append(v9x_report, sizeof(v9x_report), v9x_driver_stage);
-    v9x_append(v9x_report, sizeof(v9x_report), "\r\nFramebuffer: ");
-    v9x_append(v9x_report, sizeof(v9x_report), v9x_framebuffer_status);
-    v9x_append(v9x_report, sizeof(v9x_report), "\r\nLast GDI test: ");
-    v9x_append(v9x_report, sizeof(v9x_report), v9x_gdi_status);
-    v9x_append(v9x_report, sizeof(v9x_report),
-        "\r\nSupported modes: 640x480, 800x600, 1024x768 at 8/16 bpp"
-        "\r\nRendering: Windows DIB Engine (software)"
-        "\r\nAcceleration: disabled"
-        "\r\nMini-VDD callbacks: master VDD defaults\r\n");
-}
+static V9X_SETTINGS_STATUS v9x_status;
 
 static void v9x_set_font(HWND control)
 {
@@ -242,7 +30,7 @@ static void v9x_set_font(HWND control)
 static BOOL v9x_find_sibling(char *path, const char *file_name)
 {
     DWORD length = GetModuleFileNameA(0, path, MAX_PATH);
-    DWORD file_length = v9x_string_length(file_name);
+    DWORD file_length = v9x_settings_string_length(file_name);
     DWORD index;
     DWORD file_index;
 
@@ -284,47 +72,6 @@ static HWND v9x_control(HWND parent,
     return control;
 }
 
-static void v9x_copy_report(HWND window)
-{
-    DWORD length = v9x_string_length(v9x_report) + 1ul;
-    HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, length);
-    char *destination;
-    DWORD index;
-
-    if (memory == 0) {
-        MessageBoxA(window, "Could not allocate the report buffer.",
-                    v9x_window_title, MB_OK | MB_ICONERROR);
-        return;
-    }
-    destination = (char *)GlobalLock(memory);
-    if (destination == 0) {
-        GlobalFree(memory);
-        return;
-    }
-    for (index = 0ul; index < length; ++index) {
-        destination[index] = v9x_report[index];
-    }
-    GlobalUnlock(memory);
-
-    if (!OpenClipboard(window)) {
-        GlobalFree(memory);
-        MessageBoxA(window, "Could not open the clipboard.", v9x_window_title,
-                    MB_OK | MB_ICONERROR);
-        return;
-    }
-    EmptyClipboard();
-    if (SetClipboardData(CF_TEXT, memory) == 0) {
-        CloseClipboard();
-        GlobalFree(memory);
-        MessageBoxA(window, "Could not copy the report.", v9x_window_title,
-                    MB_OK | MB_ICONERROR);
-        return;
-    }
-    CloseClipboard();
-    MessageBoxA(window, "The diagnostic report is on the clipboard.",
-                v9x_window_title, MB_OK | MB_ICONINFORMATION);
-}
-
 static void v9x_create_controls(HWND window)
 {
     HWND control;
@@ -343,19 +90,19 @@ static void v9x_create_controls(HWND window)
                       BS_GROUPBOX, 14, 106, 402, 126, 0);
     (void)v9x_control(window, "STATIC", "Adapter:",
                       SS_LEFT, 28, 127, 76, 18, 0);
-    (void)v9x_control(window, "STATIC", v9x_adapter_name,
+    (void)v9x_control(window, "STATIC", v9x_status.adapter_name,
                       SS_LEFT, 110, 127, 278, 18, 0);
     (void)v9x_control(window, "STATIC", "Active mode:",
                       SS_LEFT, 28, 151, 76, 18, 0);
-    (void)v9x_control(window, "STATIC", v9x_active_mode,
+    (void)v9x_control(window, "STATIC", v9x_status.active_mode,
                       SS_LEFT, 110, 151, 278, 18, 0);
     (void)v9x_control(window, "STATIC", "Core clock:",
                       SS_LEFT, 28, 175, 76, 18, 0);
-    (void)v9x_control(window, "STATIC", v9x_core_clock,
+    (void)v9x_control(window, "STATIC", v9x_status.core_clock,
                       SS_LEFT, 110, 175, 278, 18, 0);
     (void)v9x_control(window, "STATIC", "Memory clock:",
                       SS_LEFT, 28, 199, 76, 18, 0);
-    (void)v9x_control(window, "STATIC", v9x_memory_clock,
+    (void)v9x_control(window, "STATIC", v9x_status.memory_clock,
                       SS_LEFT, 110, 199, 278, 18, 0);
 
     (void)v9x_control(window, "BUTTON", "Rendering and safety",
@@ -376,11 +123,11 @@ static void v9x_create_controls(HWND window)
                       BS_GROUPBOX, 14, 338, 402, 62, 0);
     (void)v9x_control(window, "STATIC", "Driver / framebuffer:",
                       SS_LEFT, 28, 358, 116, 18, 0);
-    (void)v9x_control(window, "STATIC", v9x_framebuffer_status,
+    (void)v9x_control(window, "STATIC", v9x_status.framebuffer_status,
                       SS_LEFT, 148, 358, 250, 18, 0);
     (void)v9x_control(window, "STATIC", "Last GDI test:",
                       SS_LEFT, 28, 380, 116, 18, 0);
-    (void)v9x_control(window, "STATIC", v9x_gdi_status,
+    (void)v9x_control(window, "STATIC", v9x_status.gdi_status,
                       SS_LEFT, 148, 380, 250, 18, 0);
 
     (void)v9x_control(window, "BUTTON", "Copy report",
@@ -410,7 +157,8 @@ static LRESULT CALLBACK v9x_window_proc(HWND window,
     case WM_COMMAND:
         switch (LOWORD(wparam)) {
         case V9X_ID_COPY_REPORT:
-            v9x_copy_report(window);
+            (void)v9x_settings_copy_report(window, v9x_window_title,
+                                           v9x_status.report);
             return 0;
         case V9X_ID_RECOVERY:
             if (!v9x_find_sibling(v9x_recovery_path, "RECOVER.TXT") ||
@@ -475,7 +223,7 @@ void WINAPI V9xSettingsEntry(void)
     v9x_ui_font = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
     v9x_logo_bitmap = LoadBitmapA(instance,
                                   MAKEINTRESOURCEA(V9X_ID_LOGO_BITMAP));
-    v9x_build_runtime_status();
+    v9x_settings_collect(&v9x_status, V9X_BUILD_ID);
     x = (GetSystemMetrics(SM_CXSCREEN) - 440) / 2;
     y = (GetSystemMetrics(SM_CYSCREEN) - 475) / 2;
     window = CreateWindowExA(WS_EX_DLGMODALFRAME,

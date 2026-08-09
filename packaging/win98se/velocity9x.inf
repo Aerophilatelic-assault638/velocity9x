@@ -16,6 +16,7 @@ Velocity9x.Copy=11
 [SourceDisksFiles]
 v9xdisp.drv=1
 v9xmini.vxd=1
+v9xsetp.dll=1
 
 [Manufacturer]
 %Manufacturer%=Velocity9x.Models
@@ -31,6 +32,7 @@ AddReg=Velocity9x.Registry
 [Velocity9x.Copy]
 v9xdisp.drv,,,12
 v9xmini.vxd,,,12
+v9xsetp.dll,,,12
 
 [Velocity9x.Previous]
 HKR,,Ver
@@ -38,6 +40,8 @@ HKR,,DevLoader
 HKR,DEFAULT
 HKR,MODES
 HKR,CURRENT
+HKLM,Software\Microsoft\Windows\CurrentVersion\Controls Folder\Display\shellex\PropertySheetHandlers\Velocity9x
+HKCR,CLSID\{91925DA2-2EF0-4E20-B4E9-A53ED37E14B1}
 
 [Velocity9x.Registry]
 HKR,,Ver,,4.0
@@ -58,6 +62,10 @@ HKR,"MODES\8\1024,768",,,60
 HKR,"MODES\16\640,480",,,60
 HKR,"MODES\16\800,600",,,60
 HKR,"MODES\16\1024,768",,,60
+HKCR,CLSID\{91925DA2-2EF0-4E20-B4E9-A53ED37E14B1},,,"Velocity9x Settings Page"
+HKCR,CLSID\{91925DA2-2EF0-4E20-B4E9-A53ED37E14B1}\InProcServer32,,,"v9xsetp.dll"
+HKCR,CLSID\{91925DA2-2EF0-4E20-B4E9-A53ED37E14B1}\InProcServer32,ThreadingModel,,"Apartment"
+HKLM,Software\Microsoft\Windows\CurrentVersion\Controls Folder\Display\shellex\PropertySheetHandlers\Velocity9x,,,"{91925DA2-2EF0-4E20-B4E9-A53ED37E14B1}"
 
 [Strings]
 Provider="Velocity9x Project"
