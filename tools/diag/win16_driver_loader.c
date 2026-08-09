@@ -19,12 +19,20 @@ typedef struct v9x_probe_mode {
 
 static int v9x_supported_mode(WORD width, WORD height, WORD bits_per_pixel)
 {
+#ifdef V9X_TARGET_MATROX_MILLENNIUM2
+#ifdef V9X_MATROX_16BPP
+    return width == 640u && height == 480u && bits_per_pixel == 16u;
+#else
+    return width == 640u && height == 480u && bits_per_pixel == 8u;
+#endif
+#else
     int supported_resolution =
         (width == 640u && height == 480u) ||
         (width == 800u && height == 600u) ||
         (width == 1024u && height == 768u);
     return supported_resolution &&
            (bits_per_pixel == 8u || bits_per_pixel == 16u);
+#endif
 }
 
 static int v9x_is_quiet(const char FAR *command_line)
@@ -51,10 +59,12 @@ int PASCAL WinMain(HINSTANCE instance,
     V9X_VALIDATE_PROC validate_proc;
     V9X_PROBE_MODE mode;
     WORD FAR *gdi_words = (WORD FAR *)v9x_gdi_info;
+#ifndef V9X_TARGET_MATROX_MILLENNIUM2
     static const WORD widths[] = { 640u, 800u, 1024u };
     static const WORD heights[] = { 480u, 600u, 768u };
     WORD depth;
     WORD index;
+#endif
     int quiet = v9x_is_quiet(command_line);
 
     driver = LoadLibrary("V9XDISP.DRV");
@@ -92,6 +102,24 @@ int PASCAL WinMain(HINSTANCE instance,
         return 3;
     }
 
+#ifdef V9X_TARGET_MATROX_MILLENNIUM2
+    mode.size = sizeof(mode);
+#ifdef V9X_MATROX_16BPP
+    mode.bits_per_pixel = 16u;
+#else
+    mode.bits_per_pixel = 8u;
+#endif
+    mode.width = 640;
+    mode.height = 480;
+    if (validate_proc(&mode) != 0u) {
+        FreeLibrary(driver);
+        if (!quiet) {
+            MessageBox(0, "The guarded 640x480 Matrox mode was rejected.",
+                       v9x_title, MB_OK | MB_ICONHAND);
+        }
+        return 4;
+    }
+#else
     for (depth = 8u; depth <= 16u; depth += 8u) {
         for (index = 0u; index < 3u; ++index) {
             mode.size = sizeof(mode);
@@ -108,6 +136,7 @@ int PASCAL WinMain(HINSTANCE instance,
             }
         }
     }
+#endif
     mode.size = sizeof(mode);
     mode.bits_per_pixel = 8u;
     mode.width = 1280;
@@ -134,9 +163,15 @@ int PASCAL WinMain(HINSTANCE instance,
 
     if (!quiet) {
         MessageBox(0,
+#ifdef V9X_TARGET_MATROX_MILLENNIUM2
+                   "V9XDISP.DRV passed its DIB Engine inquiry and guarded "
+                   "640x480 validation without enabling the display. "
+                   "Click OK to unload it.",
+#else
                    "V9XDISP.DRV passed its DIB Engine inquiry and all six "
                    "mode validations without enabling the display. Click "
                    "OK to unload it.",
+#endif
                    v9x_title,
                    MB_OK | MB_ICONINFORMATION);
     }

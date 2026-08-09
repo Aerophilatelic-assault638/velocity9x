@@ -46,6 +46,30 @@ The guard was validated through boot counters 3-5:
 3. second boot recorded `ROLLED-BACK`, removed `ARMED.2`, and both restored
    files passed `FC /B` against their saved copies.
 
+## First guarded activation result
+
+Build `mga2-640x480x8-guard2` was tested on the physical board at boot counter
+6. Its inactive Win16 query passed before installation. The DOS-time guard then
+installed the candidate atomically and Windows reached a ready 640x480x8
+desktop with `V9XBOOT.INI` reporting `Stage=enable-ok`. Both active files were
+byte-identical to the staged candidate.
+
+The desktop initially remained navigable, but the automated GDI test did not
+complete and its framebuffer writes produced severe scan-line corruption. The
+palette test consequently reported `palette-readback-mismatch`. The candidate
+was rejected and the guard restored the byte-identical stock pair at boot
+counter 7; the machine returned to a ready 1024x768x24 desktop.
+
+This proves PCI matching, VBE mode entry, BAR0 selection, DPMI mapping, DIB
+Engine enable and rollback. It does **not** validate the scan-line contract or
+drawing. The next candidate must explicitly set and verify VBE function 4F06h
+returns a 640-byte logical scan line before exposing the framebuffer to DIBENG.
+
+Evidence is retained under `build/physical-mga-inventory`:
+
+- `MGA2-GUARD2-DESKTOP.BMP` (ready desktop before the rendering stress);
+- `MGA2-GUARD2-AFTER-GDI.BMP` (reproducible scan-line corruption).
+
 ## Next candidate
 
 Before replacing either stock file, a DOS/VBE inventory must confirm the
@@ -53,4 +77,27 @@ board's mode numbers and linear-framebuffer addresses for 640x480x8,
 800x600x8 and 1024x768x8. The first display candidate is then limited to
 640x480x8, DIB Engine rendering and BIOS/VBE mode entry. It must obtain the
 MGABASE2 address from the physical resource contract and contain no drawing
-engine, pseudo-DMA, DAC-clock or acceleration writes.
+engine, pseudo-DMA, DAC-clock or acceleration writes. Candidate 2 additionally
+uses VBE 4F06h to force and verify the 640-byte scan-line length.
+
+Candidate 3 confirmed that enforcing the pitch does not fix first-write
+corruption. Candidate 4 reproduced it at 640x480x16, proving the failure is not
+limited to the TVP3026 palette path. Candidate 5 removed the inherited S3/VBE
+bit-15 no-clear request. It reached a visually correct desktop, but the first
+stock-validated GDI surface operations still produced a repeated, scan-line
+corruption pattern. The same surface probe completed without corruption under
+the restored stock Matrox driver, so this is a Velocity9x surface-write defect.
+
+Candidate 6 tested `OPMODE.dirDataSiz=01` at 16 bpp. It did not correct the
+geometry and changed only the corrupt color presentation. The MGA-2164W
+definition shows why: `dirDataSiz` selects big-endian byte swapping; little
+endian x86 must leave the field at `00` for every pixel depth. Candidate 6 was
+rejected and the guard restored the stock driver at boot counter 17.
+
+Candidate 7 keeps the conservative VBE mode/origin path and little-endian
+`OPMODE=00`. Its isolated change is explicit initialization of the 48-byte
+DIB Engine screen PDevice, following the working vmdisp9x implementation:
+640x480 geometry, 1,280-byte delta and width, 16 bits per pixel, BAR0 selector,
+zero surface offset, 5:6:5 format, and explicit bitmap-info/callback pointers.
+The package build and S3 regression pass locally. Physical inactive-query and
+guarded activation remain pending.

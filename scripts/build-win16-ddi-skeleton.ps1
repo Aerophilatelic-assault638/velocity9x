@@ -4,12 +4,23 @@ param(
     [string]$DdkRoot = "C:\98DDK",
     [ValidateRange(-1, 5)]
     [int]$ForceModeIndex = -1,
-    [switch]$BootTrace
+    [switch]$BootTrace,
+    [switch]$MatroxMillennium2,
+    [ValidateSet(8, 16)]
+    [int]$MatroxBitsPerPixel = 8
 )
 
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$outputDir = Join-Path $repoRoot "build\win16-ddi"
+$outputDir = Join-Path $repoRoot $(if ($MatroxMillennium2) {
+    "build\win16-ddi-mga2"
+} else {
+    "build\win16-ddi"
+})
+
+if ($MatroxMillennium2 -and $ForceModeIndex -gt 0) {
+    throw "The guarded Millennium II build supports only mode index 0 (640x480x8)."
+}
 
 . (Join-Path $PSScriptRoot "common.ps1")
 if (-not $BuildId) {
@@ -51,12 +62,16 @@ $sources = @(
     @{ Name = "log"; Path = "src\common\log.c" },
     @{ Name = "mode"; Path = "src\common\mode.c" },
     @{ Name = "resources"; Path = "src\common\resources.c" },
-    @{ Name = "virge_backend"; Path = "src\chipsets\s3\virge\backend.c" },
-    @{ Name = "virge_clocks"; Path = "src\chipsets\s3\virge\clocks.c" },
     @{ Name = "display_component"; Path = "src\display16\display_component.c" },
     @{ Name = "loader"; Path = "src\display16\loader.c" },
     @{ Name = "ddi"; Path = "src\display16\ddi.c" }
 )
+if (-not $MatroxMillennium2) {
+    $sources = @($sources[0..3]) + @(
+        @{ Name = "virge_backend"; Path = "src\chipsets\s3\virge\backend.c" },
+        @{ Name = "virge_clocks"; Path = "src\chipsets\s3\virge\clocks.c" }
+    ) + @($sources[4..($sources.Count - 1)])
+}
 
 foreach ($source in $sources) {
     $sourcePath = Join-Path $repoRoot $source.Path
@@ -76,6 +91,12 @@ foreach ($source in $sources) {
     if ($BootTrace) {
         $arguments = @("-dV9X_BOOT_TRACE=1") + $arguments
     }
+    if ($MatroxMillennium2) {
+        $arguments = @("-dV9X_TARGET_MATROX_MILLENNIUM2=1") + $arguments
+        if ($MatroxBitsPerPixel -eq 16) {
+            $arguments = @("-dV9X_MATROX_16BPP=1") + $arguments
+        }
+    }
     & $compiler @arguments
     if ($LASTEXITCODE -ne 0) {
         throw "Open Watcom 16-bit compilation failed for $($source.Path)."
@@ -91,7 +112,15 @@ if ($LASTEXITCODE -ne 0) {
 
 $runtimeSource = Join-Path $repoRoot "src\display16\runtime.asm"
 $runtimeObject = Join-Path $outputDir "runtime.obj"
-& $assembler "-zq" "-fo=$runtimeObject" $runtimeSource
+$runtimeAssemblerArguments = @("-zq", "-fo=$runtimeObject")
+if ($MatroxMillennium2) {
+    $runtimeAssemblerArguments += "-dV9X_TARGET_MATROX_MILLENNIUM2=1"
+    if ($MatroxBitsPerPixel -eq 16) {
+        $runtimeAssemblerArguments += "-dV9X_MATROX_16BPP=1"
+    }
+}
+$runtimeAssemblerArguments += $runtimeSource
+& $assembler @runtimeAssemblerArguments
 if ($LASTEXITCODE -ne 0) {
     throw "Open Watcom failed to assemble the Win16 framebuffer runtime."
 }
@@ -220,7 +249,7 @@ foreach ($symbol in $requiredRuntimeSymbols) {
 }
 
 $runtimeDisassembly = (& $disassembler "-a" $runtimeObject 2>&1) -join "`n"
-foreach ($instruction in @(
+$commonRuntimeInstructions = @(
     'mov\s+eax,80H', 'mov\s+eax,81H', 'mov\s+eax,82H',
     'mov\s+eax,85H', 'mov\s+eax,86H', 'mov\s+eax,87H',
     'push\s+esi', 'push\s+edi',
@@ -228,16 +257,49 @@ foreach ($instruction in @(
     'xor\s+edx,edx',
     'mov\s+ecx,dword ptr DGROUP:_v9x_active_visible_bytes',
     'mov\s+bx,word ptr DGROUP:_v9x_active_vbe_mode',
-    'or\s+bx,8000H',
-    'mov\s+al,58H', 'and\s+al,0FCH', 'or\s+al,13H',
     'mov\s+ax,seg RESETHIRESMODE', 'int\s+2fH'
-)) {
+)
+foreach ($instruction in $commonRuntimeInstructions) {
     if ($runtimeDisassembly -notmatch $instruction) {
         throw "The Win16 runtime is missing audited VDD handoff instruction $instruction."
     }
 }
-if ($runtimeDisassembly -match 'or\s+bx,4000H') {
-    throw "The ViRGE/DX runtime must not request the GX2-only VBE LFB flag."
+if ($MatroxMillennium2) {
+    $matroxPitchInstruction = if ($MatroxBitsPerPixel -eq 16) {
+        'cmp\s+bx,500H'
+    } else {
+        'cmp\s+bx,280H'
+    }
+    foreach ($instruction in @(
+        'or\s+bx,4000H', 'mov\s+cx,51BH', 'mov\s+dx,102BH',
+        'mov\s+ax,0B10AH', 'mov\s+di,10H',
+        'and\s+eax,0FFFFFFF0H', 'test\s+eax,0FFFFFFH',
+        'mov\s+ax,4F06H', 'mov\s+cx,280H', $matroxPitchInstruction
+    )) {
+        if ($runtimeDisassembly -notmatch $instruction) {
+            throw "The Millennium II runtime is missing audited instruction $instruction."
+        }
+    }
+    foreach ($forbiddenInstruction in @(
+        'mov\s+cx,8A01H', 'mov\s+dx,5333H',
+        'mov\s+al,58H', 'or\s+al,13H',
+        'mov\s+di,14H', 'dword ptr es:\[1E54H\]'
+    )) {
+        if ($runtimeDisassembly -match $forbiddenInstruction) {
+            throw "The Millennium II runtime contains forbidden S3 instruction $forbiddenInstruction."
+        }
+    }
+} else {
+    foreach ($instruction in @(
+        'or\s+bx,8000H', 'mov\s+al,58H', 'and\s+al,0FCH', 'or\s+al,13H'
+    )) {
+        if ($runtimeDisassembly -notmatch $instruction) {
+            throw "The ViRGE/DX runtime is missing audited instruction $instruction."
+        }
+    }
+    if ($runtimeDisassembly -match 'or\s+bx,4000H') {
+        throw "The ViRGE/DX runtime must not request the GX2-only VBE LFB flag."
+    }
 }
 foreach ($instruction in @('pop\s+dword ptr .*',
                             'call\s+far ptr CreateDIBPDevice',
@@ -258,4 +320,9 @@ if ($thunkDisassembly -notmatch
     throw "The DIB BitBlt thunk is not forwarding the selected palette mode."
 }
 
-Write-Output "Built Phase 3 640/800/1024 x 8/16-bpp Win16 DDI candidate: $driverPath"
+$modeDescription = if ($MatroxMillennium2) {
+    "guarded Millennium II 640x480x$MatroxBitsPerPixel"
+} else {
+    "Phase 3 640/800/1024 x 8/16-bpp"
+}
+Write-Output "Built $modeDescription Win16 DDI candidate: $driverPath"

@@ -29,6 +29,7 @@
 #define V9X_DE_FIVE6FIVE          0x0040u
 #define V9X_DE_VRAM               0x8000u
 #define V9X_DE_VERSION            0x0400u
+#define V9X_TYPE_DIBENG           0x5250u
 
 #define V9X_VALMODE_YES                0u
 #define V9X_VALMODE_NO_WRONG_DRIVER    1u

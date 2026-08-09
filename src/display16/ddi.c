@@ -10,7 +10,9 @@
 #undef SetCursor
 
 #include "velocity9x/build.h"
+#ifndef V9X_TARGET_MATROX_MILLENNIUM2
 #include "velocity9x/s3_virge.h"
+#endif
 #include "win9x_display_abi.h"
 
 #define V9X_BITMAP_HEADER_SIZE     40u
@@ -61,12 +63,21 @@ typedef struct v9x_display_mode {
 } V9X_DISPLAY_MODE;
 
 static const V9X_DISPLAY_MODE v9x_modes[] = {
+#ifdef V9X_TARGET_MATROX_MILLENNIUM2
+#ifdef V9X_MATROX_16BPP
+    {  640u, 480u, 16u, 1280u, 0x0111u, 254, 127 }
+#else
+    /* The physical Millennium II reports a packed 640-byte pitch for 101h. */
+    {  640u, 480u,  8u,  640u, 0x0101u, 254, 127 }
+#endif
+#else
     {  640u, 480u,  8u,  640u, 0x0101u, 254, 127 },
     {  800u, 600u,  8u,  800u, 0x0103u, 318, 159 },
     { 1024u, 768u,  8u, 1024u, 0x0105u, 407, 203 },
     {  640u, 480u, 16u, 1280u, 0x0111u, 254, 127 },
     {  800u, 600u, 16u, 1600u, 0x0114u, 318, 159 },
     { 1024u, 768u, 16u, 2048u, 0x0117u, 407, 203 }
+#endif
 };
 #define V9X_MODE_COUNT (sizeof(v9x_modes) / sizeof(v9x_modes[0]))
 
@@ -100,6 +111,8 @@ static void v9x_trace_hardware_failure(void)
     case 6u: v9x_boot_trace("fail-hardware-selector-base"); break;
     case 7u: v9x_boot_trace("fail-hardware-selector-limit"); break;
     case 8u: v9x_boot_trace("fail-hardware-s3-linear-aperture"); break;
+    case 9u: v9x_boot_trace("fail-hardware-vbe-pitch"); break;
+    case 10u: v9x_boot_trace("fail-hardware-matrox-direct-format"); break;
     default: v9x_boot_trace("fail-hardware-unknown"); break;
     }
 }
@@ -114,6 +127,7 @@ static BYTE v9x_port_in(WORD port);
 static void v9x_port_out(WORD port, BYTE value);
 #pragma aux v9x_port_out = "out dx,al" parm [dx] [al] modify exact []
 
+#ifndef V9X_TARGET_MATROX_MILLENNIUM2
 static void v9x_format_u32(char *text, DWORD value)
 {
     char reverse[11];
@@ -135,9 +149,29 @@ static BYTE v9x_s3_read_sequencer(BYTE index)
     v9x_port_out(0x03c4u, index);
     return v9x_port_in(0x03c5u);
 }
+#endif
 
 static void v9x_publish_hardware_diagnostics(void)
 {
+#ifdef V9X_TARGET_MATROX_MILLENNIUM2
+    WritePrivateProfileString("Velocity9xHardware", 0, 0,
+                              V9X_HARDWARE_INFO_PATH);
+    WritePrivateProfileString("Velocity9xHardware", "SchemaVersion", "1",
+                              V9X_HARDWARE_INFO_PATH);
+    WritePrivateProfileString("Velocity9xHardware", "Adapter",
+                              "Matrox Millennium II MGA-2164W",
+                              V9X_HARDWARE_INFO_PATH);
+    WritePrivateProfileString("Velocity9xHardware", "VendorId", "102B",
+                              V9X_HARDWARE_INFO_PATH);
+    WritePrivateProfileString("Velocity9xHardware", "DeviceId", "051B",
+                              V9X_HARDWARE_INFO_PATH);
+    WritePrivateProfileString("Velocity9xHardware", "ClockDetector",
+                              "matrox-mga2164w-unavailable-v1",
+                              V9X_HARDWARE_INFO_PATH);
+    WritePrivateProfileString("Velocity9xHardware", "ClockStatus",
+                              "unavailable",
+                              V9X_HARDWARE_INFO_PATH);
+#else
     struct v9x_clock_info clocks;
     BYTE saved_index = v9x_port_in(0x03c4u);
     BYTE saved_unlock;
@@ -189,6 +223,7 @@ static void v9x_publish_hardware_diagnostics(void)
                               (clocks.flags & V9X_CLOCK_CORE_SHARED_MCLK) != 0u
                                   ? "shared-memory-clock" : "independent",
                               V9X_HARDWARE_INFO_PATH);
+#endif
 }
 
 static void v9x_serial_write(const char FAR *message)
@@ -545,9 +580,37 @@ static WORD v9x_build_pdevice(LPVOID device_info,
     } else {
         v9x_color_table = 0;
     }
+/*
+ * The working vmdisp9x minidriver initializes the screen DIBENGINE record
+ * explicitly.  That is important for hardware whose BIOS-selected scan-line
+ * layout is not reconstructed reliably by CreateDIBPDevice.  Keep the proven
+ * S3 path unchanged while making every Matrox surface field auditable.
+ */
+#ifdef V9X_TARGET_MATROX_MILLENNIUM2
+    v9x_driver_pdevice = (V9X_DIB_ENGINE FAR *)device_info;
+    v9x_driver_pdevice->deType = V9X_TYPE_DIBENG;
+    v9x_driver_pdevice->deWidth = v9x_selected_mode->width;
+    v9x_driver_pdevice->deHeight = v9x_selected_mode->height;
+    v9x_driver_pdevice->deWidthBytes = v9x_selected_mode->pitch;
+    v9x_driver_pdevice->dePlanes = 1u;
+    v9x_driver_pdevice->deBitsPixel = v9x_selected_mode->bits_per_pixel;
+    v9x_driver_pdevice->deReserved1 = 0ul;
+    v9x_driver_pdevice->deDeltaScan = v9x_selected_mode->pitch;
+    v9x_driver_pdevice->delpPDevice = 0;
+    v9x_driver_pdevice->deBitsOffset = 0ul;
+    v9x_driver_pdevice->deBitsSelector = v9x_screen_selector;
+    v9x_driver_pdevice->deFlags = pdevice_flags;
+    v9x_driver_pdevice->deVersion = V9X_DE_VERSION;
+    v9x_driver_pdevice->deBitmapInfo = bitmap_info;
+    v9x_driver_pdevice->deBeginAccess = V9xDibBeginAccess;
+    v9x_driver_pdevice->deEndAccess = V9xDibEndAccess;
+    v9x_driver_pdevice->deDriverReserved = 0ul;
+    created = 1ul;
+#else
     created = V9xCreateDibPDeviceCall(bitmap_info, device_info,
                                      MAKELP(v9x_screen_selector, 0u),
                                      pdevice_flags);
+#endif
     if (created == 0ul) {
         v9x_boot_trace("fail-create-pdevice");
         v9x_serial_write("V9X-DRV enable-fail stage=create-pdevice\r\n");

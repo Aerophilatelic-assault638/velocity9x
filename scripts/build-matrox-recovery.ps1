@@ -5,7 +5,7 @@ $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $sourceDir = Join-Path $repoRoot "packaging\win98se\matrox-recovery"
 $outputDir = Join-Path $repoRoot "build\matrox-recovery"
-$expected = @("ARM.BAT", "DISARM.BAT", "PREPARE.BAT", "README.TXT",
+$expected = @("ACTIVATE.BAT", "ARM.BAT", "DISARM.BAT", "PREPARE.BAT", "README.TXT",
               "RESTORE.BAT", "V9XGUARD.BAT")
 
 New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
@@ -20,9 +20,17 @@ foreach ($name in $expected) {
 
 $guard = Get-Content -LiteralPath (Join-Path $outputDir "V9XGUARD.BAT") -Raw
 foreach ($required in @("ARMED.1", "ARMED.2", "MGAPDX64.DRV",
-                         "MGAPDX64.VXD", "ROLLED-BACK")) {
+                         "MGAPDX64.VXD", "CANDDRV.DRV", "CANDVXD.VXD",
+                         "ROLLED-BACK")) {
     if ($guard.IndexOf($required, [StringComparison]::OrdinalIgnoreCase) -lt 0) {
         throw "Recovery guard is missing $required"
+    }
+}
+$activate = Get-Content -LiteralPath (Join-Path $outputDir "ACTIVATE.BAT") -Raw
+foreach ($required in @("FC /B", "ARM.BAT", "DISARM.BAT", "MGAPDX64.DRV",
+                         "MGAPDX64.VXD")) {
+    if ($activate.IndexOf($required, [StringComparison]::OrdinalIgnoreCase) -lt 0) {
+        throw "Recovery activation helper is missing $required"
     }
 }
 if ($guard -match '(?i)REGEDIT|FORMAT|FDISK|DELTREE') {

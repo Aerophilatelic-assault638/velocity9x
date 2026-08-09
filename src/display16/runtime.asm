@@ -2,8 +2,9 @@
 ;
 ; The DIB Engine names are supplied by the external Windows 98 DDK import
 ; library. Hardware bring-up is restricted to an audited VBE mode table and a
-; validated,
-; 64-KiB-aligned S3 linear aperture read from CR59/CR5A.
+; validated framebuffer aperture. S3 reads CR59/CR5A; the guarded Matrox
+; Millennium II build reads the direct-framebuffer PCI BAR without touching
+; any Matrox MMIO register.
 
 .model compact
 .386p
@@ -267,10 +268,17 @@ V9XVDDUNREGISTER ENDP
 V9xSetVbeMode PROC NEAR
     mov     ax, 4f02h
     mov     bx, _v9x_active_vbe_mode
+IFDEF V9X_TARGET_MATROX_MILLENNIUM2
+    ; Request the advertised linear framebuffer. Unlike the S3 path, do not
+    ; preserve the previous mode's framebuffer/display origin: the physical
+    ; Millennium II BIOS must establish a fresh origin at BAR0 offset zero.
+    or      bx, 4000h
+ELSE
     ; The Windows 98 S3 ViRGE sample uses the S3/VBE no-clear flag for these
     ; modes. It only requests the generic VBE linear-framebuffer bit on GX2,
     ; not on the 86C375 ViRGE/DX targeted here.
     or      bx, 8000h
+ENDIF
     int     10h
     cmp     ax, 004fh
     jne     short V9xSetVbeModeFailed
@@ -281,10 +289,40 @@ V9xSetVbeModeFailed:
     ret
 V9xSetVbeMode ENDP
 
+IFDEF V9X_TARGET_MATROX_MILLENNIUM2
+V9xSetMatroxScanLinePitch PROC NEAR
+    ; VBE 4F06h subfunction 00h sets the logical scan-line length in pixels.
+    ; The first candidate has exactly one mode, whose proven packed pitch is
+    ; 640 bytes. Reject a BIOS that silently selects a different stride.
+    mov     ax, 4f06h
+    xor     bx, bx
+    mov     cx, 0280h
+    int     10h
+    cmp     ax, 004fh
+    jne     short V9xSetMatroxScanLinePitchFailed
+IFDEF V9X_MATROX_16BPP
+    cmp     bx, 0500h
+ELSE
+    cmp     bx, 0280h
+ENDIF
+    jne     short V9xSetMatroxScanLinePitchFailed
+    mov     ax, 1
+    ret
+V9xSetMatroxScanLinePitchFailed:
+    xor     ax, ax
+    ret
+V9xSetMatroxScanLinePitch ENDP
+ENDIF
+
 V9xFindPciDevice PROC NEAR
     mov     ax, 0b102h
+IFDEF V9X_TARGET_MATROX_MILLENNIUM2
+    mov     cx, 0051bh
+    mov     dx, 0102bh
+ELSE
     mov     cx, 08a01h
     mov     dx, 05333h
+ENDIF
     xor     si, si
     int     1ah
     jc      short V9xFindPciDeviceFailed
@@ -311,6 +349,7 @@ V9XHARDWAREPRESENT PROC FAR
     retf
 V9XHARDWAREPRESENT ENDP
 
+IFNDEF V9X_TARGET_MATROX_MILLENNIUM2
 V9xReadS3Aperture PROC NEAR
     mov     dx, 03d4h
     mov     ax, 4838h
@@ -342,7 +381,40 @@ V9xReadS3ApertureFailed:
     xor     eax, eax
     ret
 V9xReadS3Aperture ENDP
+ENDIF
 
+IFDEF V9X_TARGET_MATROX_MILLENNIUM2
+V9xReadMatroxAperture PROC NEAR
+    ; PCI BIOS B102h leaves the selected bus/device-function in BH/BL. BAR0
+    ; (configuration offset 10h) is MGABASE2, the direct framebuffer aperture.
+    call    V9xFindPciDevice
+    or      ax, ax
+    jz      short V9xReadMatroxApertureFailed
+    mov     ax, 0b10ah
+    mov     di, 0010h
+    int     1ah
+    jc      short V9xReadMatroxApertureFailed
+    or      ah, ah
+    jne     short V9xReadMatroxApertureFailed
+    test    cl, 1
+    jnz     short V9xReadMatroxApertureFailed
+    mov     eax, ecx
+    and     eax, 0fffffff0h
+    cmp     eax, 01000000h
+    jb      short V9xReadMatroxApertureFailed
+    cmp     eax, 0fe000000h
+    ja      short V9xReadMatroxApertureFailed
+    test    eax, 00ffffffh
+    jnz     short V9xReadMatroxApertureFailed
+    ret
+V9xReadMatroxApertureFailed:
+    xor     eax, eax
+    ret
+V9xReadMatroxAperture ENDP
+
+ENDIF
+
+IFNDEF V9X_TARGET_MATROX_MILLENNIUM2
 V9xEnableS3LinearAperture PROC NEAR
     ; Unlock the S3 system-extension registers, select a 4-MiB aperture in
     ; CR58[1:0], and explicitly enable linear addressing in CR58[4]. This is
@@ -370,6 +442,7 @@ V9xEnableS3LinearApertureFailed:
     xor     ax, ax
     ret
 V9xEnableS3LinearAperture ENDP
+ENDIF
 
 PUBLIC V9XHARDWAREENABLE
 V9XHARDWAREENABLE PROC FAR
@@ -393,12 +466,29 @@ V9xHardwareDeviceFound:
     jnz     short V9xHardwareModeSet
     jmp     V9xHardwareEnableDone
 V9xHardwareModeSet:
+IFDEF V9X_TARGET_MATROX_MILLENNIUM2
+    mov     V9xHardwareStageCode, 9
+    call    V9xSetMatroxScanLinePitch
+    or      ax, ax
+    jnz     short V9xHardwarePitchSet
+    jmp     V9xHardwareEnableDone
+V9xHardwarePitchSet:
+ENDIF
     mov     V9xHardwareStageCode, 3
+IFDEF V9X_TARGET_MATROX_MILLENNIUM2
+    call    V9xReadMatroxAperture
+ELSE
     call    V9xReadS3Aperture
+ENDIF
     or      eax, eax
     jnz     short V9xHardwareBaseValid
     jmp     V9xHardwareEnableDone
 V9xHardwareBaseValid:
+IFDEF V9X_TARGET_MATROX_MILLENNIUM2
+    ; VBE 4F02h enabled the linear framebuffer. Do not write MGA control
+    ; registers during this conservative first activation.
+    mov     V9xHardwareStageCode, 4
+ELSE
     mov     V9xHardwareStageCode, 8
     push    eax
     call    V9xEnableS3LinearAperture
@@ -409,6 +499,7 @@ V9xHardwareBaseValid:
     jmp     V9xHardwareEnableDone
 V9xHardwareApertureEnabled:
     mov     V9xHardwareStageCode, 4
+ENDIF
 
     cmp     V9xScreenSelector, 0
     je      short V9xHardwareAllocate
@@ -502,10 +593,19 @@ PUBLIC V9XHARDWARERESET
 V9XHARDWARERESET PROC FAR
     push    bx
     call    V9xSetVbeMode
+IFDEF V9X_TARGET_MATROX_MILLENNIUM2
+    or      ax, ax
+    jz      short V9xHardwareResetDone
+    call    V9xSetMatroxScanLinePitch
+    or      ax, ax
+    jz      short V9xHardwareResetDone
+V9xHardwareResetDone:
+ELSE
     or      ax, ax
     jz      short V9xHardwareResetDone
     call    V9xEnableS3LinearAperture
 V9xHardwareResetDone:
+ENDIF
     pop     bx
     retf
 V9XHARDWARERESET ENDP

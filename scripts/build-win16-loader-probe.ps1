@@ -1,11 +1,18 @@
 [CmdletBinding()]
 param(
-    [string]$BuildId
+    [string]$BuildId,
+    [switch]$MatroxMillennium2,
+    [ValidateSet(8, 16)]
+    [int]$MatroxBitsPerPixel = 8
 )
 
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$outputDir = Join-Path $repoRoot "build\win16-loader-probe"
+$outputDir = Join-Path $repoRoot $(if ($MatroxMillennium2) {
+    "build\win16-loader-probe-mga2"
+} else {
+    "build\win16-loader-probe"
+})
 
 . (Join-Path $PSScriptRoot "common.ps1")
 if (-not $BuildId) {
@@ -40,8 +47,16 @@ $source = Join-Path $repoRoot "tools\diag\win16_driver_loader.c"
 $executable = Join-Path $outputDir "v9x16ld.exe"
 Push-Location $outputDir
 try {
-    & $compiler "-bt=windows" "-l=windows" "-zq" "-wx" `
-        "-dV9X_BUILD_ID=`"$BuildId`"" "-fe=$executable" $source
+    $arguments = @("-bt=windows", "-l=windows", "-zq", "-wx",
+                   "-dV9X_BUILD_ID=`"$BuildId`"", "-fe=$executable")
+    if ($MatroxMillennium2) {
+        $arguments += "-dV9X_TARGET_MATROX_MILLENNIUM2=1"
+        if ($MatroxBitsPerPixel -eq 16) {
+            $arguments += "-dV9X_MATROX_16BPP=1"
+        }
+    }
+    $arguments += $source
+    & $compiler @arguments
     if ($LASTEXITCODE -ne 0) {
         throw "Open Watcom failed to build the Win16 display-loader probe."
     }
