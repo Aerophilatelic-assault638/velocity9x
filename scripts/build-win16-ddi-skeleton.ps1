@@ -238,6 +238,14 @@ foreach ($instruction in @(
 if ($runtimeDisassembly -match 'or\s+bx,4000H') {
     throw "The ViRGE/DX runtime must not request the GX2-only VBE LFB flag."
 }
+foreach ($instruction in @('pop\s+dword ptr .*',
+                            'call\s+far ptr CreateDIBPDevice',
+                            'push\s+dword ptr .*', 'mov\s+dx,ax',
+                            'shr\s+eax,10H', 'xchg\s+ax,dx')) {
+    if ($runtimeDisassembly -notmatch $instruction) {
+        throw "The CreateDIBPDevice thunk is missing ABI fixup $instruction."
+    }
+}
 
 $thunkDisassembly = (& $disassembler "-a" $thunkObject 2>&1) -join "`n"
 if ($thunkDisassembly -notmatch

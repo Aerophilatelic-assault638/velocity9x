@@ -3,9 +3,10 @@
 Velocity9x is a ground-up Windows 9x display-driver project. The first target is
 Windows 98 Second Edition on the S3 ViRGE/DX 86C375 (`5333:8A01`).
 
-The repository contains the portable core, proven Phase 1 loader probes, a
-guest-proven 640x480x8 activation milestone, and a Phase 3 candidate covering
-640x480, 800x600, and 1024x768 at 8 and 16 bpp. It is not a release driver.
+The repository contains the portable core, proven Phase 1 loader probes, and a
+guest-proven Phase 3 framebuffer candidate covering 640x480, 800x600, and
+1024x768 at 8 and 16 bpp. All six modes have passed cold-boot activation and
+software-GDI framebuffer checks under 86Box. It is not a release driver.
 
 ## Current implementation
 
@@ -18,6 +19,7 @@ guest-proven 640x480x8 activation milestone, and a Phase 3 candidate covering
 - a hardware-inert dynamic VxD lifecycle probe with bounded COM1 logging;
 - a consolidated VxD-plus-Win16-DRV lifecycle test with one PASS/FAIL result;
 - a boot-selected DIB Engine framebuffer candidate and default-handler mini-VDD;
+- an unattended GDI framebuffer test with machine-readable Win98 results;
 - a strict S3-only INF, recovery documentation, and read-only settings panel;
 - host tests and an Open Watcom build entry point.
 
@@ -99,6 +101,17 @@ To check the repository structure without a compiler:
 
 The inventoried local 86Box installations and the changes needed for an S3
 ViRGE/DX test clone are recorded in `docs/vm-environment.md`.
+
+After an already-associated candidate is installed and the remote agent is
+online, run the complete reboot-selected mode matrix unattended with:
+
+```powershell
+./scripts/run-vm-mode-matrix.ps1
+```
+
+The runner refuses a mismatched installed DRV/VXD pair, verifies the requested
+mode and `enable-ok` trace after every reboot, runs the machine-readable GDI
+test, and retains a screenshot and JSON summary per mode.
 
 To prepare the safe VM transfer and COM1 smoke-test folder:
 

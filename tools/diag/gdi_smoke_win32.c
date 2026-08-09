@@ -12,6 +12,76 @@ static const char v9x_title[] = "Velocity9x GDI framebuffer test";
 static const char v9x_full_title[] =
     "Velocity9x GDI framebuffer test - " V9X_BUILD_ID;
 static int v9x_test_posted;
+static int v9x_auto_mode;
+static DWORD v9x_exit_code;
+
+static int v9x_ascii_equal_ci(char left, char right)
+{
+    if (left >= 'A' && left <= 'Z') {
+        left = (char)(left + ('a' - 'A'));
+    }
+    if (right >= 'A' && right <= 'Z') {
+        right = (char)(right + ('a' - 'A'));
+    }
+    return left == right;
+}
+
+static int v9x_has_auto_switch(const char *command_line)
+{
+    static const char option[] = "/auto";
+    int offset;
+    int index;
+
+    for (offset = 0; command_line[offset] != '\0'; ++offset) {
+        for (index = 0; option[index] != '\0'; ++index) {
+            if (command_line[offset + index] == '\0' ||
+                !v9x_ascii_equal_ci(command_line[offset + index],
+                                    option[index])) {
+                break;
+            }
+        }
+        if (option[index] == '\0') {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static void v9x_uint_text(char *text, UINT value)
+{
+    char reverse[12];
+    int count = 0;
+    int index;
+
+    do {
+        reverse[count++] = (char)('0' + value % 10u);
+        value /= 10u;
+    } while (value != 0u);
+    for (index = 0; index < count; ++index) {
+        text[index] = reverse[count - index - 1];
+    }
+    text[count] = '\0';
+}
+
+static void v9x_write_auto_result(HDC display, int passed)
+{
+    char number[12];
+    const char result_path[] = "C:\\V9XGDI.INI";
+
+    WritePrivateProfileStringA("Velocity9xGDI", 0, 0, result_path);
+    WritePrivateProfileStringA("Velocity9xGDI", "Result",
+                               passed ? "PASS" : "FAIL", result_path);
+    WritePrivateProfileStringA("Velocity9xGDI", "Build", V9X_BUILD_ID,
+                               result_path);
+    v9x_uint_text(number, (UINT)GetDeviceCaps(display, HORZRES));
+    WritePrivateProfileStringA("Velocity9xGDI", "Width", number, result_path);
+    v9x_uint_text(number, (UINT)GetDeviceCaps(display, VERTRES));
+    WritePrivateProfileStringA("Velocity9xGDI", "Height", number, result_path);
+    v9x_uint_text(number, (UINT)(GetDeviceCaps(display, BITSPIXEL) *
+                                GetDeviceCaps(display, PLANES)));
+    WritePrivateProfileStringA("Velocity9xGDI", "BitsPerPixel", number,
+                               result_path);
+}
 
 static int v9x_string_length(const char *text)
 {
@@ -136,7 +206,16 @@ static void v9x_check_pixels(HWND window)
              v9x_color_near(GetPixel(display, 136, 72), RGB(255, 0, 0)) &&
              v9x_color_near(GetPixel(display, 28, 236), RGB(0, 0, 255)) &&
              v9x_color_near(GetPixel(display, 330, 250), RGB(255, 0, 0));
+    if (v9x_auto_mode) {
+        v9x_write_auto_result(display, passed);
+    }
     ReleaseDC(window, display);
+
+    if (v9x_auto_mode) {
+        v9x_exit_code = passed ? 0ul : 3ul;
+        DestroyWindow(window);
+        return;
+    }
 
     MessageBoxA(window,
         passed ?
@@ -170,7 +249,7 @@ static LRESULT CALLBACK v9x_window_proc(HWND window,
         DestroyWindow(window);
         return 0;
     case WM_DESTROY:
-        PostQuitMessage(0);
+        PostQuitMessage((int)v9x_exit_code);
         return 0;
     }
     return DefWindowProcA(window, message, wparam, lparam);
@@ -179,9 +258,12 @@ static LRESULT CALLBACK v9x_window_proc(HWND window,
 void WINAPI V9xGdiSmokeEntry(void)
 {
     HINSTANCE instance = GetModuleHandleA(0);
+    const char *command_line = GetCommandLineA();
     WNDCLASSA window_class;
     HWND window;
     MSG message;
+
+    v9x_auto_mode = v9x_has_auto_switch(command_line);
 
     window_class.style = CS_HREDRAW | CS_VREDRAW;
     window_class.lpfnWndProc = v9x_window_proc;

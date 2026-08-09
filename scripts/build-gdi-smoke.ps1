@@ -101,7 +101,8 @@ $unexpectedDlls = @($dllNames | Where-Object {
     $_ -notin @("KERNEL32.DLL", "USER32.DLL", "GDI32.DLL")
 })
 foreach ($requiredApi in @("BitBlt", "StretchBlt", "GetPixel", "SetPixel",
-                            "TextOutA")) {
+                            "TextOutA", "GetCommandLineA",
+                            "WritePrivateProfileStringA")) {
     if ($dumpText -notmatch "(?m)\s$([regex]::Escape($requiredApi))\s*$") {
         throw "The GDI smoke test is missing import $requiredApi."
     }

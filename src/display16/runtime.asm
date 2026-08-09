@@ -19,6 +19,7 @@ V9xVddEntryPoint dd 0
 V9xVmHandle       dw 0
 V9xVddRegistered dw 0
 V9xHardwareStageCode dw 0
+V9xCreateDibReturn dd 0
 
 .code
 
@@ -47,7 +48,19 @@ V9XDIBENABLECALL ENDP
 
 PUBLIC V9XCREATEDIBPDEVICECALL
 V9XCREATEDIBPDEVICECALL PROC FAR
-    jmp CreateDIBPDevice
+    ; CreateDIBPDevice is an unusual Win16 API: DIBENG returns its DWORD in
+    ; EAX, while Open Watcom's 16-bit C ABI expects DWORD results in DX:AX.
+    ; Convert explicitly; a transparent jump can turn a valid selector:0
+    ; result into a false zero depending on the stale value in DX.
+    ; Remove this wrapper's far return address so DIBENG sees the original
+    ; Pascal argument frame immediately below its own return address.
+    pop  dword ptr V9xCreateDibReturn
+    call CreateDIBPDevice
+    push dword ptr V9xCreateDibReturn
+    mov  dx, ax
+    shr  eax, 16
+    xchg ax, dx
+    retf
 V9XCREATEDIBPDEVICECALL ENDP
 
 PUBLIC V9XDIBBEGINACCESS
