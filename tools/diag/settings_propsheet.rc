@@ -30,7 +30,7 @@ BEGIN
     CONTROL         "Hardware acceleration", V9X_IDC_ACCEL_CHECK,
                     "BUTTON", BS_AUTOCHECKBOX | WS_DISABLED,
                     15, 138, 150, 10
-    CONTROL         "Extended mode switching", V9X_IDC_MODESW_CHECK,
+    CONTROL         "Live mode switching", V9X_IDC_MODESW_CHECK,
                     "BUTTON", BS_AUTOCHECKBOX | WS_DISABLED,
                     15, 150, 150, 10
     RTEXT           "", V9X_IDC_BUILD, 130, 156, 108, 8

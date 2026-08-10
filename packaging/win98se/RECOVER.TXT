@@ -16,3 +16,8 @@ If restoring the backup is inconvenient:
 
 Do not delete the active Velocity9x files before switching the adapter back to
 standard VGA. Do not overwrite the known-good backup with a failed boot.
+
+After a failed LIVE mode switch (garbled desktop without a crash), a plain
+reboot is usually sufficient: the boot-time mode path is unchanged and will
+re-enter the registry-selected mode. Use the steps above only if the machine
+no longer reaches the desktop.

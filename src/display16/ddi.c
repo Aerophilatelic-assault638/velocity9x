@@ -29,6 +29,9 @@
 #define V9X_COLOR_NONSTATIC        0x80u
 #define V9X_COLOR_MAP_TO_WHITE     0x40u
 
+/* DIBENG.H CURSOREXCLUDE: exclude the software cursor during direct access. */
+#define V9X_CURSOREXCLUDE        0x0008u
+
 #ifndef V9X_FORCE_MODE_INDEX
 #define V9X_FORCE_MODE_INDEX         -1
 #endif
@@ -38,6 +41,9 @@ extern DWORD FAR PASCAL V9xCreateDibPDeviceCall(LPBITMAPINFO, LPVOID,
                                                 LPVOID, WORD);
 extern void FAR PASCAL V9xDibBeginAccess(void);
 extern void FAR PASCAL V9xDibEndAccess(void);
+extern void FAR PASCAL V9xDibBeginAccessRect(LPVOID, WORD, WORD, WORD,
+                                             WORD, WORD);
+extern void FAR PASCAL V9xDibEndAccessRect(LPVOID, WORD);
 extern DWORD FAR PASCAL V9xDibSetPaletteCall(WORD, WORD, LPVOID, LPVOID);
 extern DWORD FAR PASCAL V9xDibSetPaletteTranslateCall(LPVOID, LPVOID);
 extern WORD FAR PASCAL V9xHardwarePresent(void);
@@ -48,6 +54,7 @@ extern DWORD FAR PASCAL V9xHardwareBase(void);
 extern void FAR PASCAL V9xHardwareDisable(void);
 extern WORD FAR PASCAL V9xVddPreMode(void);
 extern WORD FAR PASCAL V9xVddRegister(void);
+extern WORD FAR PASCAL V9xVddReregister(void);
 extern void FAR PASCAL V9xVddPostMode(void);
 extern void FAR PASCAL V9xVddUnregister(void);
 extern WORD FAR PASCAL V9xVddGetDisplayConfig(V9X_DISPLAY_INFO FAR *);
@@ -91,6 +98,10 @@ static const V9X_DISPLAY_MODE *v9x_active_mode;
 static WORD v9x_dib_pdevice_size;
 static WORD v9x_screen_selector;
 static WORD v9x_enabled;
+/* Non-zero while ReEnable rebuilds the PDEVICE in place for a live mode
+ * switch (mirrors vmdisp9x's bReEnabling): keeps the realized palette and
+ * suppresses the boot-style teardown on failure. */
+static WORD v9x_reenabling;
 static WORD v9x_dpi = 96u;
 
 #ifdef V9X_BOOT_TRACE
@@ -171,6 +182,9 @@ static void v9x_publish_hardware_diagnostics(void)
     WritePrivateProfileString("Velocity9xHardware", "ClockStatus",
                               "unavailable",
                               V9X_HARDWARE_INFO_PATH);
+    WritePrivateProfileString("Velocity9xHardware", "ModeSwitching",
+                              "single-mode",
+                              V9X_HARDWARE_INFO_PATH);
 #else
     struct v9x_clock_info clocks;
     BYTE saved_index = v9x_port_in(0x03c4u);
@@ -202,6 +216,9 @@ static void v9x_publish_hardware_diagnostics(void)
                               V9X_HARDWARE_INFO_PATH);
     WritePrivateProfileString("Velocity9xHardware", "ClockDetector",
                               "s3-virge-pll-v1",
+                              V9X_HARDWARE_INFO_PATH);
+    WritePrivateProfileString("Velocity9xHardware", "ModeSwitching",
+                              "live-same-depth",
                               V9X_HARDWARE_INFO_PATH);
 
     status = v9x_s3_virge_decode_clock_pll(sr10, sr11, &clocks);
@@ -308,6 +325,15 @@ static const V9X_DISPLAY_MODE *v9x_find_mode(WORD width,
     return 0;
 }
 
+static void v9x_apply_mode(const V9X_DISPLAY_MODE *mode)
+{
+    v9x_selected_mode = mode;
+    v9x_active_vbe_mode = mode->vbe_mode;
+    v9x_active_visible_bytes =
+        (DWORD)mode->pitch * (DWORD)mode->height;
+    v9x_palettized = mode->bits_per_pixel == 8u ? 1u : 0u;
+}
+
 static void v9x_select_requested_mode(void)
 {
     const V9X_DISPLAY_MODE *requested = 0;
@@ -333,11 +359,7 @@ static void v9x_select_requested_mode(void)
     if (requested == 0) {
         requested = &v9x_modes[0];
     }
-    v9x_selected_mode = requested;
-    v9x_active_vbe_mode = requested->vbe_mode;
-    v9x_active_visible_bytes =
-        (DWORD)requested->pitch * (DWORD)requested->height;
-    v9x_palettized = requested->bits_per_pixel == 8u ? 1u : 0u;
+    v9x_apply_mode(requested);
 }
 
 void v9x_display_boot_log(void)
@@ -535,11 +557,14 @@ static WORD v9x_build_pdevice(LPVOID device_info,
         v9x_serial_write("V9X-DRV enable-fail stage=mode-map\r\n");
         return 0u;
     }
-    if (V9xVddRegister() == 0u) {
+    if ((v9x_reenabling != 0u ? V9xVddReregister()
+                              : V9xVddRegister()) == 0u) {
         v9x_boot_trace("fail-vdd-register");
         v9x_serial_write("V9X-DRV enable-fail stage=vdd-register\r\n");
-        V9xHardwareDisable();
-        v9x_screen_selector = 0u;
+        if (v9x_reenabling == 0u) {
+            V9xHardwareDisable();
+            v9x_screen_selector = 0u;
+        }
         return 0u;
     }
 
@@ -547,9 +572,11 @@ static WORD v9x_build_pdevice(LPVOID device_info,
                          output_file, data) == 0u) {
         v9x_boot_trace("fail-dib-enable");
         v9x_serial_write("V9X-DRV enable-fail stage=dib-enable\r\n");
-        V9xVddUnregister();
-        V9xHardwareDisable();
-        v9x_screen_selector = 0u;
+        if (v9x_reenabling == 0u) {
+            V9xVddUnregister();
+            V9xHardwareDisable();
+            v9x_screen_selector = 0u;
+        }
         return 0u;
     }
     if (v9x_palettized != 0u) {
@@ -576,7 +603,12 @@ static WORD v9x_build_pdevice(LPVOID device_info,
 
     if (v9x_palettized != 0u) {
         v9x_color_table = bitmap_info->bmiColors;
-        v9x_build_palette(v9x_color_table);
+        /* During a live switch the BITMAPINFO color table in the reused
+         * PDEVICE still holds the realized palette; do not reset it to the
+         * defaults (vmdisp9x preserves it the same way). */
+        if (v9x_reenabling == 0u) {
+            v9x_build_palette(v9x_color_table);
+        }
     } else {
         v9x_color_table = 0;
     }
@@ -614,10 +646,12 @@ static WORD v9x_build_pdevice(LPVOID device_info,
     if (created == 0ul) {
         v9x_boot_trace("fail-create-pdevice");
         v9x_serial_write("V9X-DRV enable-fail stage=create-pdevice\r\n");
-        V9xVddUnregister();
-        V9xHardwareDisable();
-        v9x_screen_selector = 0u;
-        v9x_color_table = 0;
+        if (v9x_reenabling == 0u) {
+            V9xVddUnregister();
+            V9xHardwareDisable();
+            v9x_screen_selector = 0u;
+            v9x_color_table = 0;
+        }
         return 0u;
     }
 
@@ -677,23 +711,70 @@ WORD __loadds FAR PASCAL ReEnable(LPVOID destination_device,
 {
     V9X_DIB_ENGINE FAR *device =
         (V9X_DIB_ENGINE FAR *)destination_device;
+    const V9X_DISPLAY_MODE *previous_mode;
 
     if (device == 0 || gdi_info == 0 || v9x_enabled == 0u ||
         v9x_active_mode == 0) {
         return 0u;
     }
-    if (v9x_fill_gdi_info((V9X_GDI_INFO FAR *)gdi_info, 0, 0, 0) == 0u ||
-        V9xHardwareReset() == 0u) {
-        v9x_serial_write("V9X-DRV reenable-fail\r\n");
+
+    /* GDI writes the requested mode to the registry before calling
+     * ReEnable; re-read it the way vmdisp9x's ReEnable does. */
+    previous_mode = v9x_active_mode;
+    v9x_select_requested_mode();
+
+    if (v9x_selected_mode->bits_per_pixel !=
+        previous_mode->bits_per_pixel) {
+        /* Windows 9x never changes color depth dynamically (KB Q127139),
+         * and the 8-bpp PDEVICE is 1 KiB larger than the 16-bpp one, so an
+         * in-place rebuild cannot fit. Depth changes require a restart. */
+        v9x_apply_mode(previous_mode);
+        v9x_serial_write("V9X-DRV switch-refuse-depth\r\n");
+        return 0u;
+    }
+
+    if (v9x_selected_mode == previous_mode) {
+        /* Unchanged mode: restore the current mode, e.g. returning from a
+         * full-screen DOS box. */
+        if (v9x_fill_gdi_info((V9X_GDI_INFO FAR *)gdi_info, 0, 0, 0) == 0u ||
+            V9xHardwareReset() == 0u) {
+            v9x_serial_write("V9X-DRV reenable-fail\r\n");
+            return 0u;
+        }
+        device->deFlags &= (WORD)~V9X_DE_BUSY;
+        if (v9x_palettized != 0u) {
+            v9x_program_palette(0u, V9X_PALETTE_ENTRIES);
+        }
+        v9x_publish_hardware_diagnostics();
+        V9xVddPostMode();
+        v9x_serial_write("V9X-DRV reenable-ok\r\n");
+        return 1u;
+    }
+
+    /* Live same-depth mode switch: rebuild the PDEVICE in place. */
+    v9x_reenabling = 1u;
+    V9xDibBeginAccessRect(device, 0u, 0u,
+                          (WORD)(v9x_selected_mode->width - 1u),
+                          (WORD)(v9x_selected_mode->height - 1u),
+                          V9X_CURSOREXCLUDE);
+    if (v9x_build_pdevice(device, 0, 0, 0) == 0u) {
+        /* Bring the previous mode back before reporting failure. */
+        v9x_apply_mode(previous_mode);
+        (void)v9x_build_pdevice(device, 0, 0, 0);
+        V9xDibEndAccessRect(device, V9X_CURSOREXCLUDE);
+        v9x_reenabling = 0u;
+        v9x_serial_write("V9X-DRV switch-fail\r\n");
+        return 0u;
+    }
+    V9xDibEndAccessRect(device, V9X_CURSOREXCLUDE);
+    v9x_reenabling = 0u;
+    if (v9x_fill_gdi_info((V9X_GDI_INFO FAR *)gdi_info, 0, 0, 0) == 0u) {
+        v9x_serial_write("V9X-DRV switch-fail stage=gdi-info\r\n");
         return 0u;
     }
     device->deFlags &= (WORD)~V9X_DE_BUSY;
-    if (v9x_palettized != 0u) {
-        v9x_program_palette(0u, V9X_PALETTE_ENTRIES);
-    }
-    v9x_publish_hardware_diagnostics();
-    V9xVddPostMode();
-    v9x_serial_write("V9X-DRV reenable-ok\r\n");
+    v9x_serial_write_mode("V9X-DRV switch-ok mode=");
+    v9x_serial_write("\r\n");
     return 1u;
 }
 

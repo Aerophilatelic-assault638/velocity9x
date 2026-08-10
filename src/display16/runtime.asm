@@ -74,6 +74,19 @@ V9XDIBENDACCESS PROC FAR
     jmp DIB_EndAccess
 V9XDIBENDACCESS ENDP
 
+; Typed entry points for cursor exclusion around a live mode switch. They
+; are the same DIBENG routines as the deBeginAccess/deEndAccess pointers,
+; re-exported so C code can call them with the full argument list.
+PUBLIC V9XDIBBEGINACCESSRECT
+V9XDIBBEGINACCESSRECT PROC FAR
+    jmp DIB_BeginAccess
+V9XDIBBEGINACCESSRECT ENDP
+
+PUBLIC V9XDIBENDACCESSRECT
+V9XDIBENDACCESSRECT PROC FAR
+    jmp DIB_EndAccess
+V9XDIBENDACCESSRECT ENDP
+
 PUBLIC V9XDIBSETPALETTECALL
 V9XDIBSETPALETTECALL PROC FAR
     jmp DIB_SetPaletteExt
@@ -196,12 +209,15 @@ V9XVDDREGISTER PROC FAR
     mov     ax, STOP_IO_TRAP
     int     2fh
 
-    mov     eax, VDD_DRIVER_REGISTER
-    movzx   ebx, V9xVmHandle
-    mov     ecx, _v9x_active_visible_bytes
+    ; Load ES:DI before EAX: the SEG fixup goes through AX and would
+    ; otherwise overwrite the low word of the service code (the working
+    ; vmdisp9x reference loads the callback pointer first for this reason).
     mov     ax, SEG RESETHIRESMODE
     mov     es, ax
     mov     di, OFFSET RESETHIRESMODE
+    mov     eax, VDD_DRIVER_REGISTER
+    movzx   ebx, V9xVmHandle
+    mov     ecx, _v9x_active_visible_bytes
     xor     edx, edx
     call    dword ptr V9xVddEntryPoint
     cmp     eax, VDD_DRIVER_REGISTER
@@ -232,6 +248,52 @@ V9xVddRegisterDone:
     pop     bx
     retf
 V9XVDDREGISTER ENDP
+
+; Re-issue VDD_DRIVER_REGISTER with the new visible-byte count during a live
+; mode switch. The VDD accepts a repeated registration and updates its
+; save/restore state; I/O trapping stays stopped because the driver never
+; released the display. Fails when the driver is not registered yet.
+PUBLIC V9XVDDREREGISTER
+V9XVDDREREGISTER PROC FAR
+    push    bx
+    push    cx
+    push    dx
+    push    di
+    push    es
+
+    cmp     V9xVddRegistered, 0
+    je      short V9xVddReregisterFailed
+
+    mov     ax, SEG RESETHIRESMODE
+    mov     es, ax
+    mov     di, OFFSET RESETHIRESMODE
+    mov     eax, VDD_DRIVER_REGISTER
+    movzx   ebx, V9xVmHandle
+    mov     ecx, _v9x_active_visible_bytes
+    xor     edx, edx
+    call    dword ptr V9xVddEntryPoint
+    cmp     eax, VDD_DRIVER_REGISTER
+    je      short V9xVddReregisterFailed
+
+    mov     eax, VDD_POST_MODE_CHANGE
+    movzx   ebx, V9xVmHandle
+    call    dword ptr V9xVddEntryPoint
+    mov     eax, VDD_SAVE_DRIVER_STATE
+    movzx   ebx, V9xVmHandle
+    call    dword ptr V9xVddEntryPoint
+
+    mov     ax, 1
+    jmp     short V9xVddReregisterDone
+V9xVddReregisterFailed:
+    xor     ax, ax
+V9xVddReregisterDone:
+    pop     es
+    pop     di
+    pop     dx
+    pop     cx
+    pop     bx
+    retf
+V9XVDDREREGISTER ENDP
 
 PUBLIC V9XVDDPOSTMODE
 V9XVDDPOSTMODE PROC FAR

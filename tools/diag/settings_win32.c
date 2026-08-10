@@ -113,9 +113,11 @@ static void v9x_create_controls(HWND window)
     control = v9x_control(window, "BUTTON", "Hardware acceleration",
                           BS_AUTOCHECKBOX | WS_DISABLED, 28, 285, 250, 20, 0);
     SendMessageA(control, BM_SETCHECK, BST_UNCHECKED, 0);
-    control = v9x_control(window, "BUTTON", "Extended mode switching",
+    control = v9x_control(window, "BUTTON", "Live mode switching",
                           BS_AUTOCHECKBOX | WS_DISABLED, 28, 308, 190, 20, 0);
-    SendMessageA(control, BM_SETCHECK, BST_UNCHECKED, 0);
+    SendMessageA(control, BM_SETCHECK,
+                 v9x_status.live_mode_switching ? BST_CHECKED : BST_UNCHECKED,
+                 0);
     (void)v9x_control(window, "STATIC", "Build: " V9X_BUILD_ID,
                       SS_RIGHT, 218, 310, 180, 18, 0);
 

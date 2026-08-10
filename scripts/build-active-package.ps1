@@ -28,6 +28,8 @@ if ($BuildId -notmatch '^[A-Za-z0-9._+-]+$') {
 & (Join-Path $PSScriptRoot "build-settings-page.ps1") -BuildId $BuildId
 & (Join-Path $PSScriptRoot "build-gdi-smoke.ps1") -BuildId $BuildId
 & (Join-Path $PSScriptRoot "build-palette-smoke.ps1") -BuildId $BuildId
+& (Join-Path $PSScriptRoot "build-mode-switch.ps1") -BuildId $BuildId
+& (Join-Path $PSScriptRoot "build-ddraw-probe.ps1") -BuildId $BuildId
 & (Join-Path $PSScriptRoot "build-vxd-loader-probe.ps1") `
     -BuildId $BuildId -DdkRoot $DdkRoot
 & (Join-Path $PSScriptRoot "build-win16-loader-probe.ps1") -BuildId $BuildId
@@ -108,6 +110,10 @@ Copy-Item -LiteralPath (Join-Path $repoRoot "build\gdi-smoke\v9xgdi.exe") `
     -Destination (Join-Path $outputDir "V9XGDI.EXE") -Force
 Copy-Item -LiteralPath (Join-Path $repoRoot "build\palette-smoke\v9xpal.exe") `
     -Destination (Join-Path $outputDir "V9XPAL.EXE") -Force
+Copy-Item -LiteralPath (Join-Path $repoRoot "build\mode-switch\v9xmsw.exe") `
+    -Destination (Join-Path $outputDir "V9XMSW.EXE") -Force
+Copy-Item -LiteralPath (Join-Path $repoRoot "build\ddraw-probe\v9xddp.exe") `
+    -Destination (Join-Path $outputDir "V9XDDP.EXE") -Force
 Copy-Item -LiteralPath (Join-Path $repoRoot "build\vxd-probe\v9xprobe.vxd") `
     -Destination (Join-Path $outputDir "V9XPROBE.VXD") -Force
 Copy-Item -LiteralPath (Join-Path $repoRoot "build\win16-loader-probe\v9x16ld.exe") `
@@ -140,6 +146,9 @@ $manifest = @(
     "Display Properties: read-only Velocity9x tab via V9XSETP.DLL",
     "GDI test: on-screen primitives, blits, and tolerant pixel readback",
     "Palette test: 8-bit reserved-entry animation and screen readback",
+    "Mode switching: live same-depth via ReEnable; depth change needs restart",
+    "Mode-switch test: V9XMSW.EXE (/set:WxHxB, /cycle:N, /depth)",
+    "DirectDraw probe: V9XDDP.EXE (flip timing and mode honesty)",
     "Preflight: V9XSTAGE.EXE (no mode change and no installation)",
     "Status: HOST-AUDITED; GUEST ACTIVATION NOT YET TESTED",
     "",
@@ -160,8 +169,8 @@ Set-Content -LiteralPath (Join-Path $outputDir "SHA256.TXT") `
 
 $expectedPackageFiles = @(
     "FIRSTBOOT.TXT", "INSTALL.TXT", "MANIFEST.TXT", "RECOVER.TXT", "SHA256.TXT",
-    "V9X16LD.EXE", "V9XDISP.DRV", "V9XFIX.BAT",
-    "V9XGDI.EXE", "V9XPAL.EXE", "V9XMINI.VXD", "V9XPROBE.VXD",
+    "V9X16LD.EXE", "V9XDDP.EXE", "V9XDISP.DRV", "V9XFIX.BAT",
+    "V9XGDI.EXE", "V9XMSW.EXE", "V9XPAL.EXE", "V9XMINI.VXD", "V9XPROBE.VXD",
     "V9XSET.EXE", "V9XSETP.DLL", "V9XSTAGE.EXE", "VELOCITY9X.INF"
 )
 $actualPackageFiles = @(Get-ChildItem -LiteralPath $outputDir -File |

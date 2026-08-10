@@ -44,8 +44,10 @@ V9X-DRV enable-ok mode=640x480x8 lfb-mapped
 
 The first boot defaults to 640x480x8. After it passes, Display Properties may
 select 800x600 or 1024x768 at 256 colours, or any of the same resolutions at
-High Color (16 bit). Fully reboot after every selection; live mode switching is
-intentionally disabled in this candidate. Test one combination per boot.
+High Color (16 bit). Resolution changes at the current colour depth apply
+live, without a reboot. Changing the colour depth (256 colours <-> High
+Color) still requires a full reboot; accept the restart prompt when Windows
+shows one. V9XMSW.EXE exercises live switching (/set:WxHxB, /cycle:N).
 
 If the desktop does not appear, stop after the single boot attempt and follow
 RECOVER.TXT. Do not repeatedly reboot a failed image.

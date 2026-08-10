@@ -44,10 +44,18 @@ The first active candidate now implements:
   `ResetHiResMode` callback, followed by post-mode state save and symmetric
   unregister/VGA-trap restoration.
 
-The registration ABI is host-audited, but DOS/full-screen switching through the
-master VDD defaults and dynamic modes remain guest-unvalidated. The source is
-an activation candidate, not a release driver, until the cold-backed-up guest
-test and standard-VGA recovery test pass.
+`ReEnable` implements live same-depth mode switching on the vmdisp9x pattern:
+it re-reads the registry-selected mode through `VDD_GET_DISPLAY_CONFIG`,
+rebuilds the PDEVICE in place between `DIB_BeginAccess`/`DIB_EndAccess` with
+cursor exclusion, re-registers the new visible-byte count with the master VDD,
+and preserves the realized 8-bpp palette. Color-depth changes are refused
+(Windows 9x never changes depth dynamically, KB Q127139; the 8-bpp PDEVICE is
+also 1 KiB larger than the 16-bpp one) and follow the reboot path instead.
+
+The registration ABI is host-audited, but DOS/full-screen switching through
+the master VDD defaults remains guest-unvalidated. The source is an activation
+candidate, not a release driver, until the cold-backed-up guest test and
+standard-VGA recovery test pass.
 
 ## 32-bit mini-VDD boundary
 

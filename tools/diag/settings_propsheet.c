@@ -108,7 +108,9 @@ static BOOL CALLBACK v9x_page_dialog_proc(HWND dialog,
                         v9x_page_status.gdi_status);
         CheckDlgButton(dialog, V9X_IDC_DIB_CHECK, BST_CHECKED);
         CheckDlgButton(dialog, V9X_IDC_ACCEL_CHECK, BST_UNCHECKED);
-        CheckDlgButton(dialog, V9X_IDC_MODESW_CHECK, BST_UNCHECKED);
+        CheckDlgButton(dialog, V9X_IDC_MODESW_CHECK,
+                       v9x_page_status.live_mode_switching
+                           ? BST_CHECKED : BST_UNCHECKED);
         return TRUE;
     case WM_COMMAND:
         if (LOWORD(wparam) == V9X_IDC_COPY_REPORT) {

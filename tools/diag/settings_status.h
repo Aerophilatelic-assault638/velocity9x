@@ -17,6 +17,8 @@ typedef struct v9x_settings_status {
     char driver_stage[80];
     char framebuffer_status[96];
     char gdi_status[160];
+    char mode_switching[80];
+    int live_mode_switching;
     char report[1024];
 } V9X_SETTINGS_STATUS;
 

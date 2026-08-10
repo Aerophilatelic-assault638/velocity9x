@@ -1,0 +1,492 @@
+/*
+ * DirectDraw presentation probe for the Velocity9x bring-up guest.
+ *
+ * Reproduces the exact presentation path used by fullscreen DirectDraw
+ * applications (SetDisplayMode, flip-chain primary, Flip with DDFLIP_WAIT)
+ * and records every HRESULT and timing to C:\V9XDD.INI so a host can
+ * distinguish a mode-switch refusal, a vertical-blank wait, and raw
+ * framebuffer write cost. ddraw.dll is loaded dynamically; the module keeps
+ * the diagnostic-suite rule of runtime-free static imports.
+ */
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+
+#ifndef V9X_BUILD_ID
+#define V9X_BUILD_ID "local"
+#endif
+
+#define V9X_RESULT_PATH "C:\\V9XDD.INI"
+#define V9X_SECTION     "Velocity9xDDraw"
+
+#define V9X_DDSD_CAPS               0x00000001ul
+#define V9X_DDSD_HEIGHT             0x00000002ul
+#define V9X_DDSD_WIDTH              0x00000004ul
+#define V9X_DDSD_BACKBUFFERCOUNT    0x00000020ul
+#define V9X_DDSCAPS_BACKBUFFER      0x00000004ul
+#define V9X_DDSCAPS_COMPLEX         0x00000008ul
+#define V9X_DDSCAPS_FLIP            0x00000010ul
+#define V9X_DDSCAPS_OFFSCREENPLAIN  0x00000040ul
+#define V9X_DDSCAPS_PRIMARYSURFACE  0x00000200ul
+#define V9X_DDSCAPS_SYSTEMMEMORY    0x00000800ul
+#define V9X_DDSCAPS_VIDEOMEMORY     0x00004000ul
+#define V9X_DDSCL_FULLSCREEN        0x00000001ul
+#define V9X_DDSCL_NORMAL            0x00000008ul
+#define V9X_DDSCL_EXCLUSIVE         0x00000010ul
+#define V9X_DDFLIP_WAIT             0x00000001ul
+#define V9X_DDWAITVB_BLOCKBEGIN     0x00000001ul
+#define V9X_DDLOCK_WAIT             0x00000001ul
+#define V9X_DDERR_WASSTILLDRAWING   0x8876021cul
+
+typedef struct v9x_ddscaps {
+    DWORD dwCaps;
+} V9X_DDSCAPS;
+
+typedef struct v9x_ddcolorkey {
+    DWORD dwColorSpaceLowValue;
+    DWORD dwColorSpaceHighValue;
+} V9X_DDCOLORKEY;
+
+typedef struct v9x_ddpixelformat {
+    DWORD dwSize;
+    DWORD dwFlags;
+    DWORD dwFourCC;
+    DWORD dwRGBBitCount;
+    DWORD dwRBitMask;
+    DWORD dwGBitMask;
+    DWORD dwBBitMask;
+    DWORD dwRGBAlphaBitMask;
+} V9X_DDPIXELFORMAT;
+
+typedef struct v9x_ddsurfacedesc {
+    DWORD dwSize;
+    DWORD dwFlags;
+    DWORD dwHeight;
+    DWORD dwWidth;
+    LONG lPitch;
+    DWORD dwBackBufferCount;
+    DWORD dwMipMapCount;
+    DWORD dwAlphaBitDepth;
+    DWORD dwReserved;
+    LPVOID lpSurface;
+    V9X_DDCOLORKEY ddckCKDestOverlay;
+    V9X_DDCOLORKEY ddckCKDestBlt;
+    V9X_DDCOLORKEY ddckCKSrcOverlay;
+    V9X_DDCOLORKEY ddckCKSrcBlt;
+    V9X_DDPIXELFORMAT ddpfPixelFormat;
+    V9X_DDSCAPS ddsCaps;
+} V9X_DDSURFACEDESC;
+
+struct v9x_dd;
+struct v9x_dds;
+
+/* IDirectDraw version 1 method table, in vtable order. */
+typedef struct v9x_dd_vtbl {
+    HRESULT (__stdcall *QueryInterface)(struct v9x_dd *, const void *,
+                                        void **);
+    ULONG (__stdcall *AddRef)(struct v9x_dd *);
+    ULONG (__stdcall *Release)(struct v9x_dd *);
+    HRESULT (__stdcall *Compact)(struct v9x_dd *);
+    HRESULT (__stdcall *CreateClipper)(struct v9x_dd *, DWORD, void **,
+                                       void *);
+    HRESULT (__stdcall *CreatePalette)(struct v9x_dd *, DWORD, void *,
+                                       void **, void *);
+    HRESULT (__stdcall *CreateSurface)(struct v9x_dd *,
+                                       V9X_DDSURFACEDESC *,
+                                       struct v9x_dds **, void *);
+    HRESULT (__stdcall *DuplicateSurface)(struct v9x_dd *, struct v9x_dds *,
+                                          struct v9x_dds **);
+    HRESULT (__stdcall *EnumDisplayModes)(struct v9x_dd *, DWORD,
+                                          V9X_DDSURFACEDESC *, void *,
+                                          void *);
+    HRESULT (__stdcall *EnumSurfaces)(struct v9x_dd *, DWORD,
+                                      V9X_DDSURFACEDESC *, void *, void *);
+    HRESULT (__stdcall *FlipToGDISurface)(struct v9x_dd *);
+    HRESULT (__stdcall *GetCaps)(struct v9x_dd *, void *, void *);
+    HRESULT (__stdcall *GetDisplayMode)(struct v9x_dd *,
+                                        V9X_DDSURFACEDESC *);
+    HRESULT (__stdcall *GetFourCCCodes)(struct v9x_dd *, DWORD *, DWORD *);
+    HRESULT (__stdcall *GetGDISurface)(struct v9x_dd *, struct v9x_dds **);
+    HRESULT (__stdcall *GetMonitorFrequency)(struct v9x_dd *, DWORD *);
+    HRESULT (__stdcall *GetScanLine)(struct v9x_dd *, DWORD *);
+    HRESULT (__stdcall *GetVerticalBlankStatus)(struct v9x_dd *, BOOL *);
+    HRESULT (__stdcall *Initialize)(struct v9x_dd *, void *);
+    HRESULT (__stdcall *RestoreDisplayMode)(struct v9x_dd *);
+    HRESULT (__stdcall *SetCooperativeLevel)(struct v9x_dd *, HWND, DWORD);
+    HRESULT (__stdcall *SetDisplayMode)(struct v9x_dd *, DWORD, DWORD,
+                                        DWORD);
+    HRESULT (__stdcall *WaitForVerticalBlank)(struct v9x_dd *, DWORD,
+                                              HANDLE);
+} V9X_DD_VTBL;
+
+/* IDirectDrawSurface version 1 method table, in vtable order. */
+typedef struct v9x_dds_vtbl {
+    HRESULT (__stdcall *QueryInterface)(struct v9x_dds *, const void *,
+                                        void **);
+    ULONG (__stdcall *AddRef)(struct v9x_dds *);
+    ULONG (__stdcall *Release)(struct v9x_dds *);
+    HRESULT (__stdcall *AddAttachedSurface)(struct v9x_dds *,
+                                            struct v9x_dds *);
+    HRESULT (__stdcall *AddOverlayDirtyRect)(struct v9x_dds *, RECT *);
+    HRESULT (__stdcall *Blt)(struct v9x_dds *, RECT *, struct v9x_dds *,
+                             RECT *, DWORD, void *);
+    HRESULT (__stdcall *BltBatch)(struct v9x_dds *, void *, DWORD, DWORD);
+    HRESULT (__stdcall *BltFast)(struct v9x_dds *, DWORD, DWORD,
+                                 struct v9x_dds *, RECT *, DWORD);
+    HRESULT (__stdcall *DeleteAttachedSurface)(struct v9x_dds *, DWORD,
+                                               struct v9x_dds *);
+    HRESULT (__stdcall *EnumAttachedSurfaces)(struct v9x_dds *, void *,
+                                              void *);
+    HRESULT (__stdcall *EnumOverlayZOrders)(struct v9x_dds *, DWORD, void *,
+                                            void *);
+    HRESULT (__stdcall *Flip)(struct v9x_dds *, struct v9x_dds *, DWORD);
+    HRESULT (__stdcall *GetAttachedSurface)(struct v9x_dds *, V9X_DDSCAPS *,
+                                            struct v9x_dds **);
+    HRESULT (__stdcall *GetBltStatus)(struct v9x_dds *, DWORD);
+    HRESULT (__stdcall *GetCaps)(struct v9x_dds *, V9X_DDSCAPS *);
+    HRESULT (__stdcall *GetClipper)(struct v9x_dds *, void **);
+    HRESULT (__stdcall *GetColorKey)(struct v9x_dds *, DWORD,
+                                     V9X_DDCOLORKEY *);
+    HRESULT (__stdcall *GetDC)(struct v9x_dds *, HDC *);
+    HRESULT (__stdcall *GetFlipStatus)(struct v9x_dds *, DWORD);
+    HRESULT (__stdcall *GetOverlayPosition)(struct v9x_dds *, LONG *,
+                                            LONG *);
+    HRESULT (__stdcall *GetPalette)(struct v9x_dds *, void **);
+    HRESULT (__stdcall *GetPixelFormat)(struct v9x_dds *,
+                                        V9X_DDPIXELFORMAT *);
+    HRESULT (__stdcall *GetSurfaceDesc)(struct v9x_dds *,
+                                        V9X_DDSURFACEDESC *);
+    HRESULT (__stdcall *Initialize)(struct v9x_dds *, struct v9x_dd *,
+                                    V9X_DDSURFACEDESC *);
+    HRESULT (__stdcall *IsLost)(struct v9x_dds *);
+    HRESULT (__stdcall *Lock)(struct v9x_dds *, RECT *,
+                              V9X_DDSURFACEDESC *, DWORD, HANDLE);
+    HRESULT (__stdcall *ReleaseDC)(struct v9x_dds *, HDC);
+    HRESULT (__stdcall *Restore)(struct v9x_dds *);
+    HRESULT (__stdcall *SetClipper)(struct v9x_dds *, void *);
+    HRESULT (__stdcall *SetColorKey)(struct v9x_dds *, DWORD,
+                                     V9X_DDCOLORKEY *);
+    HRESULT (__stdcall *SetOverlayPosition)(struct v9x_dds *, LONG, LONG);
+    HRESULT (__stdcall *SetPalette)(struct v9x_dds *, void *);
+    HRESULT (__stdcall *Unlock)(struct v9x_dds *, void *);
+    HRESULT (__stdcall *UpdateOverlay)(struct v9x_dds *, RECT *,
+                                       struct v9x_dds *, RECT *, DWORD,
+                                       void *);
+    HRESULT (__stdcall *UpdateOverlayDisplay)(struct v9x_dds *, DWORD);
+    HRESULT (__stdcall *UpdateOverlayZOrder)(struct v9x_dds *, DWORD,
+                                             struct v9x_dds *);
+} V9X_DDS_VTBL;
+
+struct v9x_dd {
+    const V9X_DD_VTBL *vtbl;
+};
+
+struct v9x_dds {
+    const V9X_DDS_VTBL *vtbl;
+};
+
+typedef HRESULT (__stdcall *V9X_DDCREATE)(void *, struct v9x_dd **, void *);
+typedef DWORD (__stdcall *V9X_TIMEGETTIME)(void);
+
+static V9X_TIMEGETTIME v9x_time;
+
+static void v9x_zero(void *block, unsigned length)
+{
+    unsigned char *bytes = (unsigned char *)block;
+
+    while (length-- != 0u) {
+        *bytes++ = 0u;
+    }
+}
+
+static void v9x_uint_text(char *text, DWORD value)
+{
+    char reverse[12];
+    int count = 0;
+    int index;
+
+    do {
+        reverse[count++] = (char)('0' + (value % 10ul));
+        value /= 10ul;
+    } while (value != 0ul);
+    for (index = 0; index < count; ++index) {
+        text[index] = reverse[count - index - 1];
+    }
+    text[count] = '\0';
+}
+
+static void v9x_hex_text(char *text, DWORD value)
+{
+    static const char digits[] = "0123456789ABCDEF";
+    int index;
+
+    text[0] = '0';
+    text[1] = 'x';
+    for (index = 0; index < 8; ++index) {
+        text[2 + index] = digits[(value >> ((7 - index) * 4)) & 0xful];
+    }
+    text[10] = '\0';
+}
+
+static void v9x_write_text(const char *key, const char *value)
+{
+    WritePrivateProfileStringA(V9X_SECTION, key, value, V9X_RESULT_PATH);
+}
+
+static void v9x_write_uint(const char *key, DWORD value)
+{
+    char text[12];
+
+    v9x_uint_text(text, value);
+    v9x_write_text(key, text);
+}
+
+static void v9x_write_hresult(const char *key, HRESULT value)
+{
+    char text[11];
+
+    v9x_hex_text(text, (DWORD)value);
+    v9x_write_text(key, text);
+}
+
+static void v9x_write_mode(const char *prefix,
+                           const V9X_DDSURFACEDESC *desc)
+{
+    char key[32];
+    int offset = 0;
+    int index;
+
+    for (index = 0; prefix[index] != '\0'; ++index) {
+        key[offset++] = prefix[index];
+    }
+    key[offset] = 'W';
+    key[offset + 1] = '\0';
+    v9x_write_uint(key, desc->dwWidth);
+    key[offset] = 'H';
+    v9x_write_uint(key, desc->dwHeight);
+    key[offset] = 'B';
+    key[offset + 1] = 'p';
+    key[offset + 2] = 'p';
+    key[offset + 3] = '\0';
+    v9x_write_uint(key, desc->ddpfPixelFormat.dwRGBBitCount);
+}
+
+static void v9x_fill_surface(struct v9x_dds *surface, DWORD pattern)
+{
+    V9X_DDSURFACEDESC desc;
+    HRESULT hr;
+    DWORD FAR *pixels;
+    DWORD count;
+
+    v9x_zero(&desc, sizeof(desc));
+    desc.dwSize = sizeof(desc);
+    hr = surface->vtbl->Lock(surface, 0, &desc, V9X_DDLOCK_WAIT, 0);
+    if (hr != 0) {
+        return;
+    }
+    pixels = (DWORD *)desc.lpSurface;
+    count = ((DWORD)desc.lPitch * desc.dwHeight) / 4ul;
+    while (count-- != 0ul) {
+        *pixels++ = pattern;
+    }
+    surface->vtbl->Unlock(surface, 0);
+}
+
+static DWORD v9x_time_surface_fill(struct v9x_dds *surface)
+{
+    DWORD started;
+
+    v9x_fill_surface(surface, 0x18e318e3ul);
+    started = v9x_time();
+    v9x_fill_surface(surface, 0x07e007e0ul);
+    return v9x_time() - started;
+}
+
+static LRESULT CALLBACK v9x_window_proc(HWND window, UINT message,
+                                        WPARAM wparam, LPARAM lparam)
+{
+    return DefWindowProcA(window, message, wparam, lparam);
+}
+
+void __stdcall V9xDdrawProbeEntry(void)
+{
+    WNDCLASSA window_class;
+    HWND window;
+    HMODULE winmm;
+    HMODULE ddraw_module;
+    V9X_DDCREATE create;
+    struct v9x_dd *ddraw = 0;
+    struct v9x_dds *primary = 0;
+    struct v9x_dds *backbuffer = 0;
+    struct v9x_dds *stage = 0;
+    V9X_DDSURFACEDESC desc;
+    V9X_DDSCAPS caps;
+    HRESULT hr;
+    DWORD frequency = 0ul;
+    DWORD started;
+    DWORD elapsed;
+    DWORD flip_total = 0ul;
+    DWORD flip_max = 0ul;
+    int index;
+
+    WritePrivateProfileStringA(V9X_SECTION, 0, 0, V9X_RESULT_PATH);
+    v9x_write_text("Build", V9X_BUILD_ID);
+    v9x_write_text("Result", "INCOMPLETE");
+
+    winmm = LoadLibraryA("WINMM.DLL");
+    v9x_time = winmm != 0
+        ? (V9X_TIMEGETTIME)GetProcAddress(winmm, "timeGetTime") : 0;
+    ddraw_module = LoadLibraryA("DDRAW.DLL");
+    create = ddraw_module != 0
+        ? (V9X_DDCREATE)GetProcAddress(ddraw_module, "DirectDrawCreate")
+        : 0;
+    if (v9x_time == 0 || create == 0) {
+        v9x_write_text("Result", "FAIL-LOAD");
+        ExitProcess(1u);
+    }
+
+    v9x_zero(&window_class, sizeof(window_class));
+    window_class.lpfnWndProc = v9x_window_proc;
+    window_class.hInstance = GetModuleHandleA(0);
+    window_class.lpszClassName = "Velocity9xDdrawProbeWindow";
+    RegisterClassA(&window_class);
+    window = CreateWindowExA(0ul, window_class.lpszClassName,
+                             "Velocity9x DirectDraw probe", WS_POPUP,
+                             0, 0, 64, 64, 0, 0, window_class.hInstance, 0);
+    if (window == 0) {
+        v9x_write_text("Result", "FAIL-WINDOW");
+        ExitProcess(1u);
+    }
+    ShowWindow(window, SW_SHOWNORMAL);
+    SetForegroundWindow(window);
+
+    hr = create(0, &ddraw, 0);
+    v9x_write_hresult("CreateHr", hr);
+    if (hr != 0) {
+        v9x_write_text("Result", "FAIL-CREATE");
+        ExitProcess(1u);
+    }
+
+    /* Desktop mode and monitor frequency before any mode request. */
+    v9x_zero(&desc, sizeof(desc));
+    desc.dwSize = sizeof(desc);
+    if (ddraw->vtbl->GetDisplayMode(ddraw, &desc) == 0) {
+        v9x_write_mode("Desktop", &desc);
+    }
+    hr = ddraw->vtbl->GetMonitorFrequency(ddraw, &frequency);
+    v9x_write_hresult("MonitorFreqHr", hr);
+    v9x_write_uint("MonitorFreq", hr == 0 ? frequency : 0ul);
+
+    /* Vertical-blank period from the desktop, no mode change involved. */
+    hr = ddraw->vtbl->SetCooperativeLevel(ddraw, window, V9X_DDSCL_NORMAL);
+    v9x_write_hresult("CoopNormalHr", hr);
+    hr = ddraw->vtbl->WaitForVerticalBlank(ddraw, V9X_DDWAITVB_BLOCKBEGIN,
+                                           0);
+    v9x_write_hresult("VBlankHr", hr);
+    if (hr == 0) {
+        started = v9x_time();
+        for (index = 0; index < 10; ++index) {
+            ddraw->vtbl->WaitForVerticalBlank(ddraw,
+                                              V9X_DDWAITVB_BLOCKBEGIN, 0);
+        }
+        v9x_write_uint("VBlank10Ms", v9x_time() - started);
+    }
+
+    /* The exact sequence a fullscreen game performs. */
+    hr = ddraw->vtbl->SetCooperativeLevel(ddraw, window,
+                                          V9X_DDSCL_EXCLUSIVE |
+                                          V9X_DDSCL_FULLSCREEN);
+    v9x_write_hresult("CoopExclusiveHr", hr);
+    hr = ddraw->vtbl->SetDisplayMode(ddraw, 640ul, 480ul, 16ul);
+    v9x_write_hresult("SetModeHr", hr);
+    v9x_zero(&desc, sizeof(desc));
+    desc.dwSize = sizeof(desc);
+    if (ddraw->vtbl->GetDisplayMode(ddraw, &desc) == 0) {
+        v9x_write_mode("AfterMode", &desc);
+    }
+
+    v9x_zero(&desc, sizeof(desc));
+    desc.dwSize = sizeof(desc);
+    desc.dwFlags = V9X_DDSD_CAPS | V9X_DDSD_BACKBUFFERCOUNT;
+    desc.ddsCaps.dwCaps = V9X_DDSCAPS_PRIMARYSURFACE | V9X_DDSCAPS_FLIP |
+                          V9X_DDSCAPS_COMPLEX;
+    desc.dwBackBufferCount = 1ul;
+    hr = ddraw->vtbl->CreateSurface(ddraw, &desc, &primary, 0);
+    v9x_write_hresult("PrimaryHr", hr);
+    if (hr == 0) {
+        v9x_zero(&desc, sizeof(desc));
+        desc.dwSize = sizeof(desc);
+        if (primary->vtbl->GetSurfaceDesc(primary, &desc) == 0) {
+            v9x_write_mode("Primary", &desc);
+            v9x_write_uint("PrimaryPitch", (DWORD)desc.lPitch);
+        }
+        caps.dwCaps = V9X_DDSCAPS_BACKBUFFER;
+        hr = primary->vtbl->GetAttachedSurface(primary, &caps, &backbuffer);
+        v9x_write_hresult("BackbufferHr", hr);
+    }
+
+    if (backbuffer != 0) {
+        /* Raw surface write cost, then the flip itself. */
+        v9x_write_uint("BackFillMs", v9x_time_surface_fill(backbuffer));
+        v9x_write_uint("PrimaryFillMs", v9x_time_surface_fill(primary));
+
+        do {
+            hr = primary->vtbl->Flip(primary, 0, V9X_DDFLIP_WAIT);
+        } while (hr == (HRESULT)V9X_DDERR_WASSTILLDRAWING);
+        v9x_write_hresult("FlipHr", hr);
+        if (hr == 0) {
+            started = v9x_time();
+            for (index = 0; index < 20; ++index) {
+                DWORD flip_started = v9x_time();
+
+                do {
+                    hr = primary->vtbl->Flip(primary, 0, V9X_DDFLIP_WAIT);
+                } while (hr == (HRESULT)V9X_DDERR_WASSTILLDRAWING);
+                elapsed = v9x_time() - flip_started;
+                if (elapsed > flip_max) {
+                    flip_max = elapsed;
+                }
+            }
+            flip_total = v9x_time() - started;
+            v9x_write_uint("Flip20Ms", flip_total);
+            v9x_write_uint("FlipMaxMs", flip_max);
+        }
+    }
+
+    /* Stage-surface availability, mirroring the game's fallback ladder. */
+    v9x_zero(&desc, sizeof(desc));
+    desc.dwSize = sizeof(desc);
+    desc.dwFlags = V9X_DDSD_CAPS | V9X_DDSD_WIDTH | V9X_DDSD_HEIGHT;
+    desc.dwWidth = 640ul;
+    desc.dwHeight = 480ul;
+    desc.ddsCaps.dwCaps = V9X_DDSCAPS_OFFSCREENPLAIN |
+                          V9X_DDSCAPS_VIDEOMEMORY;
+    hr = ddraw->vtbl->CreateSurface(ddraw, &desc, &stage, 0);
+    v9x_write_hresult("VideoStageHr", hr);
+    if (hr == 0 && stage != 0) {
+        stage->vtbl->Release(stage);
+        stage = 0;
+    }
+    desc.ddsCaps.dwCaps = V9X_DDSCAPS_OFFSCREENPLAIN |
+                          V9X_DDSCAPS_SYSTEMMEMORY;
+    hr = ddraw->vtbl->CreateSurface(ddraw, &desc, &stage, 0);
+    v9x_write_hresult("SystemStageHr", hr);
+    if (hr == 0 && stage != 0) {
+        stage->vtbl->Release(stage);
+        stage = 0;
+    }
+
+    if (backbuffer != 0) {
+        backbuffer->vtbl->Release(backbuffer);
+    }
+    if (primary != 0) {
+        primary->vtbl->Release(primary);
+    }
+    hr = ddraw->vtbl->RestoreDisplayMode(ddraw);
+    v9x_write_hresult("RestoreHr", hr);
+    ddraw->vtbl->SetCooperativeLevel(ddraw, window, V9X_DDSCL_NORMAL);
+    ddraw->vtbl->Release(ddraw);
+    DestroyWindow(window);
+    v9x_write_text("Result", "COMPLETE");
+    ExitProcess(0u);
+}
+

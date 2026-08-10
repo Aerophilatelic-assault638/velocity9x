@@ -29,8 +29,9 @@ matrix repetitions. It is not a release driver.
 - host tests and an Open Watcom build entry point.
 
 No acceleration capability is advertised. The active candidate uses firmware
-mode entry and DPMI framebuffer mapping. Dynamic mode switching remains off;
-Display Properties selections take effect after reboot.
+mode entry and DPMI framebuffer mapping. Same-depth resolution changes apply
+live through the ReEnable path; colour-depth changes take effect after a
+reboot (Windows 9x never changes depth dynamically).
 
 ## Host build
 

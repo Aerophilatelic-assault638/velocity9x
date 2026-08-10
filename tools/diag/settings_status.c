@@ -155,6 +155,22 @@ void v9x_settings_collect(V9X_SETTINGS_STATUS *status, const char *build_id)
                          "", FALSE);
     }
 
+    {
+        char switching[32];
+
+        GetPrivateProfileStringA("Velocity9xHardware", "ModeSwitching",
+                                 "reboot-selected", switching,
+                                 sizeof(switching), "C:\\V9XHW.INI");
+        status->live_mode_switching =
+            lstrcmpiA(switching, "live-same-depth") == 0;
+        status->mode_switching[0] = '\0';
+        v9x_append(status->mode_switching, sizeof(status->mode_switching),
+                   status->live_mode_switching
+                       ? "Live (same color depth); depth change requires"
+                         " restart"
+                       : "Selected at boot");
+    }
+
     GetPrivateProfileStringA("Velocity9x", "Stage", "not recorded",
                              status->driver_stage,
                              sizeof(status->driver_stage),
@@ -219,6 +235,10 @@ void v9x_settings_collect(V9X_SETTINGS_STATUS *status, const char *build_id)
                status->framebuffer_status);
     v9x_append(status->report, sizeof(status->report), "\r\nLast GDI test: ");
     v9x_append(status->report, sizeof(status->report), status->gdi_status);
+    v9x_append(status->report, sizeof(status->report),
+               "\r\nMode switching: ");
+    v9x_append(status->report, sizeof(status->report),
+               status->mode_switching);
     v9x_append(status->report, sizeof(status->report),
         "\r\nSupported modes: 640x480, 800x600, 1024x768 at 8/16 bpp"
         "\r\nRendering: Windows DIB Engine (software)"

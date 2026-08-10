@@ -31,8 +31,10 @@ MODE-MATRIX TEST
 10. After the default mode passes, use Display Properties to test these modes:
       800x600x8, 1024x768x8,
       640x480x16, 800x600x16, 1024x768x16.
-11. Fully reboot after each selection and run V9XGDI.EXE once. Do not attempt
-    an in-session switch; ExtModeSwitch is intentionally disabled.
+11. Resolution changes at the current colour depth apply live; run
+    V9XGDI.EXE after each switch. Colour-depth changes still require a full
+    reboot - accept the restart prompt. V9XMSW.EXE /cycle:N automates the
+    same-depth switch loop.
 
 STOP CONDITIONS
 
