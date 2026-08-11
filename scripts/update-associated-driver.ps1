@@ -87,6 +87,38 @@ if ($binding -notmatch '(?i)Velocity9x' -or
     $binding -notmatch '(?im)^"drv"="v9xdisp\.drv"\s*$') {
     throw "The active display class is not already associated with Velocity9x."
 }
+
+# Windows 98 validates Controls Folder property-sheet handlers with a
+# machine-specific DWORD named Tag.  Recover the machine seed from any
+# existing, validated Display handler and use it for the Velocity9x CLSID.
+$null = Invoke-GuestShell (
+    'REGEDIT /E C:\V9XREMOTE\DISPLAY-HANDLERS.REG ' +
+    '"HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Controls Folder\Display\shellex\PropertySheetHandlers"')
+$handlersPath = Join-Path $results "DISPLAY-HANDLERS-BEFORE.REG"
+$null = Invoke-V9xCtlJson get @(
+    "-Source", "C:\V9XREMOTE\DISPLAY-HANDLERS.REG",
+    "-Destination", $handlersPath)
+$handlers = Get-Content -LiteralPath $handlersPath -Raw
+$taggedHandler = [regex]::Match(
+    $handlers,
+    '(?ims)^\[HKEY_LOCAL_MACHINE\\Software\\Microsoft\\Windows\\CurrentVersion\\Controls Folder\\Display\\shellex\\PropertySheetHandlers\\[^\]]+\]\s*\r?\n@="(\{[^"]+\})"\s*\r?\n"Tag"=dword:([0-9a-f]{8})')
+if (-not $taggedHandler.Success) {
+    throw "No validated Windows 98 Display handler tag was available."
+}
+function Get-V9xTagWords([string]$Clsid) {
+    $bytes = [Text.Encoding]::ASCII.GetBytes($Clsid.Substring(0, 8))
+    @([BitConverter]::ToUInt32($bytes, 0),
+      [BitConverter]::ToUInt32($bytes, 4))
+}
+$existingWords = Get-V9xTagWords $taggedHandler.Groups[1].Value
+$existingTag = [Convert]::ToUInt32($taggedHandler.Groups[2].Value, 16)
+$modulus = [uint64]0x100000000
+$tagSeed = [uint32]((([uint64]$existingTag + (2 * $modulus) -
+    [uint64]$existingWords[0] - [uint64]$existingWords[1]) % $modulus))
+$settingsClsid = "{91925DA2-2EF0-4E20-B4E9-A53ED37E14B1}"
+$settingsWords = Get-V9xTagWords $settingsClsid
+$settingsTag = [uint32]((([uint64]$tagSeed +
+    [uint64]$settingsWords[0] + [uint64]$settingsWords[1]) % $modulus))
 $pending = Invoke-GuestShell (
     "IF EXIST C:\WINDOWS\WININIT.INI ECHO EXISTS")
 if ($pending.Stdout -match "EXISTS") {
@@ -134,7 +166,11 @@ $settingsReg = @(
     '"ThreadingModel"="Apartment"',
     "",
     "[HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Controls Folder\Display\shellex\PropertySheetHandlers\Velocity9x]",
-    '@="{91925DA2-2EF0-4E20-B4E9-A53ED37E14B1}"')
+    '@="{91925DA2-2EF0-4E20-B4E9-A53ED37E14B1}"',
+    ('"Tag"=dword:{0:x8}' -f $settingsTag),
+    "",
+    "[HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved]",
+    '"{91925DA2-2EF0-4E20-B4E9-A53ED37E14B1}"="Velocity9x Settings Page"')
 [IO.File]::WriteAllLines($settingsRegPath, $settingsReg, [Text.Encoding]::ASCII)
 $null = Invoke-V9xCtlJson put @(
     "-Source", $settingsRegPath,

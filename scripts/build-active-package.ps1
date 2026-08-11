@@ -80,7 +80,7 @@ foreach ($forbidden in @('MODES\24',
     }
 }
 foreach ($required in @('v9xdisp.drv', 'v9xmini.vxd', 'v9xhal.dll', 'v9xsetp.dll',
-                         'PropertySheetHandlers\Velocity9x',
+                         'Controls Folder\Display\shellex\PropertySheetHandlers\Velocity9x',
                          'CLSID\{91925DA2-2EF0-4E20-B4E9-A53ED37E14B1}\InProcServer32',
                          "DEFAULT,Mode,,`"$defaultMode`"",
                          'MODES\8\640,480', 'MODES\8\800,600',
