@@ -6,7 +6,7 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $sourceDir = Join-Path $repoRoot "packaging\win98se\matrox-recovery"
 $outputDir = Join-Path $repoRoot "build\matrox-recovery"
 $expected = @("ACTIVATE.BAT", "ARM.BAT", "DISARM.BAT", "PREPARE.BAT", "README.TXT",
-              "RESTORE.BAT", "V9XAUTO.EXE", "V9XGUARD.BAT")
+              "RESTORE.BAT", "V9XAUTO.EXE", "V9XGUARD.BAT", "V9XSETP.REG")
 
 & (Join-Path $PSScriptRoot "build-matrox-guard-autoexec.ps1")
 
@@ -35,9 +35,17 @@ foreach ($required in @("ARMED.1", "ARMED.2", "MGAPDX64.DRV",
 }
 $activate = Get-Content -LiteralPath (Join-Path $outputDir "ACTIVATE.BAT") -Raw
 foreach ($required in @("FC /B", "ARM.BAT", "DISARM.BAT", "MGAPDX64.DRV",
-                         "MGAPDX64.VXD", "KEEPVXD.TAG", "CANDVXD.VXD")) {
+                         "MGAPDX64.VXD", "KEEPVXD.TAG", "CANDVXD.VXD",
+                         "V9XSETP.DLL", "V9XSETP.REG", "CANDSET.DLL")) {
     if ($activate.IndexOf($required, [StringComparison]::OrdinalIgnoreCase) -lt 0) {
         throw "Recovery activation helper is missing $required"
+    }
+}
+$disarm = Get-Content -LiteralPath (Join-Path $outputDir "DISARM.BAT") -Raw
+foreach ($required in @("NOSET", "CANDSET.DLL", "CANDSET.REG", "REGEDIT /S",
+                         "V9XSETP.DLL")) {
+    if ($disarm.IndexOf($required, [StringComparison]::OrdinalIgnoreCase) -lt 0) {
+        throw "Recovery disarm helper is missing settings-page step $required"
     }
 }
 $prepare = Get-Content -LiteralPath (Join-Path $outputDir "PREPARE.BAT") -Raw

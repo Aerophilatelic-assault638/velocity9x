@@ -14,6 +14,11 @@ DISARM.BAT commits a successful candidate. RESTORE.BAT arms a DOS-time stock
 restore for the next reboot, avoiding sharing violations on a loaded display
 driver. LASTBOOT.TXT records the latest guard action.
 
+After a successful candidate boot, DISARM.BAT also copies V9XSETP.DLL and
+registers its read-only Velocity9x page in Display Properties. Settings-page
+installation occurs only when the candidate is explicitly accepted; automatic
+rollback and activation failures leave the registration unchanged.
+
 If KEEPVXD.TAG is present beside ACTIVATE.BAT, the guard stages the validated
 stock MGAPDX64.VXD with the candidate display DRV. This permits an isolated
 display-driver test without redistributing or replacing the target's mini-VDD.

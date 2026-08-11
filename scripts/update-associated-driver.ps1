@@ -29,7 +29,8 @@ foreach ($path in @($ControllerPath, $package)) {
         throw "Required path does not exist: $path"
     }
 }
-foreach ($file in @("V9XDISP.DRV", "V9XMINI.VXD", "V9X16LD.EXE")) {
+foreach ($file in @("V9XDISP.DRV", "V9XMINI.VXD", "V9X16LD.EXE",
+                     "V9XSETP.DLL")) {
     if (-not (Test-Path -LiteralPath (Join-Path $package $file))) {
         throw "Driver package is missing $file."
     }
@@ -96,9 +97,12 @@ $null = Invoke-GuestShell (
     "COPY /Y $guestJob\V9XDISP.DRV C:\V9XNDRV.BIN")
 $null = Invoke-GuestShell (
     "COPY /Y $guestJob\V9XMINI.VXD C:\V9XNVXD.BIN")
+$null = Invoke-GuestShell (
+    "COPY /Y $guestJob\V9XSETP.DLL C:\V9XNSET.BIN")
 foreach ($pair in @(
     @("C:\V9XNDRV.BIN", "$guestJob\V9XDISP.DRV"),
-    @("C:\V9XNVXD.BIN", "$guestJob\V9XMINI.VXD"))) {
+    @("C:\V9XNVXD.BIN", "$guestJob\V9XMINI.VXD"),
+    @("C:\V9XNSET.BIN", "$guestJob\V9XSETP.DLL"))) {
     $compare = Invoke-GuestShell "FC /B $($pair[0]) $($pair[1])"
     if ($compare.Stdout -notmatch "no differences encountered") {
         throw "Guest staging verification failed for $($pair[0])."
@@ -111,10 +115,32 @@ $wininit = @(
     "NUL=C:\WINDOWS\SYSTEM\V9XDISP.DRV",
     "C:\WINDOWS\SYSTEM\V9XDISP.DRV=C:\V9XNDRV.BIN",
     "NUL=C:\WINDOWS\SYSTEM\V9XMINI.VXD",
-    "C:\WINDOWS\SYSTEM\V9XMINI.VXD=C:\V9XNVXD.BIN")
+    "C:\WINDOWS\SYSTEM\V9XMINI.VXD=C:\V9XNVXD.BIN",
+    "NUL=C:\WINDOWS\SYSTEM\V9XSETP.DLL",
+    "C:\WINDOWS\SYSTEM\V9XSETP.DLL=C:\V9XNSET.BIN")
 [IO.File]::WriteAllLines($wininitPath, $wininit, [Text.Encoding]::ASCII)
 $stage = Invoke-V9xCtlJson put @(
     "-Source", $wininitPath, "-Destination", "C:\WINDOWS\WININIT.INI")
+
+$settingsRegPath = Join-Path $results "V9XSETP.REG"
+$settingsReg = @(
+    "REGEDIT4",
+    "",
+    "[HKEY_CLASSES_ROOT\CLSID\{91925DA2-2EF0-4E20-B4E9-A53ED37E14B1}]",
+    '@="Velocity9x Settings Page"',
+    "",
+    "[HKEY_CLASSES_ROOT\CLSID\{91925DA2-2EF0-4E20-B4E9-A53ED37E14B1}\InProcServer32]",
+    '@="v9xsetp.dll"',
+    '"ThreadingModel"="Apartment"',
+    "",
+    "[HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Controls Folder\Display\shellex\PropertySheetHandlers\Velocity9x]",
+    '@="{91925DA2-2EF0-4E20-B4E9-A53ED37E14B1}"')
+[IO.File]::WriteAllLines($settingsRegPath, $settingsReg, [Text.Encoding]::ASCII)
+$null = Invoke-V9xCtlJson put @(
+    "-Source", $settingsRegPath,
+    "-Destination", "C:\V9XREMOTE\TEMP\V9XSETP.REG")
+$settingsRegistration = Invoke-GuestShell (
+    "REGEDIT /S C:\V9XREMOTE\TEMP\V9XSETP.REG")
 
 $reboot = $null
 $desktop = $null
@@ -124,7 +150,7 @@ if (-not $NoReboot) {
         "-JobId", $JobId, "-WaitSeconds", [string]$BootTimeoutSeconds)
     $desktop = Invoke-V9xCtlJson wait-desktop @(
         "-WaitSeconds", [string]$BootTimeoutSeconds)
-    foreach ($driverFile in @("V9XDISP.DRV", "V9XMINI.VXD")) {
+    foreach ($driverFile in @("V9XDISP.DRV", "V9XMINI.VXD", "V9XSETP.DLL")) {
         $compare = Invoke-GuestShell (
             "FC /B C:\WINDOWS\SYSTEM\$driverFile $guestJob\$driverFile")
         if ($compare.Stdout -notmatch "no differences encountered") {
@@ -145,6 +171,7 @@ $summary = [pscustomobject]@{
     Upload = $upload
     Preflight = $preflight
     BootTimeStage = $stage
+    SettingsRegistration = $settingsRegistration
     Reboot = $reboot
     Desktop = $desktop
     Screenshot = $screenshot

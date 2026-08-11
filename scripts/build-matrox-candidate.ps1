@@ -40,6 +40,7 @@ if (-not $PreserveStockMiniVdd) {
 }
 & (Join-Path $PSScriptRoot "build-win16-loader-probe.ps1") `
     -BuildId $BuildId -MatroxMillennium2 -MatroxBitsPerPixel $BitsPerPixel
+& (Join-Path $PSScriptRoot "build-settings-page.ps1") -BuildId $BuildId
 & (Join-Path $PSScriptRoot "build-matrox-recovery.ps1")
 
 New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
@@ -49,6 +50,7 @@ Get-ChildItem -LiteralPath $outputDir -File -ErrorAction SilentlyContinue |
 $driverSource = Join-Path $repoRoot "build\win16-ddi-mga2\v9xdisp.drv"
 $miniVddSource = Join-Path $repoRoot "build\minivdd32\v9xmini.vxd"
 $loaderSource = Join-Path $repoRoot "build\win16-loader-probe-mga2\v9x16ld.exe"
+$settingsPageSource = Join-Path $repoRoot "build\settings-page\v9xsetp.dll"
 Copy-Item -LiteralPath $driverSource `
     -Destination (Join-Path $outputDir "MGAPDX64.DRV") -Force
 if ($PreserveStockMiniVdd) {
@@ -63,9 +65,11 @@ Copy-Item -LiteralPath $driverSource `
     -Destination (Join-Path $outputDir "V9XDISP.DRV") -Force
 Copy-Item -LiteralPath $loaderSource `
     -Destination (Join-Path $outputDir "V9X16LD.EXE") -Force
+Copy-Item -LiteralPath $settingsPageSource `
+    -Destination (Join-Path $outputDir "V9XSETP.DLL") -Force
 
 foreach ($name in @("ACTIVATE.BAT", "ARM.BAT", "DISARM.BAT", "PREPARE.BAT", "README.TXT",
-                     "RESTORE.BAT", "V9XAUTO.EXE", "V9XGUARD.BAT")) {
+                     "RESTORE.BAT", "V9XAUTO.EXE", "V9XGUARD.BAT", "V9XSETP.REG")) {
     Copy-Item -LiteralPath (Join-Path $repoRoot "build\matrox-recovery\$name") `
         -Destination (Join-Path $outputDir $name) -Force
 }
@@ -85,8 +89,9 @@ $manifest = @(
     $(if ($PreserveStockMiniVdd) {
         "Installation: guarded DRV replacement; preserve the target's stock MGAPDX64.VXD"
     } else {
-        "Installation: guarded stock-file replacement; no INF and no registry edit"
+        "Installation: guarded stock-file replacement; no INF"
     }),
+    "Display Properties: read-only Velocity9x tab installed only after DISARM.BAT accepts the candidate",
     "Preflight: run V9X16LD.EXE beside V9XDISP.DRV before activation",
     "Rollback: ARM.BAT before the DOS-time guarded copy",
     "Success: run DISARM.BAT immediately after a healthy first desktop",
@@ -116,7 +121,8 @@ if (-not $PreserveStockMiniVdd) {
 $expected = @(
     "ACTIVATE.BAT", "ARM.BAT", "DISARM.BAT", "MANIFEST.TXT", "MGAPDX64.DRV",
     "PREPARE.BAT", "README.TXT", "RESTORE.BAT",
-    "V9X16LD.EXE", "V9XAUTO.EXE", "V9XDISP.DRV", "V9XGUARD.BAT"
+    "V9X16LD.EXE", "V9XAUTO.EXE", "V9XDISP.DRV", "V9XGUARD.BAT",
+    "V9XSETP.DLL", "V9XSETP.REG"
 )
 if ($PreserveStockMiniVdd) {
     $expected += "KEEPVXD.TAG"
@@ -140,4 +146,4 @@ Set-Content -LiteralPath (Join-Path $outputDir "SHA256.TXT") `
     -Value $hashLines -Encoding Ascii
 
 Write-Output "Built host-audited guarded Matrox candidate: $outputDir"
-Write-Output "No INF or registry mutation is included."
+Write-Output "No INF is included; settings-page registration occurs only after DISARM.BAT."
