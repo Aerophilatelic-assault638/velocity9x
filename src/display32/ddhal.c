@@ -59,6 +59,17 @@ static const char v9x_hal_build_id[] = "V9XHAL build=" V9X_BUILD_ID;
 
 static V9X_DD_SHARED *v9x_hal;
 
+#define V9X_D3D_CONTEXT_COUNT 16u
+
+typedef struct v9x_d3d_context {
+    DWORD active;
+    DWORD pid;
+    void *target;
+    void *zbuffer;
+} V9X_D3D_CONTEXT;
+
+static V9X_D3D_CONTEXT v9x_d3d_contexts[V9X_D3D_CONTEXT_COUNT];
+
 static unsigned char v9x_inp(unsigned short port);
 #pragma aux v9x_inp = "in al,dx" parm [dx] value [al] modify exact [al];
 
@@ -471,6 +482,121 @@ DWORD __stdcall V9xHalWaitForVerticalBlank(
     }
 }
 
+static V9X_D3D_CONTEXT *v9x_d3d_context_from_handle(DWORD handle)
+{
+    DWORD index;
+
+    for (index = 0ul; index < V9X_D3D_CONTEXT_COUNT; ++index) {
+        if ((DWORD)&v9x_d3d_contexts[index] == handle &&
+            v9x_d3d_contexts[index].active != 0ul) {
+            return &v9x_d3d_contexts[index];
+        }
+    }
+    return 0;
+}
+
+DWORD __stdcall V9xD3dContextCreate(V9X_D3DHAL_CONTEXTCREATEDATA *data)
+{
+    DWORD index;
+    V9X_D3D_CONTEXT *context;
+
+    if (data == 0 || v9x_hal == 0 || data->lpDDS == 0 ||
+        (v9x_hal->fb.flags & V9X_DD_FB_VALID) == 0ul ||
+        v9x_hal->fb.bits_per_pixel != 16ul) {
+        if (data != 0) {
+            data->ddrval = 0x80070057ul;
+        }
+        if (v9x_hal != 0) {
+            ++v9x_hal->d3d_diagnostics.context_rejects;
+        }
+        return V9X_DDHAL_DRIVER_HANDLED;
+    }
+    for (index = 0ul; index < V9X_D3D_CONTEXT_COUNT; ++index) {
+        context = &v9x_d3d_contexts[index];
+        if (context->active == 0ul) {
+            context->pid = data->dwPID;
+            context->target = data->lpDDS;
+            context->zbuffer = data->lpDDSZ;
+            context->active = 1ul;
+            data->dwhContext = (DWORD)context;
+            data->ddrval = V9X_DD_OK;
+            ++v9x_hal->d3d_diagnostics.context_creates;
+            return V9X_DDHAL_DRIVER_HANDLED;
+        }
+    }
+    data->ddrval = 0x8007000eul;
+    ++v9x_hal->d3d_diagnostics.context_rejects;
+    return V9X_DDHAL_DRIVER_HANDLED;
+}
+
+DWORD __stdcall V9xD3dContextDestroy(V9X_D3DHAL_CONTEXTDESTROYDATA *data)
+{
+    V9X_D3D_CONTEXT *context;
+
+    context = data != 0 ? v9x_d3d_context_from_handle(data->dwhContext) : 0;
+    if (context == 0) {
+        if (data != 0) {
+            data->ddrval = 0x80070057ul;
+        }
+        if (v9x_hal != 0) {
+            ++v9x_hal->d3d_diagnostics.context_rejects;
+        }
+        return V9X_DDHAL_DRIVER_HANDLED;
+    }
+    context->active = 0ul;
+    context->pid = 0ul;
+    context->target = 0;
+    context->zbuffer = 0;
+    data->ddrval = V9X_DD_OK;
+    ++v9x_hal->d3d_diagnostics.context_destroys;
+    return V9X_DDHAL_DRIVER_HANDLED;
+}
+
+DWORD __stdcall V9xD3dContextDestroyAll(
+    V9X_D3DHAL_CONTEXTDESTROYALLDATA *data)
+{
+    DWORD index;
+
+    if (data == 0) {
+        return V9X_DDHAL_DRIVER_HANDLED;
+    }
+    for (index = 0ul; index < V9X_D3D_CONTEXT_COUNT; ++index) {
+        if (v9x_d3d_contexts[index].active != 0ul &&
+            v9x_d3d_contexts[index].pid == data->dwPID) {
+            v9x_d3d_contexts[index].active = 0ul;
+            v9x_d3d_contexts[index].pid = 0ul;
+            v9x_d3d_contexts[index].target = 0;
+            v9x_d3d_contexts[index].zbuffer = 0;
+        }
+    }
+    data->ddrval = V9X_DD_OK;
+    ++v9x_hal->d3d_diagnostics.context_destroy_alls;
+    return V9X_DDHAL_DRIVER_HANDLED;
+}
+
+DWORD __stdcall V9xD3dRenderState(V9X_D3DHAL_RENDERSTATEDATA *data)
+{
+    if (v9x_hal != 0) {
+        ++v9x_hal->d3d_diagnostics.render_state_calls;
+    }
+    if (data != 0) {
+        data->ddrval = V9X_DD_OK;
+    }
+    return V9X_DDHAL_DRIVER_NOTHANDLED;
+}
+
+DWORD __stdcall V9xD3dRenderPrimitive(
+    V9X_D3DHAL_RENDERPRIMITIVEDATA *data)
+{
+    if (v9x_hal != 0) {
+        ++v9x_hal->d3d_diagnostics.render_primitive_calls;
+    }
+    if (data != 0) {
+        data->ddrval = V9X_DD_OK;
+    }
+    return V9X_DDHAL_DRIVER_NOTHANDLED;
+}
+
 static void v9x_fill_modes(V9X_DD_SHARED *shared)
 {
     static const struct {
@@ -528,8 +654,8 @@ DWORD __stdcall DriverInit(DWORD context)
     shared->info.dwFlags = V9X_DDHALINFO_ISPRIMARYDISPLAY;
     shared->info.dwMonitorFrequency = 60ul;
     shared->info.hInstance = V9X_HAL_BASE;
-    shared->info.lpD3DGlobalDriverData = 0ul;
-    shared->info.lpD3DHALCallbacks = 0ul;
+    shared->info.lpD3DGlobalDriverData = (DWORD)&shared->d3d_global;
+    shared->info.lpD3DHALCallbacks = (DWORD)&shared->d3d_callbacks;
     shared->info.lpDDExeBufCallbacks = 0;
 
     shared->info.vmiData.dwFlags = 0ul;
@@ -541,9 +667,10 @@ DWORD __stdcall DriverInit(DWORD context)
     shared->info.vmiData.dwNumHeaps = 1ul;
 
     shared->info.ddCaps.dwSize = sizeof(V9X_DDCORECAPS);
-    shared->info.ddCaps.dwCaps = V9X_DDCAPS_GDI |
+    shared->info.ddCaps.dwCaps = V9X_DDCAPS_3D | V9X_DDCAPS_GDI |
                                  V9X_DDCAPS_BLTCOLORFILL;
-    shared->info.ddCaps.ddsCaps = V9X_DDSCAPS_OFFSCREENPLAIN |
+    shared->info.ddCaps.ddsCaps = V9X_DDSCAPS_3DDEVICE |
+                                  V9X_DDSCAPS_OFFSCREENPLAIN |
                                   V9X_DDSCAPS_FLIP |
                                   V9X_DDSCAPS_PRIMARYSURFACE;
     shared->info.ddCaps.dwVidMemTotal =
@@ -575,6 +702,40 @@ DWORD __stdcall DriverInit(DWORD context)
     shared->palette_callbacks.dwSize =
         sizeof(V9X_DDHAL_DDPALETTECALLBACKS);
     shared->palette_callbacks.dwFlags = 0ul;
+
+    shared->d3d_global.dwSize = sizeof(V9X_D3DHAL_GLOBALDRIVERDATA);
+    shared->d3d_global.hwCaps.dwSize = sizeof(V9X_D3DDEVICEDESC_V1);
+    shared->d3d_global.hwCaps.dwFlags =
+        V9X_D3DDD_COLORMODEL | V9X_D3DDD_DEVCAPS |
+        V9X_D3DDD_DEVICERENDERBITDEPTH;
+    shared->d3d_global.hwCaps.dcmColorModel = V9X_D3DCOLOR_RGB;
+    shared->d3d_global.hwCaps.dwDevCaps = 0ul;
+    shared->d3d_global.hwCaps.dtcTransformCaps.dwSize =
+        sizeof(V9X_D3DTRANSFORMCAPS);
+    shared->d3d_global.hwCaps.dlcLightingCaps.dwSize =
+        sizeof(V9X_D3DLIGHTINGCAPS);
+    shared->d3d_global.hwCaps.dpcLineCaps.dwSize =
+        sizeof(V9X_D3DPRIMCAPS);
+    shared->d3d_global.hwCaps.dpcTriCaps.dwSize =
+        sizeof(V9X_D3DPRIMCAPS);
+    shared->d3d_global.hwCaps.dwDeviceRenderBitDepth = V9X_DDBD_16;
+    shared->d3d_global.hwCaps.dwDeviceZBufferBitDepth = 0ul;
+    shared->d3d_global.dwNumVertices = 0ul;
+    shared->d3d_global.dwNumClipVertices = 0ul;
+    shared->d3d_global.dwNumTextureFormats = 0ul;
+    shared->d3d_global.lpTextureFormats = 0;
+
+    shared->d3d_callbacks.dwSize = sizeof(V9X_D3DHAL_CALLBACKS);
+    shared->d3d_callbacks.ContextCreate =
+        (V9X_DD_CODE_PTR)V9xD3dContextCreate;
+    shared->d3d_callbacks.ContextDestroy =
+        (V9X_DD_CODE_PTR)V9xD3dContextDestroy;
+    shared->d3d_callbacks.ContextDestroyAll =
+        (V9X_DD_CODE_PTR)V9xD3dContextDestroyAll;
+    shared->d3d_callbacks.RenderState =
+        (V9X_DD_CODE_PTR)V9xD3dRenderState;
+    shared->d3d_callbacks.RenderPrimitive =
+        (V9X_DD_CODE_PTR)V9xD3dRenderPrimitive;
 
     shared->cb32.Flip = (DWORD)V9xHalFlip;
     shared->cb32.GetFlipStatus = (DWORD)V9xHalGetFlipStatus;

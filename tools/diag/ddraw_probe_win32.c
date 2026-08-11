@@ -28,6 +28,7 @@
 #define V9X_DDSCAPS_OFFSCREENPLAIN  0x00000040ul
 #define V9X_DDSCAPS_PRIMARYSURFACE  0x00000200ul
 #define V9X_DDSCAPS_SYSTEMMEMORY    0x00000800ul
+#define V9X_DDSCAPS_3DDEVICE        0x00002000ul
 #define V9X_DDSCAPS_VIDEOMEMORY     0x00004000ul
 #define V9X_DDSCL_FULLSCREEN        0x00000001ul
 #define V9X_DDSCL_NORMAL            0x00000008ul
@@ -108,6 +109,92 @@ typedef struct v9x_ddsurfacedesc {
 
 struct v9x_dd;
 struct v9x_dds;
+struct v9x_d3d2;
+struct v9x_d3d_device2;
+
+typedef struct v9x_d3d_transform_caps {
+    DWORD dwSize;
+    DWORD dwCaps;
+} V9X_D3D_TRANSFORM_CAPS;
+
+typedef struct v9x_d3d_lighting_caps {
+    DWORD dwSize;
+    DWORD dwCaps;
+    DWORD dwLightingModel;
+    DWORD dwNumLights;
+} V9X_D3D_LIGHTING_CAPS;
+
+typedef struct v9x_d3d_prim_caps {
+    DWORD values[14];
+} V9X_D3D_PRIM_CAPS;
+
+typedef struct v9x_d3d_device_desc {
+    DWORD dwSize;
+    DWORD dwFlags;
+    DWORD dcmColorModel;
+    DWORD dwDevCaps;
+    V9X_D3D_TRANSFORM_CAPS dtcTransformCaps;
+    DWORD bClipping;
+    V9X_D3D_LIGHTING_CAPS dlcLightingCaps;
+    V9X_D3D_PRIM_CAPS dpcLineCaps;
+    V9X_D3D_PRIM_CAPS dpcTriCaps;
+    DWORD dwDeviceRenderBitDepth;
+    DWORD dwDeviceZBufferBitDepth;
+    DWORD dwMaxBufferSize;
+    DWORD dwMaxVertexCount;
+    DWORD dx5Caps[8];
+} V9X_D3D_DEVICE_DESC;
+
+typedef HRESULT (__stdcall *V9X_D3D_ENUM_CALLBACK)(
+    GUID *, char *, char *, V9X_D3D_DEVICE_DESC *,
+    V9X_D3D_DEVICE_DESC *, void *);
+
+typedef struct v9x_d3d2_vtbl {
+    HRESULT (__stdcall *QueryInterface)(struct v9x_d3d2 *, const void *,
+                                        void **);
+    ULONG (__stdcall *AddRef)(struct v9x_d3d2 *);
+    ULONG (__stdcall *Release)(struct v9x_d3d2 *);
+    HRESULT (__stdcall *EnumDevices)(struct v9x_d3d2 *,
+                                     V9X_D3D_ENUM_CALLBACK, void *);
+    HRESULT (__stdcall *CreateLight)(struct v9x_d3d2 *, void **, void *);
+    HRESULT (__stdcall *CreateMaterial)(struct v9x_d3d2 *, void **, void *);
+    HRESULT (__stdcall *CreateViewport)(struct v9x_d3d2 *, void **, void *);
+    HRESULT (__stdcall *FindDevice)(struct v9x_d3d2 *, void *, void *);
+    HRESULT (__stdcall *CreateDevice)(struct v9x_d3d2 *, const GUID *,
+                                      struct v9x_dds *,
+                                      struct v9x_d3d_device2 **);
+} V9X_D3D2_VTBL;
+
+typedef struct v9x_d3d_device2_vtbl {
+    HRESULT (__stdcall *QueryInterface)(struct v9x_d3d_device2 *,
+                                        const void *, void **);
+    ULONG (__stdcall *AddRef)(struct v9x_d3d_device2 *);
+    ULONG (__stdcall *Release)(struct v9x_d3d_device2 *);
+} V9X_D3D_DEVICE2_VTBL;
+
+struct v9x_d3d2 {
+    const V9X_D3D2_VTBL *vtbl;
+};
+
+struct v9x_d3d_device2 {
+    const V9X_D3D_DEVICE2_VTBL *vtbl;
+};
+
+static const GUID v9x_iid_d3d2 = {
+    0x6aae1ec1ul, 0x662a, 0x11d0,
+    { 0x88, 0x9d, 0x00, 0xaa, 0x00, 0xbb, 0xb7, 0x6a }
+};
+
+static const GUID v9x_iid_d3d_hal = {
+    0x84e63de0ul, 0x46aa, 0x11cf,
+    { 0x81, 0x6f, 0x00, 0x00, 0xc0, 0x20, 0x15, 0x6e }
+};
+
+typedef struct v9x_d3d_enum_result {
+    DWORD hal_found;
+    DWORD flags;
+    DWORD render_depth;
+} V9X_D3D_ENUM_RESULT;
 
 /* IDirectDraw version 1 method table, in vtable order. */
 typedef struct v9x_dd_vtbl {
@@ -218,6 +305,39 @@ typedef HRESULT (__stdcall *V9X_DDCREATE)(void *, struct v9x_dd **, void *);
 typedef DWORD (__stdcall *V9X_TIMEGETTIME)(void);
 
 static V9X_TIMEGETTIME v9x_time;
+
+static int v9x_guid_equal(const GUID *left, const GUID *right)
+{
+    const BYTE *a = (const BYTE *)left;
+    const BYTE *b = (const BYTE *)right;
+    unsigned index;
+
+    for (index = 0u; index < sizeof(GUID); ++index) {
+        if (a[index] != b[index]) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static HRESULT __stdcall v9x_enum_d3d_device(
+    GUID *guid, char *description, char *name,
+    V9X_D3D_DEVICE_DESC *hardware, V9X_D3D_DEVICE_DESC *software,
+    void *context)
+{
+    V9X_D3D_ENUM_RESULT *result = (V9X_D3D_ENUM_RESULT *)context;
+
+    (void)description;
+    (void)name;
+    (void)software;
+    if (guid != 0 && hardware != 0 &&
+        v9x_guid_equal(guid, &v9x_iid_d3d_hal)) {
+        result->hal_found = 1ul;
+        result->flags = hardware->dwFlags;
+        result->render_depth = hardware->dwDeviceRenderBitDepth;
+    }
+    return 1l;
+}
 
 static int v9x_has_switch(const char *option)
 {
@@ -425,6 +545,10 @@ void __stdcall V9xDdrawProbeEntry(void)
     struct v9x_dds *primary = 0;
     struct v9x_dds *backbuffer = 0;
     struct v9x_dds *stage = 0;
+    struct v9x_dds *d3d_target = 0;
+    struct v9x_d3d2 *d3d = 0;
+    struct v9x_d3d_device2 *d3d_device = 0;
+    V9X_D3D_ENUM_RESULT d3d_result;
     V9X_DDSURFACEDESC desc;
     V9X_DDSCAPS caps;
     HRESULT hr;
@@ -471,6 +595,19 @@ void __stdcall V9xDdrawProbeEntry(void)
     if (hr != 0) {
         v9x_write_text("Result", "FAIL-CREATE");
         ExitProcess(1u);
+    }
+
+    v9x_zero(&d3d_result, sizeof(d3d_result));
+    hr = ddraw->vtbl->QueryInterface(ddraw, &v9x_iid_d3d2,
+                                     (void **)&d3d);
+    v9x_write_hresult("D3DQueryHr", hr);
+    if (hr == 0 && d3d != 0) {
+        hr = d3d->vtbl->EnumDevices(d3d, v9x_enum_d3d_device,
+                                    &d3d_result);
+        v9x_write_hresult("D3DEnumHr", hr);
+        v9x_write_uint("D3DHalFound", d3d_result.hal_found);
+        v9x_write_uint("D3DHalFlags", d3d_result.flags);
+        v9x_write_uint("D3DHalRenderDepth", d3d_result.render_depth);
     }
 
     /* Desktop mode and monitor frequency before any mode request. */
@@ -531,6 +668,31 @@ void __stdcall V9xDdrawProbeEntry(void)
         v9x_write_hresult("BackbufferHr", hr);
     }
 
+    if (d3d != 0 && d3d_result.hal_found != 0ul) {
+        v9x_zero(&desc, sizeof(desc));
+        desc.dwSize = sizeof(desc);
+        desc.dwFlags = V9X_DDSD_CAPS | V9X_DDSD_WIDTH | V9X_DDSD_HEIGHT;
+        desc.dwWidth = 64ul;
+        desc.dwHeight = 64ul;
+        desc.ddsCaps.dwCaps = V9X_DDSCAPS_3DDEVICE |
+                              V9X_DDSCAPS_OFFSCREENPLAIN |
+                              V9X_DDSCAPS_VIDEOMEMORY;
+        hr = ddraw->vtbl->CreateSurface(ddraw, &desc, &d3d_target, 0);
+        v9x_write_hresult("D3DTargetHr", hr);
+        if (hr == 0 && d3d_target != 0) {
+            hr = d3d->vtbl->CreateDevice(d3d, &v9x_iid_d3d_hal,
+                                         d3d_target, &d3d_device);
+            v9x_write_hresult("D3DCreateDeviceHr", hr);
+            if (hr == 0 && d3d_device != 0) {
+                d3d_device->vtbl->Release(d3d_device);
+                d3d_device = 0;
+                v9x_write_uint("D3DContextCycleOk", 1ul);
+            } else {
+                v9x_write_uint("D3DContextCycleOk", 0ul);
+            }
+        }
+    }
+
     if (backbuffer != 0) {
         HRESULT fill_done;
         HRESULT fill_can;
@@ -540,6 +702,12 @@ void __stdcall V9xDdrawProbeEntry(void)
                                                   V9X_DDGBS_CANBLT);
         v9x_write_hresult("BltCanHr", fill_can);
         if (v9x_has_switch("/status-only")) {
+            if (d3d_target != 0) {
+                d3d_target->vtbl->Release(d3d_target);
+            }
+            if (d3d != 0) {
+                d3d->vtbl->Release(d3d);
+            }
             backbuffer->vtbl->Release(backbuffer);
             primary->vtbl->Release(primary);
             ddraw->vtbl->RestoreDisplayMode(ddraw);
@@ -667,6 +835,12 @@ void __stdcall V9xDdrawProbeEntry(void)
     }
     if (primary != 0) {
         primary->vtbl->Release(primary);
+    }
+    if (d3d_target != 0) {
+        d3d_target->vtbl->Release(d3d_target);
+    }
+    if (d3d != 0) {
+        d3d->vtbl->Release(d3d);
     }
     hr = ddraw->vtbl->RestoreDisplayMode(ddraw);
     v9x_write_hresult("RestoreHr", hr);

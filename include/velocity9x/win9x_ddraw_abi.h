@@ -45,8 +45,10 @@ typedef void (FAR PASCAL *V9X_DD_CODE_PTR)();
 
 /* Caps and flag bits used by this driver (DDK values). */
 #define V9X_DDCAPS_BLT               0x00000040ul
+#define V9X_DDCAPS_3D                0x00000001ul
 #define V9X_DDCAPS_GDI               0x00000400ul
 #define V9X_DDCAPS_BLTCOLORFILL      0x04000000ul
+#define V9X_DDSCAPS_3DDEVICE         0x00002000ul
 #define V9X_DDSCAPS_OFFSCREENPLAIN   0x00000040ul
 #define V9X_DDSCAPS_PRIMARYSURFACE   0x00000200ul
 #define V9X_DDSCAPS_FLIP             0x00000010ul
@@ -328,6 +330,106 @@ typedef struct v9x_ddhalinfo {
 
 #define V9X_DDHALINFO_SIZE 460ul
 
+/* Minimal Direct3D HAL v1 ABI (D3DHAL.H/D3DCAPS.H). Phase 2 exposes only
+ * device discovery and context lifetime; no primitive capability is claimed. */
+#define V9X_D3DDD_COLORMODEL             0x00000001ul
+#define V9X_D3DDD_DEVCAPS                0x00000002ul
+#define V9X_D3DDD_DEVICERENDERBITDEPTH   0x00000080ul
+#define V9X_D3DCOLOR_RGB                         2ul
+#define V9X_DDBD_16                      0x00000400ul
+
+typedef struct v9x_d3dtransformcaps {
+    DWORD dwSize;
+    DWORD dwCaps;
+} V9X_D3DTRANSFORMCAPS;
+
+typedef struct v9x_d3dlightingcaps {
+    DWORD dwSize;
+    DWORD dwCaps;
+    DWORD dwLightingModel;
+    DWORD dwNumLights;
+} V9X_D3DLIGHTINGCAPS;
+
+typedef struct v9x_d3dprimcaps {
+    DWORD dwSize;
+    DWORD dwMiscCaps;
+    DWORD dwRasterCaps;
+    DWORD dwZCmpCaps;
+    DWORD dwSrcBlendCaps;
+    DWORD dwDestBlendCaps;
+    DWORD dwAlphaCmpCaps;
+    DWORD dwShadeCaps;
+    DWORD dwTextureCaps;
+    DWORD dwTextureFilterCaps;
+    DWORD dwTextureBlendCaps;
+    DWORD dwTextureAddressCaps;
+    DWORD dwStippleWidth;
+    DWORD dwStippleHeight;
+} V9X_D3DPRIMCAPS;
+
+typedef struct v9x_d3ddevicedesc_v1 {
+    DWORD dwSize;
+    DWORD dwFlags;
+    DWORD dcmColorModel;
+    DWORD dwDevCaps;
+    V9X_D3DTRANSFORMCAPS dtcTransformCaps;
+    DWORD bClipping;
+    V9X_D3DLIGHTINGCAPS dlcLightingCaps;
+    V9X_D3DPRIMCAPS dpcLineCaps;
+    V9X_D3DPRIMCAPS dpcTriCaps;
+    DWORD dwDeviceRenderBitDepth;
+    DWORD dwDeviceZBufferBitDepth;
+    DWORD dwMaxBufferSize;
+    DWORD dwMaxVertexCount;
+} V9X_D3DDEVICEDESC_V1;
+
+typedef struct v9x_d3dhal_globaldriverdata {
+    DWORD dwSize;
+    V9X_D3DDEVICEDESC_V1 hwCaps;
+    DWORD dwNumVertices;
+    DWORD dwNumClipVertices;
+    DWORD dwNumTextureFormats;
+    V9X_DD_VOID_PTR lpTextureFormats;
+} V9X_D3DHAL_GLOBALDRIVERDATA;
+
+typedef struct v9x_d3dhal_callbacks {
+    DWORD dwSize;
+    V9X_DD_CODE_PTR ContextCreate;
+    V9X_DD_CODE_PTR ContextDestroy;
+    V9X_DD_CODE_PTR ContextDestroyAll;
+    V9X_DD_CODE_PTR SceneCapture;
+    V9X_DD_CODE_PTR Execute;
+    V9X_DD_CODE_PTR ExecuteClipped;
+    V9X_DD_CODE_PTR RenderState;
+    V9X_DD_CODE_PTR RenderPrimitive;
+    DWORD dwReserved;
+    V9X_DD_CODE_PTR TextureCreate;
+    V9X_DD_CODE_PTR TextureDestroy;
+    V9X_DD_CODE_PTR TextureSwap;
+    V9X_DD_CODE_PTR TextureGetSurf;
+    V9X_DD_CODE_PTR MatrixCreate;
+    V9X_DD_CODE_PTR MatrixDestroy;
+    V9X_DD_CODE_PTR MatrixSetData;
+    V9X_DD_CODE_PTR MatrixGetData;
+    V9X_DD_CODE_PTR SetViewportData;
+    V9X_DD_CODE_PTR LightSet;
+    V9X_DD_CODE_PTR MaterialCreate;
+    V9X_DD_CODE_PTR MaterialDestroy;
+    V9X_DD_CODE_PTR MaterialSetData;
+    V9X_DD_CODE_PTR MaterialGetData;
+    V9X_DD_CODE_PTR GetState;
+    DWORD dwReserved0;
+    DWORD dwReserved1;
+    DWORD dwReserved2;
+    DWORD dwReserved3;
+    DWORD dwReserved4;
+    DWORD dwReserved5;
+    DWORD dwReserved6;
+    DWORD dwReserved7;
+    DWORD dwReserved8;
+    DWORD dwReserved9;
+} V9X_D3DHAL_CALLBACKS;
+
 /*
  * 32-bit-side views of the runtime structures DDRAW passes to flat
  * callbacks. Only the fields the HAL reads are laid out; access is by
@@ -426,6 +528,50 @@ typedef struct v9x_ddhal_waitforverticalblankdata {
     DWORD WaitForVerticalBlank;
 } V9X_DDHAL_WAITFORVERTICALBLANKDATA;
 
+typedef struct v9x_d3dhal_contextcreatedata {
+    void *lpDDGbl;
+    void *lpDDS;
+    void *lpDDSZ;
+    DWORD dwPID;
+    DWORD dwhContext;
+    DWORD ddrval;
+} V9X_D3DHAL_CONTEXTCREATEDATA;
+
+typedef struct v9x_d3dhal_contextdestroydata {
+    DWORD dwhContext;
+    DWORD ddrval;
+} V9X_D3DHAL_CONTEXTDESTROYDATA;
+
+typedef struct v9x_d3dhal_contextdestroyalldata {
+    DWORD dwPID;
+    DWORD ddrval;
+} V9X_D3DHAL_CONTEXTDESTROYALLDATA;
+
+typedef struct v9x_d3dhal_renderstatedata {
+    DWORD dwhContext;
+    DWORD dwOffset;
+    DWORD dwCount;
+    void *lpExeBuf;
+    DWORD ddrval;
+} V9X_D3DHAL_RENDERSTATEDATA;
+
+typedef struct v9x_d3dinstruction {
+    BYTE bOpcode;
+    BYTE bSize;
+    WORD wCount;
+} V9X_D3DINSTRUCTION;
+
+typedef struct v9x_d3dhal_renderprimitivedata {
+    DWORD dwhContext;
+    DWORD dwOffset;
+    DWORD dwStatus;
+    void *lpExeBuf;
+    DWORD dwTLOffset;
+    void *lpTLBuf;
+    V9X_D3DINSTRUCTION diInstruction;
+    DWORD ddrval;
+} V9X_D3DHAL_RENDERPRIMITIVEDATA;
+
 #else /* 16-bit */
 
 /* DDHAL_DESTROYDRIVERDATA, consumed by the 16-bit DestroyDriver callback. */
@@ -443,7 +589,7 @@ typedef struct v9x_ddhal_destroydriverdata {
  * V9XHAL.DLL's DriverInit. The 32-bit side owns all content except the
  * framebuffer descriptor, which the 16-bit side refreshes on every enable.
  */
-#define V9X_DD_SHARED_ABI   2026081101ul
+#define V9X_DD_SHARED_ABI   2026081102ul
 #define V9X_DD_MODE_COUNT            6u
 
 /* fb.flags */
@@ -486,6 +632,15 @@ typedef struct v9x_dd_cb32 {
     DWORD flags;            /* extra DDHALINFO.dwFlags bits             */
 } V9X_DD_CB32;
 
+typedef struct v9x_d3d_diagnostics {
+    DWORD context_creates;
+    DWORD context_destroys;
+    DWORD context_destroy_alls;
+    DWORD context_rejects;
+    DWORD render_state_calls;
+    DWORD render_primitive_calls;
+} V9X_D3D_DIAGNOSTICS;
+
 typedef struct v9x_dd_shared {
     DWORD dwSize;           /* sizeof(V9X_DD_SHARED)                    */
     DWORD abi;              /* V9X_DD_SHARED_ABI                        */
@@ -498,6 +653,9 @@ typedef struct v9x_dd_shared {
     V9X_DDHAL_DDCALLBACKS dd_callbacks;
     V9X_DDHAL_DDSURFACECALLBACKS surface_callbacks;
     V9X_DDHAL_DDPALETTECALLBACKS palette_callbacks;
+    V9X_D3DHAL_GLOBALDRIVERDATA d3d_global;
+    V9X_D3DHAL_CALLBACKS d3d_callbacks;
+    V9X_D3D_DIAGNOSTICS d3d_diagnostics;
     V9X_VIDMEM heaps[1];
     V9X_DDHALMODEINFO modes[V9X_DD_MODE_COUNT];
 } V9X_DD_SHARED;
@@ -516,6 +674,14 @@ typedef char v9x_dd_assert_corecaps[
     sizeof(V9X_DDCORECAPS) == 316 ? 1 : -1];
 typedef char v9x_dd_assert_halinfo[
     sizeof(V9X_DDHALINFO) == V9X_DDHALINFO_SIZE ? 1 : -1];
+typedef char v9x_dd_assert_d3dprimcaps[
+    sizeof(V9X_D3DPRIMCAPS) == 56 ? 1 : -1];
+typedef char v9x_dd_assert_d3ddevdesc[
+    sizeof(V9X_D3DDEVICEDESC_V1) == 172 ? 1 : -1];
+typedef char v9x_dd_assert_d3dglobal[
+    sizeof(V9X_D3DHAL_GLOBALDRIVERDATA) == 192 ? 1 : -1];
+typedef char v9x_dd_assert_d3dcallbacks[
+    sizeof(V9X_D3DHAL_CALLBACKS) == 140 ? 1 : -1];
 typedef char v9x_dd_assert_dcicmd[sizeof(V9X_DCICMD) == 20 ? 1 : -1];
 typedef char v9x_dd_assert_dd32data[
     sizeof(V9X_DD32BITDRIVERDATA) == 328 ? 1 : -1];
