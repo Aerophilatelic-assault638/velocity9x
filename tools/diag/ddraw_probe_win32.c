@@ -41,6 +41,8 @@
 #define V9X_DDWAITVB_BLOCKBEGIN     0x00000001ul
 #define V9X_DDLOCK_WAIT             0x00000001ul
 #define V9X_DDERR_WASSTILLDRAWING   0x8876021cul
+#define V9X_D3DPT_TRIANGLELIST               4ul
+#define V9X_D3DVT_TLVERTEX                   3ul
 
 typedef struct v9x_ddscaps {
     DWORD dwCaps;
@@ -111,6 +113,7 @@ struct v9x_dd;
 struct v9x_dds;
 struct v9x_d3d2;
 struct v9x_d3d_device2;
+struct v9x_d3d_viewport2;
 
 typedef struct v9x_d3d_transform_caps {
     DWORD dwSize;
@@ -170,7 +173,91 @@ typedef struct v9x_d3d_device2_vtbl {
                                         const void *, void **);
     ULONG (__stdcall *AddRef)(struct v9x_d3d_device2 *);
     ULONG (__stdcall *Release)(struct v9x_d3d_device2 *);
+    void *GetCaps;
+    void *SwapTextureHandles;
+    void *GetStats;
+    HRESULT (__stdcall *AddViewport)(struct v9x_d3d_device2 *,
+                                     struct v9x_d3d_viewport2 *);
+    HRESULT (__stdcall *DeleteViewport)(struct v9x_d3d_device2 *,
+                                        struct v9x_d3d_viewport2 *);
+    void *NextViewport;
+    void *EnumTextureFormats;
+    HRESULT (__stdcall *BeginScene)(struct v9x_d3d_device2 *);
+    HRESULT (__stdcall *EndScene)(struct v9x_d3d_device2 *);
+    void *GetDirect3D;
+    HRESULT (__stdcall *SetCurrentViewport)(struct v9x_d3d_device2 *,
+                                            struct v9x_d3d_viewport2 *);
+    void *GetCurrentViewport;
+    void *SetRenderTarget;
+    void *GetRenderTarget;
+    void *Begin;
+    void *BeginIndexed;
+    void *Vertex;
+    void *Index;
+    void *End;
+    void *GetRenderState;
+    void *SetRenderState;
+    void *GetLightState;
+    void *SetLightState;
+    void *SetTransform;
+    void *GetTransform;
+    void *MultiplyTransform;
+    HRESULT (__stdcall *DrawPrimitive)(struct v9x_d3d_device2 *, DWORD,
+                                       DWORD, void *, DWORD, DWORD);
+    void *DrawIndexedPrimitive;
+    void *SetClipStatus;
+    void *GetClipStatus;
 } V9X_D3D_DEVICE2_VTBL;
+
+typedef struct v9x_d3d_viewport2_vtbl {
+    void *QueryInterface;
+    void *AddRef;
+    ULONG (__stdcall *Release)(struct v9x_d3d_viewport2 *);
+    void *Initialize;
+    void *GetViewport;
+    void *SetViewport;
+    void *TransformVertices;
+    void *LightElements;
+    void *SetBackground;
+    void *GetBackground;
+    void *SetBackgroundDepth;
+    void *GetBackgroundDepth;
+    void *Clear;
+    void *AddLight;
+    void *DeleteLight;
+    void *NextLight;
+    void *GetViewport2;
+    HRESULT (__stdcall *SetViewport2)(struct v9x_d3d_viewport2 *, void *);
+} V9X_D3D_VIEWPORT2_VTBL;
+
+struct v9x_d3d_viewport2 {
+    const V9X_D3D_VIEWPORT2_VTBL *vtbl;
+};
+
+typedef struct v9x_d3d_viewport_desc2 {
+    DWORD dwSize;
+    DWORD dwX;
+    DWORD dwY;
+    DWORD dwWidth;
+    DWORD dwHeight;
+    float dvClipX;
+    float dvClipY;
+    float dvClipWidth;
+    float dvClipHeight;
+    float dvMinZ;
+    float dvMaxZ;
+} V9X_D3D_VIEWPORT_DESC2;
+
+typedef struct v9x_d3dtlvertex {
+    float sx;
+    float sy;
+    float sz;
+    float rhw;
+    DWORD color;
+    DWORD specular;
+    float tu;
+    float tv;
+} V9X_D3DTLVERTEX;
 
 struct v9x_d3d2 {
     const V9X_D3D2_VTBL *vtbl;
@@ -528,6 +615,25 @@ static int v9x_surface_pixel16_equals(struct v9x_dds *surface,
     return value == expected;
 }
 
+static WORD v9x_surface_pixel16(struct v9x_dds *surface, DWORD x, DWORD y)
+{
+    V9X_DDSURFACEDESC desc;
+    BYTE FAR *row;
+    WORD value = 0xffffu;
+
+    v9x_zero(&desc, sizeof(desc));
+    desc.dwSize = sizeof(desc);
+    if (surface->vtbl->Lock(surface, 0, &desc, V9X_DDLOCK_WAIT, 0) == 0) {
+        if (desc.lpSurface != 0 && desc.ddpfPixelFormat.dwRGBBitCount == 16ul &&
+            x < desc.dwWidth && y < desc.dwHeight) {
+            row = (BYTE FAR *)desc.lpSurface + y * (DWORD)desc.lPitch;
+            value = ((WORD FAR *)row)[x];
+        }
+        surface->vtbl->Unlock(surface, 0);
+    }
+    return value;
+}
+
 static LRESULT CALLBACK v9x_window_proc(HWND window, UINT message,
                                         WPARAM wparam, LPARAM lparam)
 {
@@ -548,6 +654,7 @@ void __stdcall V9xDdrawProbeEntry(void)
     struct v9x_dds *d3d_target = 0;
     struct v9x_d3d2 *d3d = 0;
     struct v9x_d3d_device2 *d3d_device = 0;
+    struct v9x_d3d_viewport2 *d3d_viewport = 0;
     V9X_D3D_ENUM_RESULT d3d_result;
     V9X_DDSURFACEDESC desc;
     V9X_DDSCAPS caps;
@@ -557,6 +664,7 @@ void __stdcall V9xDdrawProbeEntry(void)
     DWORD elapsed;
     DWORD flip_total = 0ul;
     DWORD flip_max = 0ul;
+    V9X_D3DTLVERTEX triangle[3];
     int index;
 
     WritePrivateProfileStringA(V9X_SECTION, 0, 0, V9X_RESULT_PATH);
@@ -684,6 +792,81 @@ void __stdcall V9xDdrawProbeEntry(void)
                                          d3d_target, &d3d_device);
             v9x_write_hresult("D3DCreateDeviceHr", hr);
             if (hr == 0 && d3d_device != 0) {
+                HRESULT begin_hr;
+                HRESULT draw_hr;
+                HRESULT end_hr;
+                HRESULT viewport_hr;
+                V9X_D3D_VIEWPORT_DESC2 viewport_desc;
+
+                viewport_hr = d3d->vtbl->CreateViewport(
+                    d3d, (void **)&d3d_viewport, 0);
+                v9x_write_hresult("D3DCreateViewportHr", viewport_hr);
+                if (viewport_hr == 0 && d3d_viewport != 0) {
+                    viewport_hr = d3d_device->vtbl->AddViewport(
+                        d3d_device, d3d_viewport);
+                }
+                v9x_write_hresult("D3DAddViewportHr", viewport_hr);
+                if (viewport_hr == 0) {
+                    v9x_zero(&viewport_desc, sizeof(viewport_desc));
+                    viewport_desc.dwSize = sizeof(viewport_desc);
+                    viewport_desc.dwWidth = 64ul;
+                    viewport_desc.dwHeight = 64ul;
+                    viewport_desc.dvClipX = -1.0f;
+                    viewport_desc.dvClipY = 1.0f;
+                    viewport_desc.dvClipWidth = 2.0f;
+                    viewport_desc.dvClipHeight = 2.0f;
+                    viewport_desc.dvMinZ = 0.0f;
+                    viewport_desc.dvMaxZ = 1.0f;
+                    viewport_hr = d3d_viewport->vtbl->SetViewport2(
+                        d3d_viewport, &viewport_desc);
+                }
+                v9x_write_hresult("D3DSetViewportHr", viewport_hr);
+                if (viewport_hr == 0) {
+                    viewport_hr = d3d_device->vtbl->SetCurrentViewport(
+                        d3d_device, d3d_viewport);
+                }
+                v9x_write_hresult("D3DCurrentViewportHr", viewport_hr);
+
+                v9x_fill_surface(d3d_target, 0ul);
+                triangle[0].sx = 8.0f;
+                triangle[0].sy = 8.0f;
+                triangle[0].sz = 0.0f;
+                triangle[0].rhw = 1.0f;
+                triangle[0].color = 0xffff0000ul;
+                triangle[0].specular = 0ul;
+                triangle[0].tu = 0.0f;
+                triangle[0].tv = 0.0f;
+                triangle[1] = triangle[0];
+                triangle[1].sx = 56.0f;
+                triangle[2] = triangle[0];
+                triangle[2].sy = 56.0f;
+
+                begin_hr = viewport_hr == 0
+                    ? d3d_device->vtbl->BeginScene(d3d_device) : viewport_hr;
+                v9x_write_hresult("D3DBeginSceneHr", begin_hr);
+                if (begin_hr == 0) {
+                    draw_hr = d3d_device->vtbl->DrawPrimitive(
+                        d3d_device, V9X_D3DPT_TRIANGLELIST,
+                        V9X_D3DVT_TLVERTEX, triangle, 3ul, 0ul);
+                    v9x_write_hresult("D3DDrawPrimitiveHr", draw_hr);
+                    end_hr = d3d_device->vtbl->EndScene(d3d_device);
+                } else {
+                    draw_hr = begin_hr;
+                    end_hr = begin_hr;
+                }
+                v9x_write_hresult("D3DEndSceneHr", end_hr);
+                v9x_write_uint("D3DTrianglePixelRaw",
+                               v9x_surface_pixel16(d3d_target, 16ul, 16ul));
+                v9x_write_uint("D3DTrianglePixelOk",
+                    draw_hr == 0 && end_hr == 0 &&
+                    v9x_surface_pixel16_equals(d3d_target, 16ul, 16ul,
+                                               0x7c00u) ? 1ul : 0ul);
+                if (d3d_viewport != 0) {
+                    d3d_device->vtbl->DeleteViewport(d3d_device,
+                                                     d3d_viewport);
+                    d3d_viewport->vtbl->Release(d3d_viewport);
+                    d3d_viewport = 0;
+                }
                 d3d_device->vtbl->Release(d3d_device);
                 d3d_device = 0;
                 v9x_write_uint("D3DContextCycleOk", 1ul);
@@ -848,5 +1031,6 @@ void __stdcall V9xDdrawProbeEntry(void)
     ddraw->vtbl->Release(ddraw);
     DestroyWindow(window);
     v9x_write_text("Result", "COMPLETE");
+    WritePrivateProfileStringA(0, 0, 0, V9X_RESULT_PATH);
     ExitProcess(0u);
 }

@@ -51,6 +51,7 @@ typedef void (FAR PASCAL *V9X_DD_CODE_PTR)();
 #define V9X_DDSCAPS_3DDEVICE         0x00002000ul
 #define V9X_DDSCAPS_OFFSCREENPLAIN   0x00000040ul
 #define V9X_DDSCAPS_PRIMARYSURFACE   0x00000200ul
+#define V9X_DDSCAPS_SYSTEMMEMORY     0x00000800ul
 #define V9X_DDSCAPS_FLIP             0x00000010ul
 #define V9X_DDSCAPS_VIDEOMEMORY      0x00004000ul
 #define V9X_DDPF_RGB                 0x00000040ul
@@ -58,6 +59,7 @@ typedef void (FAR PASCAL *V9X_DD_CODE_PTR)();
 #define V9X_VIDMEM_ISLINEAR          0x00000001ul
 #define V9X_DDMODEINFO_PALETTIZED        0x0001u
 #define V9X_DDHALINFO_ISPRIMARYDISPLAY 0x00000001ul
+#define V9X_DDHALINFO_GETDRIVERINFOSET 0x00000004ul
 
 #define V9X_DDHAL_CB32_WAITFORVERTICALBLANK 0x00000010ul
 #define V9X_DDHAL_CB32_FLIPTOGDISURFACE     0x00000200ul
@@ -330,13 +332,25 @@ typedef struct v9x_ddhalinfo {
 
 #define V9X_DDHALINFO_SIZE 460ul
 
-/* Minimal Direct3D HAL v1 ABI (D3DHAL.H/D3DCAPS.H). Phase 2 exposes only
- * device discovery and context lifetime; no primitive capability is claimed. */
+/* Minimal Direct3D HAL v1/DX5 ABI (D3DHAL.H/D3DCAPS.H). */
 #define V9X_D3DDD_COLORMODEL             0x00000001ul
 #define V9X_D3DDD_DEVCAPS                0x00000002ul
+#define V9X_D3DDD_TRICAPS                0x00000040ul
 #define V9X_D3DDD_DEVICERENDERBITDEPTH   0x00000080ul
 #define V9X_D3DCOLOR_RGB                         2ul
 #define V9X_DDBD_16                      0x00000400ul
+#define V9X_D3DDEVCAPS_FLOATTLVERTEX      0x00000001ul
+#define V9X_D3DDEVCAPS_TLVERTEXSYSTEMMEMORY 0x00000040ul
+#define V9X_D3DDEVCAPS_DRAWPRIMTLVERTEX  0x00000400ul
+#define V9X_D3DPMISCCAPS_CULLNONE         0x00000010ul
+#define V9X_D3DPSHADECAPS_COLORFLATRGB    0x00000002ul
+#define V9X_D3DPT_TRIANGLELIST                     4ul
+#define V9X_D3DVT_TLVERTEX                         3ul
+
+#define V9X_D3DHAL2_CB32_SETRENDERTARGET   0x00000001ul
+#define V9X_D3DHAL2_CB32_DRAWONEPRIMITIVE  0x00000004ul
+#define V9X_D3DHAL2_CB32_DRAWONEINDEXEDPRIMITIVE 0x00000008ul
+#define V9X_D3DHAL2_CB32_DRAWPRIMITIVES     0x00000010ul
 
 typedef struct v9x_d3dtransformcaps {
     DWORD dwSize;
@@ -430,6 +444,16 @@ typedef struct v9x_d3dhal_callbacks {
     DWORD dwReserved9;
 } V9X_D3DHAL_CALLBACKS;
 
+typedef struct v9x_d3dhal_callbacks2 {
+    DWORD dwSize;
+    DWORD dwFlags;
+    V9X_DD_CODE_PTR SetRenderTarget;
+    V9X_DD_CODE_PTR Clear;
+    V9X_DD_CODE_PTR DrawOnePrimitive;
+    V9X_DD_CODE_PTR DrawOneIndexedPrimitive;
+    V9X_DD_CODE_PTR DrawPrimitives;
+} V9X_D3DHAL_CALLBACKS2;
+
 /*
  * 32-bit-side views of the runtime structures DDRAW passes to flat
  * callbacks. Only the fields the HAL reads are laid out; access is by
@@ -462,6 +486,12 @@ typedef struct v9x_dd_surface_lcl {
     DWORD dwFlags;
     DWORD ddsCaps;
 } V9X_DD_SURFACE_LCL;
+
+/* DDRAWI_DDRAWSURFACE_INT prefix. D3D HAL callbacks receive this wrapper. */
+typedef struct v9x_dd_surface_int {
+    DWORD lpVtbl;
+    V9X_DD_SURFACE_LCL *lpLcl;
+} V9X_DD_SURFACE_INT;
 
 typedef struct v9x_ddhal_flipdata {
     DWORD lpDD;
@@ -571,6 +601,68 @@ typedef struct v9x_d3dhal_renderprimitivedata {
     V9X_D3DINSTRUCTION diInstruction;
     DWORD ddrval;
 } V9X_D3DHAL_RENDERPRIMITIVEDATA;
+
+typedef struct v9x_d3dtriangle {
+    WORD v1;
+    WORD v2;
+    WORD v3;
+    WORD wFlags;
+} V9X_D3DTRIANGLE;
+
+typedef struct v9x_ddhal_getdriverinfodata {
+    DWORD dwSize;
+    DWORD dwFlags;
+    BYTE guidInfo[16];
+    DWORD dwExpectedSize;
+    void *lpvData;
+    DWORD dwActualSize;
+    DWORD ddRVal;
+    DWORD dwContext;
+} V9X_DDHAL_GETDRIVERINFODATA;
+
+typedef struct v9x_d3dhal_setrendertargetdata {
+    DWORD dwhContext;
+    void *lpDDS;
+    void *lpDDSZ;
+    DWORD ddrval;
+} V9X_D3DHAL_SETRENDERTARGETDATA;
+
+typedef struct v9x_d3dhal_drawoneprimitivedata {
+    DWORD dwhContext;
+    DWORD dwFlags;
+    DWORD PrimitiveType;
+    DWORD VertexType;
+    void *lpvVertices;
+    DWORD dwNumVertices;
+    DWORD dwReserved;
+    DWORD ddrval;
+} V9X_D3DHAL_DRAWONEPRIMITIVEDATA;
+
+typedef struct v9x_d3dhal_drawprimitivesdata {
+    DWORD dwhContext;
+    DWORD dwFlags;
+    void *lpvData;
+    DWORD dwReserved;
+    DWORD ddrval;
+} V9X_D3DHAL_DRAWPRIMITIVESDATA;
+
+typedef struct v9x_d3dhal_drawprimcounts {
+    WORD wNumStateChanges;
+    WORD wPrimitiveType;
+    WORD wVertexType;
+    WORD wNumVertices;
+} V9X_D3DHAL_DRAWPRIMCOUNTS;
+
+typedef struct v9x_d3dtlvertex {
+    float sx;
+    float sy;
+    float sz;
+    float rhw;
+    DWORD color;
+    DWORD specular;
+    float tu;
+    float tv;
+} V9X_D3DTLVERTEX;
 
 #else /* 16-bit */
 

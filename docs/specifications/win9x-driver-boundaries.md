@@ -89,13 +89,18 @@ fixed shared-arena base with shared PE sections. Advertised capability is
 deliberately minimal: `DDCAPS_GDI`, one linear video-memory heap above the
 visible screen, flippable primaries, real vertical-blank services, and
 CRTC display-start page flipping, bounded engine synchronization, and
-solid-colour ViRGE blits. The Direct3D v1 boundary now exposes a minimal RGB
-16-bpp device descriptor and allocation-free context lifecycle, but no
-primitive, texture, Z-buffer, transform, lighting, or S3D command capability.
-Other blits, palettes, and overlays remain with the HEL. See
+solid-colour ViRGE blits. The Direct3D v1 boundary exposes a minimal RGB
+16-bpp device descriptor, allocation-free context lifecycle, and one
+hardware-rendered primitive: flat-colour TL-vertex triangle lists through
+`RenderPrimitive`. It does not expose lines, indexed primitives, textures,
+Z-buffering, transforms, lighting, fog, blending, or clipping. The S3D output
+format is currently native ZRGB1555 even though the active 16-bpp framebuffer
+mode is RGB565; applications must not infer general 16-bpp Direct3D
+compatibility from this pixel-verified milestone. Other blits, palettes, and
+overlays remain with the HEL. See
 docs/decisions/2026-08-11-directdraw-hal.md,
 docs/decisions/2026-08-11-virge-engine-foundation.md, and
-docs/decisions/2026-08-11-direct3d-phase2.md.
+docs/decisions/2026-08-11-direct3d-phase3.md.
 
 ## Previous DirectDraw boundary
 

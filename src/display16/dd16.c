@@ -172,7 +172,8 @@ static void v9x_dd_refresh_info(void)
     info->vmiData.pvmList = &shared->heaps[0];
     info->lpModeInfo = &shared->modes[0];
     info->lpdwFourCC = 0;
-    info->GetDriverInfo = 0;
+    /* DriverInit supplies the flat DX5 extension callback. Preserve it when
+     * refreshing the mode-dependent fields before SetInfo. */
     info->lpPDevice = v9x_dd_active_pdevice();
     shared->dd_callbacks.DestroyDriver =
         (V9X_DD_CODE_PTR)v9x_dd_destroy_driver;
