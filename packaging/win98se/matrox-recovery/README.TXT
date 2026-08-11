@@ -2,6 +2,8 @@ Velocity9x Matrox Millennium II physical recovery guard
 
 PREPARE.BAT copies the active MGAPDX64.DRV and MGAPDX64.VXD into
 C:\V9XSAFE\MGA2 and adds an inert AUTOEXEC.BAT call to V9XGUARD.BAT.
+V9XAUTO.EXE performs that edit transactionally before the first NUL or DOS
+EOF marker, so fixed-size or padded AUTOEXEC.BAT files remain bootable.
 
 ARM.BAT enables a two-boot transaction. On the next boot the guard changes
 ARMED.1 to ARMED.2 and permits the candidate files to load. If the guard is

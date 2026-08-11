@@ -44,7 +44,7 @@ Copy-Item -LiteralPath $loaderSource `
     -Destination (Join-Path $outputDir "V9X16LD.EXE") -Force
 
 foreach ($name in @("ACTIVATE.BAT", "ARM.BAT", "DISARM.BAT", "PREPARE.BAT", "README.TXT",
-                     "RESTORE.BAT", "V9XGUARD.BAT")) {
+                     "RESTORE.BAT", "V9XAUTO.EXE", "V9XGUARD.BAT")) {
     Copy-Item -LiteralPath (Join-Path $repoRoot "build\matrox-recovery\$name") `
         -Destination (Join-Path $outputDir $name) -Force
 }
@@ -85,7 +85,7 @@ if (-not $vxdText.Contains($BuildId)) {
 $expected = @(
     "ACTIVATE.BAT", "ARM.BAT", "DISARM.BAT", "MANIFEST.TXT", "MGAPDX64.DRV",
     "MGAPDX64.VXD", "PREPARE.BAT", "README.TXT", "RESTORE.BAT",
-    "V9X16LD.EXE", "V9XDISP.DRV", "V9XGUARD.BAT"
+    "V9X16LD.EXE", "V9XAUTO.EXE", "V9XDISP.DRV", "V9XGUARD.BAT"
 )
 $actual = @(Get-ChildItem -LiteralPath $outputDir -File |
     ForEach-Object { $_.Name } | Sort-Object)

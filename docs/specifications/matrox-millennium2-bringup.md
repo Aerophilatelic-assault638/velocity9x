@@ -99,5 +99,12 @@ Candidate 7 keeps the conservative VBE mode/origin path and little-endian
 DIB Engine screen PDevice, following the working vmdisp9x implementation:
 640x480 geometry, 1,280-byte delta and width, 16 bits per pixel, BAR0 selector,
 zero surface offset, 5:6:5 format, and explicit bitmap-info/callback pointers.
-The package build and S3 regression pass locally. Physical inactive-query and
-guarded activation remain pending.
+The package build and S3 regression pass locally.
+
+Candidate 8 packages the same display path with a NUL-safe, idempotent
+`AUTOEXEC.BAT` guard installer. After correcting a cloned 86Box guest's stale
+S3 display association and setting the requested mode to 640x480x16, the
+strict `102B:051B` backend reached `Stage=enable-ok` and passed the generic GDI
+surface probe on two consecutive boots. The guard was disarmed only after the
+first pass. Physical inactive-query and guarded activation remain pending; see
+`docs/decisions/2026-08-11-millennium2-86box-candidate8.md` for guest evidence.
