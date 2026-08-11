@@ -81,6 +81,7 @@ static void v9x_write_auto_result(HDC display, int passed)
                                 GetDeviceCaps(display, PLANES)));
     WritePrivateProfileStringA("Velocity9xGDI", "BitsPerPixel", number,
                                result_path);
+    WritePrivateProfileStringA(0, 0, 0, result_path);
 }
 
 static int v9x_string_length(const char *text)

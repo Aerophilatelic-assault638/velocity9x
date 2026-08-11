@@ -42,7 +42,8 @@ Windows 95 and Windows Me support are compatibility goals after the Win98SE Dire
 - Video overlay and capture.
 - AGP-specific features.
 - Multiple monitors or multiple adapters.
-- Suspend/resume and advanced power management beyond safe default behavior.
+- System suspend/resume and adapter power-down. Monitor low-power states are
+  intentionally not advertised until legacy VESA resume is framebuffer-safe.
 - Native EDID timing generation until fixed modes are stable.
 - A configuration GUI or control panel; the initial releases expose per-primitive registry switches only.
 - S3 Trio, other ViRGE variants, Matrox, and 3dfx backends.

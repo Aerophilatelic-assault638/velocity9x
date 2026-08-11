@@ -88,8 +88,9 @@ mini-VDD image path:
 ```
 
 This produces `build/minivdd32/v9xmini.vxd`. It verifies the master VDD table,
-logs its build, succeeds, and installs zero callbacks so the master VDD retains
-its defaults.
+logs its build, and installs audited legacy-VESA and Windows 98 monitor-power
+callbacks. The driver advertises D0 only because the legacy BIOS resume path
+does not reliably restore the active framebuffer.
 
 Build the quarantined active package, Windows 98 settings/status panel, and
 post-boot GDI and palette framebuffer tests:

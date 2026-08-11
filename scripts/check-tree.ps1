@@ -30,6 +30,7 @@ $required = @(
     "scripts\build-settings.ps1",
     "scripts\build-settings-page.ps1",
     "scripts\build-gdi-smoke.ps1",
+    "scripts\build-power-cycle.ps1",
     "scripts\build-palette-smoke.ps1",
     "scripts\backup-86box-profile.ps1",
     "scripts\build-dos-serial-smoke.ps1",
@@ -62,6 +63,7 @@ $required = @(
     "tools\diag\settings_propsheet.h",
     "tools\diag\settings_propsheet.rc",
     "tools\diag\gdi_smoke_win32.c",
+    "tools\diag\power_cycle_win32.c",
     "tools\diag\palette_smoke_win32.c"
 )
 
@@ -77,7 +79,9 @@ $sourceFiles += Get-ChildItem -LiteralPath (Join-Path $repoRoot "include") -Recu
 $allowedOsBoundaries = @(
     (Join-Path $repoRoot "src\display16\loader.c"),
     (Join-Path $repoRoot "src\display16\ddi.c"),
+    (Join-Path $repoRoot "src\display16\dd16.c"),
     (Join-Path $repoRoot "src\display16\win9x_display_abi.h"),
+    (Join-Path $repoRoot "src\display32\ddhal.c"),
     (Join-Path $repoRoot "src\minivdd32\loader.asm")
 )
 $forbidden = $sourceFiles |

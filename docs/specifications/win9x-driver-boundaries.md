@@ -65,15 +65,18 @@ discovery, screen-state transitions, mappings, engine synchronization, logging,
 and recovery. The final split must reflect observed DDI constraints rather than
 the preferred architecture in the plan.
 
-The LE candidate now has a valid descriptor/control path, verifies the master
-VDD dispatch-table ABI, logs at ring 0, and succeeds while registering zero
-callbacks. The following remain unresolved for later phases:
+The LE candidate has a valid descriptor/control path, verifies the master VDD
+dispatch-table ABI, and logs at ring 0. It registers legacy `VESA_SUPPORT` and
+VESA post-processing callbacks plus the Windows 98 monitor-power state and
+capability callbacks. It advertises D0 only: active monitor low-power states
+remain disabled until the legacy VESA resume path can restore the framebuffer
+reliably. The following remain unresolved for later phases:
 
 - interaction with the system VGA VDD and display DRV;
 - DOS/full-screen transition callbacks and state save/restore;
 - device-specific virtualization and later hardware recovery callbacks.
 
-The master VDD retains its default handlers for every unfilled callback.
+The master VDD retains its default handlers for every other callback.
 
 ## DirectDraw boundary (updated 2026-08-11)
 

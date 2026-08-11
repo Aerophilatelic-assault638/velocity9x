@@ -40,14 +40,20 @@ Set-Content -LiteralPath $buildInclude -Encoding Ascii -Value @(
     "V9xMiniVddBuildId db `"velocity9x:$BuildId`", 0",
     "V9xMiniInitLine db `"V9X-MINI init build=$BuildId`", 13, 10",
     "V9xMiniInitLineLength equ `$ - V9xMiniInitLine",
-    "V9xMiniDefaultsLine db `"V9X-MINI defaults-ok callbacks=0 build=$BuildId`", 13, 10",
+    "V9xMiniPowerCallbacksLine db `"V9X-MINI power-callbacks-ok callbacks=4 build=$BuildId`", 13, 10",
+    "V9xMiniPowerCallbacksLineLength equ `$ - V9xMiniPowerCallbacksLine",
+    "V9xMiniDefaultsLine db `"V9X-MINI power-defaults callbacks=0 build=$BuildId`", 13, 10",
     "V9xMiniDefaultsLineLength equ `$ - V9xMiniDefaultsLine",
+    "V9xMiniPowerOnLine db `"V9X-MINI monitor-power D0`", 13, 10",
+    "V9xMiniPowerOnLineLength equ `$ - V9xMiniPowerOnLine",
+    "V9xMiniPowerOffLine db `"V9X-MINI monitor-power low`", 13, 10",
+    "V9xMiniPowerOffLineLength equ `$ - V9xMiniPowerOffLine",
     "V9xMiniFailLine db `"V9X-MINI init-fail build=$BuildId`", 13, 10",
     "V9xMiniFailLineLength equ `$ - V9xMiniFailLine"
 )
 Set-Content -LiteralPath $definitionFile -Encoding Ascii -Value @(
     "VXD V9XMINI DYNAMIC",
-    "DESCRIPTION 'Velocity9x default-handler mini-VDD bring-up candidate'",
+    "DESCRIPTION 'Velocity9x S3 ViRGE mini-VDD with monitor power management'",
     "SEGMENTS",
     "    _LTEXT CLASS 'LCODE' PRELOAD NONDISCARDABLE",
     "    _LDATA CLASS 'LCODE' PRELOAD NONDISCARDABLE",
@@ -94,20 +100,30 @@ if ($bytes.Length -lt 64 -or $bytes[0] -ne 0x4d -or $bytes[1] -ne 0x5a -or
 
 $imageText = [System.Text.Encoding]::ASCII.GetString($bytes)
 foreach ($marker in @("velocity9x:$BuildId", "V9X-MINI init",
-                       "V9X-MINI defaults-ok", "V9XMINI_DDB")) {
+                       "V9X-MINI power-callbacks-ok",
+                       "V9X-MINI monitor-power D0", "V9XMINI_DDB")) {
     if (-not $imageText.Contains($marker)) {
         throw "The mini-VDD output is missing marker $marker."
     }
 }
 $sourceText = Get-Content -LiteralPath $sourcePath -Raw
-if ($sourceText -match '(?m)^\s*MiniVDDDispatch\s+') {
-    throw "The default-handler mini-VDD must not install dispatch callbacks."
+if (([regex]::Matches($sourceText, '(?m)^\s*MiniVDDDispatch\s+')).Count -ne 4 -or
+    $sourceText -notmatch 'MiniVDDDispatch\s+VESA_SUPPORT' -or
+    $sourceText -notmatch 'MiniVDDDispatch\s+VESA_CALL_POST_PROCESSING' -or
+    $sourceText -notmatch 'MiniVDDDispatch\s+SET_MONITOR_POWER_STATE' -or
+    $sourceText -notmatch 'MiniVDDDispatch\s+GET_MONITOR_POWER_STATE_CAPS') {
+    throw "The mini-VDD must install exactly the four audited monitor-power callbacks."
 }
 $mapText = Get-Content -LiteralPath $mapPath -Raw
-foreach ($symbol in @("V9xMini_Serial_Write", "MiniVDD_Dynamic_Init")) {
+foreach ($symbol in @("V9xMini_Serial_Write", "V9xMini_Set_Dpms",
+                      "MiniVDD_VESASupport",
+                      "MiniVDD_VESACallPostProcessing",
+                      "MiniVDD_SetMonitorPowerState",
+                      "MiniVDD_GetMonitorPowerStateCaps",
+                      "MiniVDD_Dynamic_Init")) {
     if ($mapText -notmatch "(?m)^.*$([regex]::Escape($symbol)).*$") {
         throw "The mini-VDD map is missing symbol $symbol."
     }
 }
 
-Write-Output "Built boot-loadable default-handler mini-VDD candidate: $vxdPath"
+Write-Output "Built boot-loadable monitor-power mini-VDD candidate: $vxdPath"
