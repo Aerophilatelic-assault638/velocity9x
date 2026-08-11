@@ -74,6 +74,10 @@ wcc and wcc386.
 
 ## Deliberate scope limits
 
+Update: engine-1 later added the narrowly scoped, bounded solid-colour `Blt`
+path described in `2026-08-11-virge-engine-foundation.md`. The original
+ddhal-1/ddhal-2 state below is retained as the milestone record.
+
 - No HAL `Blt`: caps deliberately do not claim `DDCAPS_BLT`; the HEL
   performs all blits (CPU) on HAL video-memory surfaces. The ViRGE BitBLT
   engine is the natural next acceleration step.

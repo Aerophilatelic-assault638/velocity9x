@@ -33,6 +33,9 @@
 #define V9X_DDSCL_NORMAL            0x00000008ul
 #define V9X_DDSCL_EXCLUSIVE         0x00000010ul
 #define V9X_DDFLIP_WAIT             0x00000001ul
+#define V9X_DDBLT_COLORFILL          0x00000400ul
+#define V9X_DDBLT_WAIT               0x01000000ul
+#define V9X_DDGBS_ISBLTDONE          0x00000002ul
 #define V9X_DDWAITVB_BLOCKBEGIN     0x00000001ul
 #define V9X_DDLOCK_WAIT             0x00000001ul
 #define V9X_DDERR_WASSTILLDRAWING   0x8876021cul
@@ -56,6 +59,32 @@ typedef struct v9x_ddpixelformat {
     DWORD dwBBitMask;
     DWORD dwRGBAlphaBitMask;
 } V9X_DDPIXELFORMAT;
+
+typedef struct v9x_ddbltfx {
+    DWORD dwSize;
+    DWORD dwDDFX;
+    DWORD dwROP;
+    DWORD dwDDROP;
+    DWORD dwRotationAngle;
+    DWORD dwZBufferOpCode;
+    DWORD dwZBufferLow;
+    DWORD dwZBufferHigh;
+    DWORD dwZBufferBaseDest;
+    DWORD dwZDestConstBitDepth;
+    DWORD dwZDestConst;
+    DWORD dwZSrcConstBitDepth;
+    DWORD dwZSrcConst;
+    DWORD dwAlphaEdgeBlendBitDepth;
+    DWORD dwAlphaEdgeBlend;
+    DWORD dwReserved;
+    DWORD dwAlphaDestConstBitDepth;
+    DWORD dwAlphaDestConst;
+    DWORD dwAlphaSrcConstBitDepth;
+    DWORD dwAlphaSrcConst;
+    DWORD dwFillColor;
+    V9X_DDCOLORKEY ddckDestColorkey;
+    V9X_DDCOLORKEY ddckSrcColorkey;
+} V9X_DDBLTFX;
 
 typedef struct v9x_ddsurfacedesc {
     DWORD dwSize;
@@ -326,6 +355,58 @@ static DWORD v9x_time_surface_fill(struct v9x_dds *surface)
     return v9x_time() - started;
 }
 
+static HRESULT v9x_hardware_fill(struct v9x_dds *surface, DWORD color,
+                                 DWORD *elapsed, HRESULT *done_result)
+{
+    V9X_DDBLTFX fx;
+    HRESULT hr;
+    DWORD started;
+
+    v9x_zero(&fx, sizeof(fx));
+    fx.dwSize = sizeof(fx);
+    fx.dwFillColor = color;
+    started = v9x_time();
+    hr = surface->vtbl->Blt(surface, 0, 0, 0,
+                            V9X_DDBLT_COLORFILL | V9X_DDBLT_WAIT, &fx);
+    if (hr == 0) {
+        do {
+            *done_result = surface->vtbl->GetBltStatus(
+                surface, V9X_DDGBS_ISBLTDONE);
+        } while (*done_result == (HRESULT)V9X_DDERR_WASSTILLDRAWING &&
+                 v9x_time() - started < 2000ul);
+    } else {
+        *done_result = hr;
+    }
+    *elapsed = v9x_time() - started;
+    return hr;
+}
+
+static int v9x_surface_pixel16_equals(struct v9x_dds *surface,
+                                      DWORD x, DWORD y, WORD expected)
+{
+    V9X_DDSURFACEDESC desc;
+    BYTE FAR *row;
+    WORD value;
+    HRESULT hr;
+
+    v9x_zero(&desc, sizeof(desc));
+    desc.dwSize = sizeof(desc);
+    hr = surface->vtbl->Lock(surface, 0, &desc, V9X_DDLOCK_WAIT, 0);
+    if (hr != 0) {
+        return 0;
+    }
+    if (desc.lpSurface == 0 ||
+        desc.ddpfPixelFormat.dwRGBBitCount != 16ul ||
+        x >= desc.dwWidth || y >= desc.dwHeight) {
+        surface->vtbl->Unlock(surface, 0);
+        return 0;
+    }
+    row = (BYTE FAR *)desc.lpSurface + y * (DWORD)desc.lPitch;
+    value = *(WORD FAR *)(row + x * 2ul);
+    surface->vtbl->Unlock(surface, 0);
+    return value == expected;
+}
+
 static LRESULT CALLBACK v9x_window_proc(HWND window, UINT message,
                                         WPARAM wparam, LPARAM lparam)
 {
@@ -450,6 +531,19 @@ void __stdcall V9xDdrawProbeEntry(void)
     }
 
     if (backbuffer != 0) {
+        HRESULT fill_done;
+
+        started = 0ul;
+        hr = v9x_hardware_fill(backbuffer, 0x000007e0ul, &started,
+                               &fill_done);
+        v9x_write_hresult("BltFillHr", hr);
+        v9x_write_hresult("BltFillDoneHr", fill_done);
+        v9x_write_uint("BltFillMs", started);
+        v9x_write_uint("BltFillPixelOk",
+                       hr == 0 && fill_done == 0 &&
+                       v9x_surface_pixel16_equals(backbuffer, 100ul, 100ul,
+                                                  0x07e0u) ? 1ul : 0ul);
+
         /* Raw surface write cost, then the flip itself. */
         v9x_write_uint("BackFillMs", v9x_time_surface_fill(backbuffer));
         v9x_write_uint("PrimaryFillMs", v9x_time_surface_fill(primary));
@@ -561,4 +655,3 @@ void __stdcall V9xDdrawProbeEntry(void)
     v9x_write_text("Result", "COMPLETE");
     ExitProcess(0u);
 }
-

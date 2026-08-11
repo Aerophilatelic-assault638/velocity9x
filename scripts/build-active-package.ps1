@@ -153,7 +153,7 @@ $manifest = @(
     "GDI test: on-screen primitives, blits, and tolerant pixel readback",
     "Palette test: 8-bit reserved-entry animation and screen readback",
     "Mode switching: live same-depth via ReEnable; depth change needs restart",
-    "DirectDraw HAL: V9XHAL.DLL (vidmem surfaces + CRTC page flip)",
+    "DirectDraw HAL: V9XHAL.DLL (vidmem + flip + bounded solid fill)",
     "Mode-switch test: V9XMSW.EXE (/set:WxHxB, /cycle:N, /depth)",
     "Monitor-power test: V9XPWR.EXE (D3 off, then D0 wake)",
     "DirectDraw probe: V9XDDP.EXE (flip timing and mode honesty)",

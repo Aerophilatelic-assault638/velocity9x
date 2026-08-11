@@ -88,8 +88,10 @@ live in the flat 32-bit `V9XHAL.DLL` (`src/display32/ddhal.c`), loaded at a
 fixed shared-arena base with shared PE sections. Advertised capability is
 deliberately minimal: `DDCAPS_GDI`, one linear video-memory heap above the
 visible screen, flippable primaries, real vertical-blank services, and
-CRTC display-start page flipping. Blits, palettes, overlays, and Direct3D
-remain with the HEL. See docs/decisions/2026-08-11-directdraw-hal.md.
+CRTC display-start page flipping, bounded engine synchronization, and
+solid-colour ViRGE blits. Other blits, palettes, overlays, and Direct3D remain
+with the HEL. See docs/decisions/2026-08-11-directdraw-hal.md and
+docs/decisions/2026-08-11-virge-engine-foundation.md.
 
 ## Previous DirectDraw boundary
 

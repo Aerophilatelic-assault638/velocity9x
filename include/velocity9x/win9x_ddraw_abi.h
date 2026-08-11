@@ -44,7 +44,9 @@ typedef void (FAR PASCAL *V9X_DD_CODE_PTR)();
 #define V9X_DDERR_WASSTILLDRAWING    0x8876021cul
 
 /* Caps and flag bits used by this driver (DDK values). */
-#define V9X_DDCAPS_GDI               0x00000200ul
+#define V9X_DDCAPS_BLT               0x00000040ul
+#define V9X_DDCAPS_GDI               0x00000400ul
+#define V9X_DDCAPS_BLTCOLORFILL      0x04000000ul
 #define V9X_DDSCAPS_OFFSCREENPLAIN   0x00000040ul
 #define V9X_DDSCAPS_PRIMARYSURFACE   0x00000200ul
 #define V9X_DDSCAPS_FLIP             0x00000010ul
@@ -60,6 +62,8 @@ typedef void (FAR PASCAL *V9X_DD_CODE_PTR)();
 #define V9X_DDHAL_SURFCB32_FLIP          0x00000002ul
 #define V9X_DDHAL_SURFCB32_LOCK          0x00000008ul
 #define V9X_DDHAL_SURFCB32_UNLOCK        0x00000010ul
+#define V9X_DDHAL_SURFCB32_BLT           0x00000020ul
+#define V9X_DDHAL_SURFCB32_GETBLTSTATUS  0x00000100ul
 #define V9X_DDHAL_SURFCB32_GETFLIPSTATUS 0x00000200ul
 
 #define V9X_DDFLIP_NOVSYNC           0x00000008ul
@@ -69,6 +73,15 @@ typedef void (FAR PASCAL *V9X_DD_CODE_PTR)();
 #define V9X_DDWAITVB_BLOCKEND        0x00000004ul
 #define V9X_DDGFS_CANFLIP            0x00000001ul
 #define V9X_DDGFS_ISFLIPDONE         0x00000002ul
+#define V9X_DDGBS_CANBLT             0x00000001ul
+#define V9X_DDGBS_ISBLTDONE          0x00000002ul
+
+#define V9X_DDBLT_ASYNC              0x00000200ul
+#define V9X_DDBLT_COLORFILL          0x00000400ul
+#define V9X_DDBLT_WAIT               0x01000000ul
+#define V9X_DDBLT_DONOTWAIT          0x08000000ul
+#define V9X_DDLOCK_WAIT              0x00000001ul
+#define V9X_DDLOCK_DONOTWAIT         0x00004000ul
 
 #pragma pack(push, 1)
 
@@ -114,6 +127,39 @@ typedef struct v9x_ddpixelformat {
     DWORD dwBBitMask;
     DWORD dwRGBAlphaBitMask;
 } V9X_DDPIXELFORMAT;
+
+typedef struct v9x_ddcolorkey {
+    DWORD dwColorSpaceLowValue;
+    DWORD dwColorSpaceHighValue;
+} V9X_DDCOLORKEY;
+
+/* DDBLTFX (100 bytes). Pointer-valued union members are all DWORD-sized on
+ * both sides of the Win9x DirectDraw boundary. */
+typedef struct v9x_ddbltfx {
+    DWORD dwSize;
+    DWORD dwDDFX;
+    DWORD dwROP;
+    DWORD dwDDROP;
+    DWORD dwRotationAngle;
+    DWORD dwZBufferOpCode;
+    DWORD dwZBufferLow;
+    DWORD dwZBufferHigh;
+    DWORD dwZBufferBaseDest;
+    DWORD dwZDestConstBitDepth;
+    DWORD dwZDestConst;
+    DWORD dwZSrcConstBitDepth;
+    DWORD dwZSrcConst;
+    DWORD dwAlphaEdgeBlendBitDepth;
+    DWORD dwAlphaEdgeBlend;
+    DWORD dwReserved;
+    DWORD dwAlphaDestConstBitDepth;
+    DWORD dwAlphaDestConst;
+    DWORD dwAlphaSrcConstBitDepth;
+    DWORD dwAlphaSrcConst;
+    DWORD dwFillColor;
+    V9X_DDCOLORKEY ddckDestColorkey;
+    V9X_DDCOLORKEY ddckSrcColorkey;
+} V9X_DDBLTFX;
 
 /* VIDMEM heap descriptor (24 bytes). ddsCaps fields are restriction
  * masks: what the heap can NOT be used for. */
@@ -350,6 +396,27 @@ typedef struct v9x_ddhal_unlockdata {
     DWORD Unlock;
 } V9X_DDHAL_UNLOCKDATA;
 
+typedef struct v9x_ddhal_bltdata {
+    DWORD lpDD;
+    V9X_DD_SURFACE_LCL *lpDDDestSurface;
+    LONG rDest[4];
+    V9X_DD_SURFACE_LCL *lpDDSrcSurface;
+    LONG rSrc[4];
+    DWORD dwFlags;
+    DWORD dwROPFlags;
+    V9X_DDBLTFX bltFX;
+    DWORD ddRVal;
+    DWORD Blt;
+} V9X_DDHAL_BLTDATA;
+
+typedef struct v9x_ddhal_getbltstatusdata {
+    DWORD lpDD;
+    V9X_DD_SURFACE_LCL *lpDDSurface;
+    DWORD dwFlags;
+    DWORD ddRVal;
+    DWORD GetBltStatus;
+} V9X_DDHAL_GETBLTSTATUSDATA;
+
 typedef struct v9x_ddhal_waitforverticalblankdata {
     DWORD lpDD;
     DWORD dwFlags;
@@ -376,7 +443,7 @@ typedef struct v9x_ddhal_destroydriverdata {
  * V9XHAL.DLL's DriverInit. The 32-bit side owns all content except the
  * framebuffer descriptor, which the 16-bit side refreshes on every enable.
  */
-#define V9X_DD_SHARED_ABI     20260811ul
+#define V9X_DD_SHARED_ABI   2026081101ul
 #define V9X_DD_MODE_COUNT            6u
 
 /* fb.flags */
@@ -394,6 +461,21 @@ typedef struct v9x_dd_framebuffer {
     DWORD flags;            /* V9X_DD_FB_*                              */
 } V9X_DD_FRAMEBUFFER;
 
+/* The active S3 mapping spans the full 64-MiB linear aperture. Only the
+ * first vram_bytes are allocatable VRAM; the register window is addressed
+ * through control_linear_base and must never be exposed as a heap. */
+#define V9X_DD_ENGINE_VALID          0x00000001ul
+#define V9X_DD_ENGINE_S3_VIRGE_DX    0x00000002ul
+
+typedef struct v9x_dd_engine {
+    DWORD control_linear_base;
+    DWORD mapped_aperture_bytes;
+    DWORD flags;
+    DWORD fifo_timeouts;
+    DWORD idle_timeouts;
+    DWORD reset_count;
+} V9X_DD_ENGINE;
+
 typedef struct v9x_dd_cb32 {
     DWORD Flip;             /* flat function pointers filled by the DLL */
     DWORD GetFlipStatus;
@@ -408,6 +490,7 @@ typedef struct v9x_dd_shared {
     DWORD abi;              /* V9X_DD_SHARED_ABI                        */
     DWORD driver_init_done; /* set by DriverInit after content build    */
     V9X_DD_FRAMEBUFFER fb;
+    V9X_DD_ENGINE engine;
     V9X_DD_CB32 cb32;
     DWORD hInstance;        /* 32-bit DLL module handle                 */
     V9X_DDHALINFO info;
@@ -424,6 +507,7 @@ typedef struct v9x_dd_shared {
 typedef char v9x_dd_assert_pixelformat[
     sizeof(V9X_DDPIXELFORMAT) == 32 ? 1 : -1];
 typedef char v9x_dd_assert_vidmem[sizeof(V9X_VIDMEM) == 24 ? 1 : -1];
+typedef char v9x_dd_assert_bltfx[sizeof(V9X_DDBLTFX) == 100 ? 1 : -1];
 typedef char v9x_dd_assert_vidmeminfo[sizeof(V9X_VIDMEMINFO) == 80 ? 1 : -1];
 typedef char v9x_dd_assert_modeinfo[
     sizeof(V9X_DDHALMODEINFO) == 36 ? 1 : -1];
@@ -434,5 +518,11 @@ typedef char v9x_dd_assert_halinfo[
 typedef char v9x_dd_assert_dcicmd[sizeof(V9X_DCICMD) == 20 ? 1 : -1];
 typedef char v9x_dd_assert_dd32data[
     sizeof(V9X_DD32BITDRIVERDATA) == 328 ? 1 : -1];
+#ifdef __386__
+typedef char v9x_dd_assert_bltdata[
+    sizeof(V9X_DDHAL_BLTDATA) == 160 ? 1 : -1];
+#endif
+typedef char v9x_dd_assert_shared_fits_dpmi_block[
+    sizeof(V9X_DD_SHARED) <= 2048 ? 1 : -1];
 
 #endif /* VELOCITY9X_WIN9X_DDRAW_ABI_H */

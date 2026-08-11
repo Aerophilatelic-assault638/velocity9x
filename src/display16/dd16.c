@@ -95,6 +95,14 @@ static void v9x_dd_refresh_framebuffer(void)
     shared->fb.bits_per_pixel = bpp;
     shared->fb.visible_bytes = (DWORD)pitch * (DWORD)height;
     shared->fb.flags |= V9X_DD_FB_VALID;
+
+    /* V9xHardwareEnable maps the complete 64-MiB ViRGE linear aperture.
+     * VRAM allocation remains bounded to fb.vram_bytes; the flat HAL uses
+     * the wider mapping solely for the documented MMIO register window. */
+    shared->engine.control_linear_base = shared->fb.linear_base;
+    shared->engine.mapped_aperture_bytes = 0x04000000ul;
+    shared->engine.flags = V9X_DD_ENGINE_VALID |
+                           V9X_DD_ENGINE_S3_VIRGE_DX;
 }
 
 /*
@@ -189,6 +197,7 @@ void FAR PASCAL V9xDdInvalidate(void)
 {
     if (v9x_dd_shared != 0) {
         v9x_dd_shared->fb.flags &= ~V9X_DD_FB_VALID;
+        v9x_dd_shared->engine.flags &= ~V9X_DD_ENGINE_VALID;
     }
 }
 

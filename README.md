@@ -32,9 +32,10 @@ The active candidate uses firmware mode entry and DPMI framebuffer mapping.
 Same-depth resolution changes apply live through the ReEnable path;
 colour-depth changes take effect after a reboot (Windows 9x never changes
 depth dynamically). A DirectDraw HAL (V9XHAL.DLL, flat 32-bit) provides
-video-memory surfaces, CRTC display-start page flipping, and real
-vertical-blank services; blits, palettes, and Direct3D remain with the
-DirectDraw HEL. No GDI acceleration capability is advertised.
+video-memory surfaces, CRTC display-start page flipping, real vertical-blank
+services, and bounded ViRGE solid-colour blits. Other blits, palettes, and
+Direct3D remain with the DirectDraw HEL. No GDI acceleration capability is
+advertised.
 
 ## Host build
 
