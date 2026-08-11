@@ -18,8 +18,8 @@ $outputDir = Join-Path $repoRoot $(if ($MatroxMillennium2) {
     "build\win16-ddi"
 })
 
-if ($MatroxMillennium2 -and $ForceModeIndex -gt 0) {
-    throw "The guarded Millennium II build supports only mode index 0 (640x480x8)."
+if ($MatroxMillennium2 -and $ForceModeIndex -gt 0 -and $MatroxBitsPerPixel -ne 16) {
+    throw "The guarded Millennium II 8-bpp build supports only mode index 0."
 }
 
 . (Join-Path $PSScriptRoot "common.ps1")
@@ -266,16 +266,13 @@ foreach ($instruction in $commonRuntimeInstructions) {
     }
 }
 if ($MatroxMillennium2) {
-    $matroxPitchInstruction = if ($MatroxBitsPerPixel -eq 16) {
-        'cmp\s+bx,500H'
-    } else {
-        'cmp\s+bx,280H'
-    }
     foreach ($instruction in @(
         'or\s+bx,4000H', 'mov\s+cx,51BH', 'mov\s+dx,102BH',
         'mov\s+ax,0B10AH', 'mov\s+di,10H',
         'and\s+eax,0FFFFFFF0H', 'test\s+eax,0FFFFFFH',
-        'mov\s+ax,4F06H', 'mov\s+cx,280H', $matroxPitchInstruction
+        'mov\s+ax,4F06H',
+        'mov\s+cx,word ptr DGROUP:_v9x_active_width',
+        'cmp\s+bx,word ptr DGROUP:_v9x_active_pitch'
     )) {
         if ($runtimeDisassembly -notmatch $instruction) {
             throw "The Millennium II runtime is missing audited instruction $instruction."
@@ -322,7 +319,7 @@ if ($thunkDisassembly -notmatch
 }
 
 $modeDescription = if ($MatroxMillennium2) {
-    "guarded Millennium II 640x480x$MatroxBitsPerPixel"
+    "guarded Millennium II $(if ($MatroxBitsPerPixel -eq 16) {'640/800/1024x16'} else {'640x480x8'})"
 } else {
     "Phase 3 640/800/1024 x 8/16-bpp"
 }

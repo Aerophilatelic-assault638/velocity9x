@@ -4,6 +4,8 @@ param(
     [string]$DdkRoot = "C:\98DDK",
     [ValidateSet(8, 16)]
     [int]$BitsPerPixel = 8,
+    [ValidateRange(0, 2)]
+    [int]$ModeIndex = 0,
     [switch]$PreserveStockMiniVdd
 )
 
@@ -19,8 +21,18 @@ if ($BuildId -notmatch '^[A-Za-z0-9._+-]+$') {
     throw "BuildId may contain only letters, digits, dot, underscore, plus, and hyphen."
 }
 
+if ($BitsPerPixel -eq 8 -and $ModeIndex -ne 0) {
+    throw "The Millennium II 8-bpp package supports only mode index 0."
+}
+$matroxModes = @(
+    @{ Width = 640; Height = 480; Pitch = 1280; Vbe = '0111h' },
+    @{ Width = 800; Height = 600; Pitch = 1600; Vbe = '0114h' },
+    @{ Width = 1024; Height = 768; Pitch = 2048; Vbe = '0117h' }
+)
+$selectedMode = $matroxModes[$ModeIndex]
+
 & (Join-Path $PSScriptRoot "build-win16-ddi-skeleton.ps1") `
-    -BuildId $BuildId -DdkRoot $DdkRoot -ForceModeIndex 0 -BootTrace `
+    -BuildId $BuildId -DdkRoot $DdkRoot -ForceModeIndex $ModeIndex -BootTrace `
     -MatroxMillennium2 -MatroxBitsPerPixel $BitsPerPixel
 if (-not $PreserveStockMiniVdd) {
     & (Join-Path $PSScriptRoot "build-minivdd-skeleton.ps1") `
@@ -62,7 +74,11 @@ $manifest = @(
     "Velocity9x guarded Matrox Millennium II candidate",
     "Build: $BuildId",
     "Target: PCI 102B:051B only (MGA-2164W)",
-    "Mode: forced 640x480x$BitsPerPixel, VBE $(if ($BitsPerPixel -eq 16) {'0111h'} else {'0101h'}), $(640 * ($BitsPerPixel / 8))-byte pitch",
+    $(if ($BitsPerPixel -eq 16) {
+        "Mode: forced $($selectedMode.Width)x$($selectedMode.Height)x16, VBE $($selectedMode.Vbe), $($selectedMode.Pitch)-byte pitch"
+    } else {
+        "Mode: forced 640x480x8, VBE 0101h, 640-byte pitch"
+    }),
     "Framebuffer: PCI BAR0 / MGABASE2, 4 MiB DPMI mapping",
     "Hardware writes: VBE 4F02h/4F06h only; OPMODE endian swapping remains little-endian",
     "DIB Engine: explicit screen PDevice geometry, pitch, selector and zero surface offset",

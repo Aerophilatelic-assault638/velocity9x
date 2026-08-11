@@ -116,10 +116,9 @@ rejected. The still-armed guard restored the byte-identical stock pair on boot
 counter 20, removed both armed markers and returned the machine to a clean
 1024x768x24 desktop. See
 `docs/decisions/2026-08-11-millennium2-86box-candidate8.md` for guest evidence
-and `docs/decisions/2026-08-11-millennium2-physical-candidate8.md` for the
-physical result and recovery hashes.
+and the physical failure summary above.
 
-Candidate 9 isolates the mini-VDD boundary. Its package installs only the
+The accepted stock-mini-VDD boundary installs only the
 Velocity9x display DRV and uses `KEEPVXD.TAG` to make the guard stage the
 target's validated stock `MGAPDX64.VXD`. The mixed pair passed first in 86Box,
 then reached clean 640x480x16 physical desktops and generic GDI `PASS` results
@@ -127,6 +126,14 @@ at boot counters 21 and 22. The installed 9,726-byte candidate DRV and
 75,704-byte stock VXD matched their staged SHA-256 hashes, and the guard was
 disarmed after the confirmation pass. This proves the prior physical
 surface-write corruption was introduced by replacing the board-specific
-Matrox mini-VDD, not by the Candidate 8 DIB Engine screen contract alone. See
-`docs/decisions/2026-08-11-millennium2-physical-candidate9.md` for the accepted
-result and evidence.
+Matrox mini-VDD, not by the DIB Engine screen contract alone.
+
+## Ready package
+
+Build `mga2-ready-1024x768x16` expands the accepted DRV to 640x480x16,
+800x600x16 and 1024x768x16. The ready package is forced to 1024x768x16 with a
+2,048-byte pitch and preserves the stock Matrox mini-VDD. It passed the
+inactive probe, boot and generic GDI test in 86Box, then reached a clean
+1024x768x16 physical desktop and `Result=PASS` at boot counter 24. The guard
+was disarmed after success. The reproducible package is
+`build/matrox-candidate`.

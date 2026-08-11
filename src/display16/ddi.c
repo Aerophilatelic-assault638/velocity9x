@@ -72,7 +72,9 @@ typedef struct v9x_display_mode {
 static const V9X_DISPLAY_MODE v9x_modes[] = {
 #ifdef V9X_TARGET_MATROX_MILLENNIUM2
 #ifdef V9X_MATROX_16BPP
-    {  640u, 480u, 16u, 1280u, 0x0111u, 254, 127 }
+    {  640u, 480u, 16u, 1280u, 0x0111u, 254, 127 },
+    {  800u, 600u, 16u, 1600u, 0x0114u, 318, 159 },
+    { 1024u, 768u, 16u, 2048u, 0x0117u, 407, 203 }
 #else
     /* The physical Millennium II reports a packed 640-byte pitch for 101h. */
     {  640u, 480u,  8u,  640u, 0x0101u, 254, 127 }
@@ -91,6 +93,13 @@ static const V9X_DISPLAY_MODE v9x_modes[] = {
 V9X_DIB_ENGINE FAR *v9x_driver_pdevice;
 WORD v9x_active_vbe_mode = 0x0101u;
 DWORD v9x_active_visible_bytes = 307200ul;
+#ifdef V9X_MATROX_16BPP
+WORD v9x_active_width = 640u;
+WORD v9x_active_pitch = 1280u;
+#else
+WORD v9x_active_width = 640u;
+WORD v9x_active_pitch = 640u;
+#endif
 WORD v9x_palettized = 1u;
 static RGBQUAD FAR *v9x_color_table;
 static const V9X_DISPLAY_MODE *v9x_selected_mode = &v9x_modes[0];
@@ -331,6 +340,8 @@ static void v9x_apply_mode(const V9X_DISPLAY_MODE *mode)
     v9x_active_vbe_mode = mode->vbe_mode;
     v9x_active_visible_bytes =
         (DWORD)mode->pitch * (DWORD)mode->height;
+    v9x_active_width = mode->width;
+    v9x_active_pitch = mode->pitch;
     v9x_palettized = mode->bits_per_pixel == 8u ? 1u : 0u;
 }
 

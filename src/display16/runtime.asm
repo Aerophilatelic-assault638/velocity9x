@@ -12,6 +12,8 @@
 .data
 EXTRN _v9x_active_vbe_mode:WORD
 EXTRN _v9x_active_visible_bytes:DWORD
+EXTRN _v9x_active_width:WORD
+EXTRN _v9x_active_pitch:WORD
 V9xScreenSelector dw 0
 V9xLinearAddress  dd 0
 V9xPhysicalBase   dd 0
@@ -444,19 +446,15 @@ V9xSetVbeMode ENDP
 IFDEF V9X_TARGET_MATROX_MILLENNIUM2
 V9xSetMatroxScanLinePitch PROC NEAR
     ; VBE 4F06h subfunction 00h sets the logical scan-line length in pixels.
-    ; The first candidate has exactly one mode, whose proven packed pitch is
-    ; 640 bytes. Reject a BIOS that silently selects a different stride.
+    ; Force the packed pitch selected by the audited mode table. Reject a BIOS
+    ; that silently selects a different stride.
     mov     ax, 4f06h
     xor     bx, bx
-    mov     cx, 0280h
+    mov     cx, _v9x_active_width
     int     10h
     cmp     ax, 004fh
     jne     short V9xSetMatroxScanLinePitchFailed
-IFDEF V9X_MATROX_16BPP
-    cmp     bx, 0500h
-ELSE
-    cmp     bx, 0280h
-ENDIF
+    cmp     bx, _v9x_active_pitch
     jne     short V9xSetMatroxScanLinePitchFailed
     mov     ax, 1
     ret
