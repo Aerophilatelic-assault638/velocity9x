@@ -137,3 +137,32 @@ inactive probe, boot and generic GDI test in 86Box, then reached a clean
 1024x768x16 physical desktop and `Result=PASS` at boot counter 24. The guard
 was disarmed after success. The reproducible package is
 `build/matrox-candidate`.
+
+## S3 feature-parity snapshot
+
+As of 2026-08-11, the ready Millennium II package is a stable software-GDI
+display driver, but it does not yet match the complete Velocity9x S3 feature
+set.
+
+| Feature | Millennium II | S3 |
+|---|---|---|
+| Windows 98 boot and stable desktop | Yes | Yes |
+| Software GDI drawing | Yes | Yes |
+| Advertised resolutions | 640x480, 800x600 and 1024x768 at 16 bpp | 640x480, 800x600 and 1024x768 at 8 and 16 bpp |
+| Live same-depth resolution switching | No; the ready package is fixed at 1024x768x16 | Yes |
+| DirectDraw HAL, VRAM surfaces, page flipping and vertical-blank status | No | Yes |
+| Velocity9x mini-VDD | No; the accepted package preserves stock `MGAPDX64.VXD` | Yes |
+| Hardware 2D acceleration | No | No |
+
+The remaining parity work should be approached in this order:
+
+1. Add reliable live switching between the three existing 16-bpp modes.
+2. Implement the Matrox-specific DirectDraw surface, flip and vertical-blank
+   paths.
+3. Add and qualify 8-bpp modes and palette handling if they remain a project
+   requirement.
+4. Replace the stock Matrox mini-VDD only as a separate, guarded hardware
+   bring-up effort; it is not required for the first three items.
+
+Until those items are complete, describe the Millennium II target as
+"ready software-GDI support," not as S3 feature parity.
