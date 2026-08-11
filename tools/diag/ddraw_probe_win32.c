@@ -35,6 +35,7 @@
 #define V9X_DDFLIP_WAIT             0x00000001ul
 #define V9X_DDBLT_COLORFILL          0x00000400ul
 #define V9X_DDBLT_WAIT               0x01000000ul
+#define V9X_DDGBS_CANBLT              0x00000001ul
 #define V9X_DDGBS_ISBLTDONE          0x00000002ul
 #define V9X_DDWAITVB_BLOCKBEGIN     0x00000001ul
 #define V9X_DDLOCK_WAIT             0x00000001ul
@@ -532,10 +533,30 @@ void __stdcall V9xDdrawProbeEntry(void)
 
     if (backbuffer != 0) {
         HRESULT fill_done;
+        HRESULT fill_can;
 
         started = 0ul;
-        hr = v9x_hardware_fill(backbuffer, 0x000007e0ul, &started,
-                               &fill_done);
+        fill_can = backbuffer->vtbl->GetBltStatus(backbuffer,
+                                                  V9X_DDGBS_CANBLT);
+        v9x_write_hresult("BltCanHr", fill_can);
+        if (v9x_has_switch("/status-only")) {
+            backbuffer->vtbl->Release(backbuffer);
+            primary->vtbl->Release(primary);
+            ddraw->vtbl->RestoreDisplayMode(ddraw);
+            ddraw->vtbl->SetCooperativeLevel(ddraw, window,
+                                              V9X_DDSCL_NORMAL);
+            ddraw->vtbl->Release(ddraw);
+            DestroyWindow(window);
+            v9x_write_text("Result", "STATUS-ONLY");
+            ExitProcess(fill_can == 0 ? 0u : 2u);
+        }
+        if (fill_can == 0) {
+            hr = v9x_hardware_fill(backbuffer, 0x000007e0ul, &started,
+                                   &fill_done);
+        } else {
+            hr = fill_can;
+            fill_done = fill_can;
+        }
         v9x_write_hresult("BltFillHr", hr);
         v9x_write_hresult("BltFillDoneHr", fill_done);
         v9x_write_uint("BltFillMs", started);

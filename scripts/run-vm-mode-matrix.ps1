@@ -38,9 +38,9 @@ foreach ($file in @("V9XDISP.DRV", "V9XMINI.VXD", "V9XGDI.EXE",
     }
 }
 
-$powershell = Join-Path $PSHOME "powershell.exe"
 $results = [IO.Path]::GetFullPath($ResultsDirectory)
 New-Item -ItemType Directory -Force -Path $results | Out-Null
+$powershell = Join-Path $PSHOME "powershell.exe"
 
 function Invoke-V9xCtlJson {
     param([string]$Operation, [string[]]$OperationArguments = @())
@@ -73,7 +73,7 @@ function Invoke-V9xCtlJson {
 
 function Invoke-GuestShell {
     param([string]$Command)
-    Invoke-V9xCtlJson shell @("-Command", $Command)
+    Invoke-V9xCtlJson shell @("-ShellCommand", $Command.Replace('"', '\"'))
 }
 
 function New-ModeRegistryFile {

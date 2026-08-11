@@ -586,6 +586,31 @@ V9xEnableS3LinearAperture PROC NEAR
     and     al, 13h
     cmp     al, 13h
     jne     short V9xEnableS3LinearApertureFailed
+
+    ; Enable the S3 graphics engine and the ViRGE "new MMIO" window. Without
+    ; CR40[0] and CR53[3], offsets such as 8504h/A500h address framebuffer
+    ; memory rather than engine registers.
+    dec     dx
+    mov     al, 40h
+    out     dx, al
+    inc     dx
+    in      al, dx
+    or      al, 01h
+    out     dx, al
+    in      al, dx
+    test    al, 01h
+    jz      short V9xEnableS3LinearApertureFailed
+
+    dec     dx
+    mov     al, 53h
+    out     dx, al
+    inc     dx
+    in      al, dx
+    or      al, 08h
+    out     dx, al
+    in      al, dx
+    test    al, 08h
+    jz      short V9xEnableS3LinearApertureFailed
     mov     ax, 1
     ret
 V9xEnableS3LinearApertureFailed:
@@ -677,7 +702,9 @@ V9xHardwareSelectorAllocated:
     mov     ebx, eax
     shr     ebx, 16
     mov     cx, ax
-    mov     si, 003fh
+    ; Map the complete 64-MiB PCI BAR. The first 4 MiB is allocatable VRAM;
+    ; the ViRGE new-MMIO window is at BAR + 16 MiB.
+    mov     si, 03ffh
     mov     di, 0ffffh
     mov     ax, 0800h
     int     31h
@@ -695,7 +722,7 @@ V9xHardwareSelectorAllocated:
     mov     V9xHardwareStageCode, 7
 
     mov     bx, V9xScreenSelector
-    mov     cx, 003fh
+    mov     cx, 03ffh
     mov     dx, 0ffffh
     mov     ax, 0008h
     int     31h

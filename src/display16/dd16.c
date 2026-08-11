@@ -31,6 +31,12 @@ typedef WORD (FAR PASCAL *V9X_SETINFO_FN)(V9X_DDHALINFO FAR *info,
 static V9X_DD_SHARED FAR *v9x_dd_shared;
 static V9X_SETINFO_FN v9x_dd_set_info;
 
+static void v9x_dd_trace(const char FAR *stage)
+{
+    WritePrivateProfileString("Velocity9xDDraw", "Stage", stage,
+                              "C:\\V9XDDH.INI");
+}
+
 /* Provided by ddi.c: the live PDEVICE far pointer and the active mode. */
 extern V9X_DD_VOID_PTR v9x_dd_active_pdevice(void);
 extern WORD v9x_dd_active_mode(WORD FAR *width, WORD FAR *height,
@@ -58,6 +64,7 @@ static V9X_DD_SHARED FAR *v9x_dd_block(void)
     }
     v9x_dd_shared->dwSize = sizeof(V9X_DD_SHARED);
     v9x_dd_shared->abi = V9X_DD_SHARED_ABI;
+    v9x_dd_trace("shared-ready");
     return v9x_dd_shared;
 }
 
@@ -97,10 +104,11 @@ static void v9x_dd_refresh_framebuffer(void)
     shared->fb.flags |= V9X_DD_FB_VALID;
 
     /* V9xHardwareEnable maps the complete 64-MiB ViRGE linear aperture.
-     * VRAM allocation remains bounded to fb.vram_bytes; the flat HAL uses
-     * the wider mapping solely for the documented MMIO register window. */
-    shared->engine.control_linear_base = shared->fb.linear_base;
-    shared->engine.mapped_aperture_bytes = 0x04000000ul;
+     * New-MMIO is a 64-KiB window at BAR + 16 MiB; register offsets such as
+     * SUBSYS_STAT (0x8504) are relative to that window, not to VRAM. */
+    shared->engine.control_linear_base =
+        shared->fb.linear_base + 0x01000000ul;
+    shared->engine.mapped_aperture_bytes = 0x00010000ul;
     shared->engine.flags = V9X_DD_ENGINE_VALID |
                            V9X_DD_ENGINE_S3_VIRGE_DX;
 }
@@ -175,6 +183,7 @@ WORD FAR PASCAL V9xDdCreateDriverObject(WORD reset)
     WORD result;
 
     if (v9x_dd_set_info == 0) {
+        v9x_dd_trace("setinfo-callback-missing");
         return 0u;
     }
     if (v9x_dd_block() == 0) {
@@ -185,11 +194,13 @@ WORD FAR PASCAL V9xDdCreateDriverObject(WORD reset)
     if (v9x_dd_shared->driver_init_done == 0ul) {
         /* DriverInit has not filled the content yet; DDRAW retries via
          * the DDCREATEDRIVEROBJECT escape after loading V9XHAL.DLL. */
+        v9x_dd_trace("driverinit-pending");
         return 0u;
     }
     result = v9x_dd_set_info(&v9x_dd_shared->info, reset);
     v9x_serial_write(result != 0u ? "V9X-DD setinfo-ok\r\n"
                                   : "V9X-DD setinfo-fail\r\n");
+    v9x_dd_trace(result != 0u ? "setinfo-ok" : "setinfo-fail");
     return result;
 }
 
@@ -234,6 +245,7 @@ static LONG v9x_dd_command(V9X_DCICMD FAR *command, LPVOID output)
             data->dwContext = V9xDdSharedLinear();
         }
         v9x_serial_write("V9X-DD get32bitname\r\n");
+        v9x_dd_trace("get32bitname");
         return 1;
     case V9X_DDNEWCALLBACKFNS:
         {
@@ -246,6 +258,7 @@ static LONG v9x_dd_command(V9X_DCICMD FAR *command, LPVOID output)
             v9x_dd_set_info = (V9X_SETINFO_FN)fns->lpSetInfo;
         }
         v9x_serial_write("V9X-DD newcallbackfns\r\n");
+        v9x_dd_trace("newcallbackfns");
         return 1;
     case V9X_DDVERSIONINFO:
         if (output != 0) {

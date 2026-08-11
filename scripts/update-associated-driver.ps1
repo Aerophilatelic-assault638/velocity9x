@@ -30,7 +30,7 @@ foreach ($path in @($ControllerPath, $package)) {
     }
 }
 foreach ($file in @("V9XDISP.DRV", "V9XMINI.VXD", "V9X16LD.EXE",
-                     "V9XSETP.DLL")) {
+                     "V9XHAL.DLL", "V9XSETP.DLL")) {
     if (-not (Test-Path -LiteralPath (Join-Path $package $file))) {
         throw "Driver package is missing $file."
     }
@@ -38,7 +38,6 @@ foreach ($file in @("V9XDISP.DRV", "V9XMINI.VXD", "V9X16LD.EXE",
 New-Item -ItemType Directory -Force -Path $results | Out-Null
 $guestJob = "C:\V9XREMOTE\JOBS\$JobId"
 $powershell = Join-Path $PSHOME "powershell.exe"
-
 function Invoke-V9xCtlJson {
     param([string]$Operation, [string[]]$OperationArguments = @())
     $arguments = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
@@ -66,7 +65,10 @@ function Invoke-V9xCtlJson {
 
 function Invoke-GuestShell {
     param([string]$Command)
-    Invoke-V9xCtlJson shell @("-Command", $Command)
+    # Use the controller's canonical parameter name.
+    # Backslash-escape embedded quotes so the nested Windows PowerShell
+    # process preserves a quoted guest argument containing spaces.
+    Invoke-V9xCtlJson shell @("-ShellCommand", $Command.Replace('"', '\"'))
 }
 
 $initialInfo = Invoke-V9xCtlJson info
@@ -130,10 +132,13 @@ $null = Invoke-GuestShell (
 $null = Invoke-GuestShell (
     "COPY /Y $guestJob\V9XMINI.VXD C:\V9XNVXD.BIN")
 $null = Invoke-GuestShell (
+    "COPY /Y $guestJob\V9XHAL.DLL C:\V9XNHAL.BIN")
+$null = Invoke-GuestShell (
     "COPY /Y $guestJob\V9XSETP.DLL C:\V9XNSET.BIN")
 foreach ($pair in @(
     @("C:\V9XNDRV.BIN", "$guestJob\V9XDISP.DRV"),
     @("C:\V9XNVXD.BIN", "$guestJob\V9XMINI.VXD"),
+    @("C:\V9XNHAL.BIN", "$guestJob\V9XHAL.DLL"),
     @("C:\V9XNSET.BIN", "$guestJob\V9XSETP.DLL"))) {
     $compare = Invoke-GuestShell "FC /B $($pair[0]) $($pair[1])"
     if ($compare.Stdout -notmatch "no differences encountered") {
@@ -148,6 +153,8 @@ $wininit = @(
     "C:\WINDOWS\SYSTEM\V9XDISP.DRV=C:\V9XNDRV.BIN",
     "NUL=C:\WINDOWS\SYSTEM\V9XMINI.VXD",
     "C:\WINDOWS\SYSTEM\V9XMINI.VXD=C:\V9XNVXD.BIN",
+    "NUL=C:\WINDOWS\SYSTEM\V9XHAL.DLL",
+    "C:\WINDOWS\SYSTEM\V9XHAL.DLL=C:\V9XNHAL.BIN",
     "NUL=C:\WINDOWS\SYSTEM\V9XSETP.DLL",
     "C:\WINDOWS\SYSTEM\V9XSETP.DLL=C:\V9XNSET.BIN")
 [IO.File]::WriteAllLines($wininitPath, $wininit, [Text.Encoding]::ASCII)
@@ -186,7 +193,8 @@ if (-not $NoReboot) {
         "-JobId", $JobId, "-WaitSeconds", [string]$BootTimeoutSeconds)
     $desktop = Invoke-V9xCtlJson wait-desktop @(
         "-WaitSeconds", [string]$BootTimeoutSeconds)
-    foreach ($driverFile in @("V9XDISP.DRV", "V9XMINI.VXD", "V9XSETP.DLL")) {
+    foreach ($driverFile in @("V9XDISP.DRV", "V9XMINI.VXD", "V9XHAL.DLL",
+                              "V9XSETP.DLL")) {
         $compare = Invoke-GuestShell (
             "FC /B C:\WINDOWS\SYSTEM\$driverFile $guestJob\$driverFile")
         if ($compare.Stdout -notmatch "no differences encountered") {

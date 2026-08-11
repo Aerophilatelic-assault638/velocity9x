@@ -466,6 +466,7 @@ typedef struct v9x_dd_framebuffer {
  * through control_linear_base and must never be exposed as a heap. */
 #define V9X_DD_ENGINE_VALID          0x00000001ul
 #define V9X_DD_ENGINE_S3_VIRGE_DX    0x00000002ul
+#define V9X_DD_ENGINE_STATUS_VALIDATED 0x00000004ul
 
 typedef struct v9x_dd_engine {
     DWORD control_linear_base;

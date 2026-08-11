@@ -100,6 +100,13 @@ static int v9x_engine_ready(void)
                V9X_VIRGE_RECT_DEST_XY + sizeof(DWORD);
 }
 
+static int v9x_engine_status_validated(void)
+{
+    return v9x_engine_ready() &&
+           (v9x_hal->engine.flags &
+            V9X_DD_ENGINE_STATUS_VALIDATED) != 0ul;
+}
+
 static DWORD v9x_mmio_read(DWORD offset)
 {
     volatile DWORD *reg = (volatile DWORD *)
@@ -237,7 +244,7 @@ static DWORD v9x_flip_body(V9X_DDHAL_FLIPDATA *data)
         data->ddRVal = V9X_DD_OK;
         return V9X_DDHAL_DRIVER_NOTHANDLED;
     }
-    if (v9x_engine_ready() &&
+    if (v9x_engine_status_validated() &&
         !v9x_wait_idle((data->dwFlags & V9X_DDFLIP_DONOTWAIT) == 0ul)) {
         data->ddRVal = V9X_DDERR_WASSTILLDRAWING;
         return V9X_DDHAL_DRIVER_HANDLED;
@@ -279,7 +286,7 @@ typedef struct v9x_ddhal_fliptogdidata {
 DWORD __stdcall V9xHalFlipToGDISurface(V9X_DDHAL_FLIPTOGDIDATA *data)
 {
     if (data->dwToGDI != 0ul) {
-        if (v9x_engine_ready() && !v9x_wait_idle(1)) {
+        if (v9x_engine_status_validated() && !v9x_wait_idle(1)) {
             data->ddRVal = V9X_DDERR_WASSTILLDRAWING;
             return V9X_DDHAL_DRIVER_HANDLED;
         }
@@ -293,7 +300,7 @@ DWORD __stdcall V9xHalLock(V9X_DDHAL_LOCKDATA *data)
 {
     /* Serialize CPU access after asynchronous engine work. DDRAW still
      * computes and returns the actual surface pointer. */
-    if (v9x_engine_ready() &&
+    if (v9x_engine_status_validated() &&
         !v9x_wait_idle((data->dwFlags & V9X_DDLOCK_DONOTWAIT) == 0ul)) {
         data->ddRVal = V9X_DDERR_WASSTILLDRAWING;
         return V9X_DDHAL_DRIVER_HANDLED;
@@ -357,7 +364,7 @@ DWORD __stdcall V9xHalBlt(V9X_DDHAL_BLTDATA *data)
     DWORD command;
     int wait;
 
-    if (!v9x_engine_ready() || data == 0 ||
+    if (!v9x_engine_status_validated() || data == 0 ||
         (data->dwFlags & V9X_DDBLT_COLORFILL) == 0ul ||
         (data->dwFlags & ~allowed) != 0ul || data->lpDDSrcSurface != 0) {
         if (data != 0) {
@@ -403,14 +410,24 @@ DWORD __stdcall V9xHalBlt(V9X_DDHAL_BLTDATA *data)
 DWORD __stdcall V9xHalGetBltStatus(V9X_DDHAL_GETBLTSTATUSDATA *data)
 {
     int ready;
+    DWORD status;
 
     if (!v9x_engine_ready()) {
         data->ddRVal = V9X_DD_OK;
         return V9X_DDHAL_DRIVER_NOTHANDLED;
     }
     if (data->dwFlags == V9X_DDGBS_CANBLT) {
-        ready = v9x_fifo_free(v9x_engine_status()) >= 8ul;
+        status = v9x_engine_status();
+        ready = v9x_fifo_free(status) >= 8ul &&
+                (status & V9X_VIRGE_STATUS_IDLE) != 0ul;
+        if (ready) {
+            v9x_hal->engine.flags |= V9X_DD_ENGINE_STATUS_VALIDATED;
+        }
     } else if (data->dwFlags == V9X_DDGBS_ISBLTDONE) {
+        if (!v9x_engine_status_validated()) {
+            data->ddRVal = V9X_DD_OK;
+            return V9X_DDHAL_DRIVER_NOTHANDLED;
+        }
         ready = (v9x_engine_status() & V9X_VIRGE_STATUS_IDLE) != 0ul;
     } else {
         data->ddRVal = V9X_DD_OK;
@@ -524,7 +541,7 @@ DWORD __stdcall DriverInit(DWORD context)
     shared->info.vmiData.dwNumHeaps = 1ul;
 
     shared->info.ddCaps.dwSize = sizeof(V9X_DDCORECAPS);
-    shared->info.ddCaps.dwCaps = V9X_DDCAPS_GDI | V9X_DDCAPS_BLT |
+    shared->info.ddCaps.dwCaps = V9X_DDCAPS_GDI |
                                  V9X_DDCAPS_BLTCOLORFILL;
     shared->info.ddCaps.ddsCaps = V9X_DDSCAPS_OFFSCREENPLAIN |
                                   V9X_DDSCAPS_FLIP |
