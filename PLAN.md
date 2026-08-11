@@ -48,6 +48,21 @@ Windows 95 and Windows Me support are compatibility goals after the Win98SE Dire
 - A configuration GUI or control panel; the initial releases expose per-primitive registry switches only.
 - S3 Trio, other ViRGE variants, Matrox, and 3dfx backends.
 
+#### Parked follow-up: monitor sleep
+
+Monitor sleep is deferred while the driver advertises D0 only. Start with a
+1-3 day validation spike that re-enables D3 in a diagnostic build, exercises
+the real Win98 idle timer and keyboard/mouse wake path, and runs at least 20
+sleep/wake cycles across every supported resolution and color depth. Synthetic
+`SC_MONITORPOWER` messages are not an acceptance test because they can bypass
+the power-manager capability path.
+
+If the managed idle path reaches the existing mini-VDD VESA/power callbacks
+and preserves the active framebuffer, promote it after the cycle matrix passes.
+If Win98 bypasses those callbacks or loses mode/framebuffer state, budget a
+larger 1-2 week task to implement and verify transition-state preservation
+before advertising monitor low-power capabilities.
+
 ## 3. Driver architecture
 
 The design should minimize 16-bit code and keep portable logic testable on the host.
