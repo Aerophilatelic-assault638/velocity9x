@@ -26,6 +26,14 @@ build identifier so exact guest-tested binaries remain traceable.
 - The supported framebuffer matrix covers 640x480, 800x600, and 1024x768 at
   8 and 16 bpp.
 
+### Fixed
+
+- Corrected the Windows 98 `DDHAL_FLIPTOGDISURFACEDATA` ABI layout and added
+  an exclusive-mode lifecycle callback that restores CRTC display start when
+  returning from flipped DirectDraw surfaces to the GDI desktop.
+- Prevented unattended GDI validation from reporting false pixel failures
+  when a boot-time utility dialog obscures the sampled client area.
+
 ### Known limitations
 
 - S3D triangle output is native ZRGB1555 while the current 16-bpp Windows mode

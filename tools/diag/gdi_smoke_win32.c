@@ -66,6 +66,7 @@ static void v9x_uint_text(char *text, UINT value)
 static void v9x_write_auto_result(HDC display, int passed)
 {
     char number[12];
+    POINT cursor;
     const char result_path[] = "C:\\V9XGDI.INI";
 
     WritePrivateProfileStringA("Velocity9xGDI", 0, 0, result_path);
@@ -81,6 +82,29 @@ static void v9x_write_auto_result(HDC display, int passed)
                                 GetDeviceCaps(display, PLANES)));
     WritePrivateProfileStringA("Velocity9xGDI", "BitsPerPixel", number,
                                result_path);
+    v9x_uint_text(number, (UINT)GetPixel(display, 28, 72));
+    WritePrivateProfileStringA("Velocity9xGDI", "BlackPixel", number,
+                               result_path);
+    v9x_uint_text(number, (UINT)GetPixel(display, 82, 72));
+    WritePrivateProfileStringA("Velocity9xGDI", "WhitePixel", number,
+                               result_path);
+    v9x_uint_text(number, (UINT)GetPixel(display, 136, 72));
+    WritePrivateProfileStringA("Velocity9xGDI", "RedPixel", number,
+                               result_path);
+    v9x_uint_text(number, (UINT)GetPixel(display, 28, 236));
+    WritePrivateProfileStringA("Velocity9xGDI", "BltPixel", number,
+                               result_path);
+    v9x_uint_text(number, (UINT)GetPixel(display, 330, 250));
+    WritePrivateProfileStringA("Velocity9xGDI", "SetPixel", number,
+                               result_path);
+    if (GetCursorPos(&cursor)) {
+        v9x_uint_text(number, (UINT)cursor.x);
+        WritePrivateProfileStringA("Velocity9xGDI", "CursorX", number,
+                                   result_path);
+        v9x_uint_text(number, (UINT)cursor.y);
+        WritePrivateProfileStringA("Velocity9xGDI", "CursorY", number,
+                                   result_path);
+    }
     WritePrivateProfileStringA(0, 0, 0, result_path);
 }
 
@@ -288,6 +312,14 @@ void WINAPI V9xGdiSmokeEntry(void)
         ExitProcess(2ul);
     }
     ShowWindow(window, SW_SHOWNORMAL);
+    /* Pixel readback is meaningful only while the sampled client area is
+     * visible.  Boot-time utilities such as PowerStrip can leave a modal
+     * dialog over the test window, causing GetPixel to return CLR_INVALID.
+     * Keep only unattended runs above incidental desktop popups. */
+    if (v9x_auto_mode) {
+        SetWindowPos(window, HWND_TOPMOST, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+    }
     UpdateWindow(window);
     while (GetMessageA(&message, 0, 0, 0) > 0) {
         TranslateMessage(&message);

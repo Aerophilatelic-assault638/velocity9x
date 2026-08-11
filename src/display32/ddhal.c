@@ -335,6 +335,7 @@ DWORD __stdcall V9xHalGetFlipStatus(V9X_DDHAL_GETFLIPSTATUSDATA *data)
 typedef struct v9x_ddhal_fliptogdidata {
     DWORD lpDD;
     DWORD dwToGDI;
+    DWORD dwReserved;
     DWORD ddRVal;
     DWORD FlipToGDISurface;
 } V9X_DDHAL_FLIPTOGDIDATA;
@@ -342,6 +343,31 @@ typedef struct v9x_ddhal_fliptogdidata {
 DWORD __stdcall V9xHalFlipToGDISurface(V9X_DDHAL_FLIPTOGDIDATA *data)
 {
     if (data->dwToGDI != 0ul) {
+        if (v9x_engine_status_validated() && !v9x_wait_idle(1)) {
+            data->ddRVal = V9X_DDERR_WASSTILLDRAWING;
+            return V9X_DDHAL_DRIVER_HANDLED;
+        }
+        v9x_set_display_start(0ul);
+    }
+    data->ddRVal = V9X_DD_OK;
+    return V9X_DDHAL_DRIVER_HANDLED;
+}
+
+typedef struct v9x_ddhal_setexclusivemodedata {
+    DWORD lpDD;
+    DWORD dwEnterExcl;
+    DWORD dwReserved;
+    DWORD ddRVal;
+    DWORD SetExclusiveMode;
+} V9X_DDHAL_SETEXCLUSIVEMODEDATA;
+
+DWORD __stdcall V9xHalSetExclusiveMode(
+    V9X_DDHAL_SETEXCLUSIVEMODEDATA *data)
+{
+    if (data == 0) {
+        return V9X_DDHAL_DRIVER_HANDLED;
+    }
+    if (data->dwEnterExcl == 0ul) {
         if (v9x_engine_status_validated() && !v9x_wait_idle(1)) {
             data->ddRVal = V9X_DDERR_WASSTILLDRAWING;
             return V9X_DDHAL_DRIVER_HANDLED;
@@ -1106,9 +1132,12 @@ DWORD __stdcall DriverInit(DWORD context)
 
     shared->dd_callbacks.dwSize = sizeof(V9X_DDHAL_DDCALLBACKS);
     shared->dd_callbacks.dwFlags = V9X_DDHAL_CB32_WAITFORVERTICALBLANK |
+                                   V9X_DDHAL_CB32_SETEXCLUSIVEMODE |
                                    V9X_DDHAL_CB32_FLIPTOGDISURFACE;
     shared->dd_callbacks.WaitForVerticalBlank =
         (V9X_DD_CODE_PTR)V9xHalWaitForVerticalBlank;
+    shared->dd_callbacks.SetExclusiveMode =
+        (V9X_DD_CODE_PTR)V9xHalSetExclusiveMode;
     shared->dd_callbacks.FlipToGDISurface =
         (V9X_DD_CODE_PTR)V9xHalFlipToGDISurface;
 
