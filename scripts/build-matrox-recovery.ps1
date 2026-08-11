@@ -35,7 +35,7 @@ foreach ($required in @("ARMED.1", "ARMED.2", "MGAPDX64.DRV",
 }
 $activate = Get-Content -LiteralPath (Join-Path $outputDir "ACTIVATE.BAT") -Raw
 foreach ($required in @("FC /B", "ARM.BAT", "DISARM.BAT", "MGAPDX64.DRV",
-                         "MGAPDX64.VXD")) {
+                         "MGAPDX64.VXD", "KEEPVXD.TAG", "CANDVXD.VXD")) {
     if ($activate.IndexOf($required, [StringComparison]::OrdinalIgnoreCase) -lt 0) {
         throw "Recovery activation helper is missing $required"
     }
@@ -48,6 +48,15 @@ foreach ($required in @("V9XAUTO.EXE", "AUTOEXEC.BAK")) {
     if ($prepare.IndexOf($required, [StringComparison]::OrdinalIgnoreCase) -lt 0) {
         throw "Recovery preparation is missing $required"
     }
+}
+$restore = Get-Content -LiteralPath (Join-Path $outputDir "RESTORE.BAT") -Raw
+foreach ($required in @("ARMED.2", "RESTORE-PENDING", "Reboot Windows exactly once")) {
+    if ($restore.IndexOf($required, [StringComparison]::OrdinalIgnoreCase) -lt 0) {
+        throw "Recovery restore helper is missing $required"
+    }
+}
+if ($restore.IndexOf("COPY /Y", [StringComparison]::OrdinalIgnoreCase) -ge 0) {
+    throw "Recovery restore helper must defer loaded-file copies to DOS time."
 }
 if ($guard -match '(?i)REGEDIT|FORMAT|FDISK|DELTREE') {
     throw "Recovery guard contains an out-of-scope command."

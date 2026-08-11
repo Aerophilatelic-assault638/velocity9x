@@ -106,5 +106,27 @@ Candidate 8 packages the same display path with a NUL-safe, idempotent
 S3 display association and setting the requested mode to 640x480x16, the
 strict `102B:051B` backend reached `Stage=enable-ok` and passed the generic GDI
 surface probe on two consecutive boots. The guard was disarmed only after the
-first pass. Physical inactive-query and guarded activation remain pending; see
-`docs/decisions/2026-08-11-millennium2-86box-candidate8.md` for guest evidence.
+first pass.
+
+The physical inactive query also passed, and the guarded candidate reached a
+ready 640x480x16 desktop at boot counter 19 with `Stage=enable-ok`. The first
+framebuffer capture was already visibly repeated and striped, however, and the
+generic GDI probe returned `Result=FAIL` with exit code 3. Candidate 8 was
+rejected. The still-armed guard restored the byte-identical stock pair on boot
+counter 20, removed both armed markers and returned the machine to a clean
+1024x768x24 desktop. See
+`docs/decisions/2026-08-11-millennium2-86box-candidate8.md` for guest evidence
+and `docs/decisions/2026-08-11-millennium2-physical-candidate8.md` for the
+physical result and recovery hashes.
+
+Candidate 9 isolates the mini-VDD boundary. Its package installs only the
+Velocity9x display DRV and uses `KEEPVXD.TAG` to make the guard stage the
+target's validated stock `MGAPDX64.VXD`. The mixed pair passed first in 86Box,
+then reached clean 640x480x16 physical desktops and generic GDI `PASS` results
+at boot counters 21 and 22. The installed 9,726-byte candidate DRV and
+75,704-byte stock VXD matched their staged SHA-256 hashes, and the guard was
+disarmed after the confirmation pass. This proves the prior physical
+surface-write corruption was introduced by replacing the board-specific
+Matrox mini-VDD, not by the Candidate 8 DIB Engine screen contract alone. See
+`docs/decisions/2026-08-11-millennium2-physical-candidate9.md` for the accepted
+result and evidence.

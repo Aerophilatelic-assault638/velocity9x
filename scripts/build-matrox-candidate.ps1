@@ -3,7 +3,8 @@ param(
     [string]$BuildId,
     [string]$DdkRoot = "C:\98DDK",
     [ValidateSet(8, 16)]
-    [int]$BitsPerPixel = 8
+    [int]$BitsPerPixel = 8,
+    [switch]$PreserveStockMiniVdd
 )
 
 $ErrorActionPreference = "Stop"
@@ -21,8 +22,10 @@ if ($BuildId -notmatch '^[A-Za-z0-9._+-]+$') {
 & (Join-Path $PSScriptRoot "build-win16-ddi-skeleton.ps1") `
     -BuildId $BuildId -DdkRoot $DdkRoot -ForceModeIndex 0 -BootTrace `
     -MatroxMillennium2 -MatroxBitsPerPixel $BitsPerPixel
-& (Join-Path $PSScriptRoot "build-minivdd-skeleton.ps1") `
-    -BuildId $BuildId -DdkRoot $DdkRoot
+if (-not $PreserveStockMiniVdd) {
+    & (Join-Path $PSScriptRoot "build-minivdd-skeleton.ps1") `
+        -BuildId $BuildId -DdkRoot $DdkRoot
+}
 & (Join-Path $PSScriptRoot "build-win16-loader-probe.ps1") `
     -BuildId $BuildId -MatroxMillennium2 -MatroxBitsPerPixel $BitsPerPixel
 & (Join-Path $PSScriptRoot "build-matrox-recovery.ps1")
@@ -36,8 +39,14 @@ $miniVddSource = Join-Path $repoRoot "build\minivdd32\v9xmini.vxd"
 $loaderSource = Join-Path $repoRoot "build\win16-loader-probe-mga2\v9x16ld.exe"
 Copy-Item -LiteralPath $driverSource `
     -Destination (Join-Path $outputDir "MGAPDX64.DRV") -Force
-Copy-Item -LiteralPath $miniVddSource `
-    -Destination (Join-Path $outputDir "MGAPDX64.VXD") -Force
+if ($PreserveStockMiniVdd) {
+    Set-Content -LiteralPath (Join-Path $outputDir "KEEPVXD.TAG") `
+        -Value "Preserve the target machine's validated stock MGAPDX64.VXD." `
+        -Encoding Ascii
+} else {
+    Copy-Item -LiteralPath $miniVddSource `
+        -Destination (Join-Path $outputDir "MGAPDX64.VXD") -Force
+}
 Copy-Item -LiteralPath $driverSource `
     -Destination (Join-Path $outputDir "V9XDISP.DRV") -Force
 Copy-Item -LiteralPath $loaderSource `
@@ -57,9 +66,13 @@ $manifest = @(
     "Framebuffer: PCI BAR0 / MGABASE2, 4 MiB DPMI mapping",
     "Hardware writes: VBE 4F02h/4F06h only; OPMODE endian swapping remains little-endian",
     "DIB Engine: explicit screen PDevice geometry, pitch, selector and zero surface offset",
-    "Installation: guarded stock-file replacement; no INF and no registry edit",
+    $(if ($PreserveStockMiniVdd) {
+        "Installation: guarded DRV replacement; preserve the target's stock MGAPDX64.VXD"
+    } else {
+        "Installation: guarded stock-file replacement; no INF and no registry edit"
+    }),
     "Preflight: run V9X16LD.EXE beside V9XDISP.DRV before activation",
-    "Rollback: ARM.BAT before copying MGAPDX64.DRV and MGAPDX64.VXD",
+    "Rollback: ARM.BAT before the DOS-time guarded copy",
     "Success: run DISARM.BAT immediately after a healthy first desktop",
     "Status: HOST-AUDITED; PHYSICAL ACTIVATION NOT YET TESTED"
 )
@@ -76,17 +89,24 @@ if (-not $driverText.Contains($BuildId) -or
     -not $driverText.Contains("Matrox Millennium II MGA-2164W")) {
     throw "The Matrox display driver is missing its target/build markers."
 }
-$vxdText = [System.Text.Encoding]::ASCII.GetString(
-    [System.IO.File]::ReadAllBytes((Join-Path $outputDir "MGAPDX64.VXD")))
-if (-not $vxdText.Contains($BuildId)) {
-    throw "The Matrox mini-VDD is missing its build marker."
+if (-not $PreserveStockMiniVdd) {
+    $vxdText = [System.Text.Encoding]::ASCII.GetString(
+        [System.IO.File]::ReadAllBytes((Join-Path $outputDir "MGAPDX64.VXD")))
+    if (-not $vxdText.Contains($BuildId)) {
+        throw "The Matrox mini-VDD is missing its build marker."
+    }
 }
 
 $expected = @(
     "ACTIVATE.BAT", "ARM.BAT", "DISARM.BAT", "MANIFEST.TXT", "MGAPDX64.DRV",
-    "MGAPDX64.VXD", "PREPARE.BAT", "README.TXT", "RESTORE.BAT",
+    "PREPARE.BAT", "README.TXT", "RESTORE.BAT",
     "V9X16LD.EXE", "V9XAUTO.EXE", "V9XDISP.DRV", "V9XGUARD.BAT"
 )
+if ($PreserveStockMiniVdd) {
+    $expected += "KEEPVXD.TAG"
+} else {
+    $expected += "MGAPDX64.VXD"
+}
 $actual = @(Get-ChildItem -LiteralPath $outputDir -File |
     ForEach-Object { $_.Name } | Sort-Object)
 $missing = @($expected | Where-Object { $_ -notin $actual })

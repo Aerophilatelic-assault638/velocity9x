@@ -44,5 +44,8 @@ The read-only Configuration Manager inventory, documented MMIO query and
 two-boot recovery guard have now been exercised on the physical machine. See
 `docs/specifications/matrox-millennium2-bringup.md` for the verified resource
 map, query values and recovery evidence. The INF installation block remains in
-force; the next step is a VBE inventory followed by a guarded drop-in
-640x480x8 candidate.
+force. Guarded drop-in candidates have since exercised mode entry and DIB
+Engine enable, but Candidate 8 still failed the physical framebuffer/GDI
+checkpoint and was automatically rolled back to the byte-identical stock
+pair. See `docs/decisions/2026-08-11-millennium2-physical-candidate8.md` for
+the latest physical result.
