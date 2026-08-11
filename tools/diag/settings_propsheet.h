@@ -19,5 +19,6 @@
 #define V9X_IDC_GDI_TEST      2010
 #define V9X_IDC_COPY_REPORT   2011
 #define V9X_IDC_NOTICE        2012
+#define V9X_IDC_VERSION       2013
 
 #endif

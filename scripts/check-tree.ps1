@@ -6,6 +6,7 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $required = @(
     "PLAN.md",
     "README.md",
+    "CHANGELOG.md",
     "docs\vm-environment.md",
     "docs\decisions\2026-08-08-vxd-lifecycle-probe.md",
     "docs\decisions\2026-08-08-active-640-candidate.md",
@@ -13,6 +14,7 @@ $required = @(
     "docs\specifications\logging-protocol.md",
     "docs\specifications\hardware-diagnostics.md",
     "include\velocity9x\backend.h",
+    "include\velocity9x\build.h",
     "packaging\win98se\velocity9x.inf",
     "packaging\win98se\INSTALL.TXT",
     "packaging\win98se\FIRSTBOOT.TXT",

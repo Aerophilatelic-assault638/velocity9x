@@ -101,7 +101,9 @@ static void v9x_format_clock(char *destination,
     }
 }
 
-void v9x_settings_collect(V9X_SETTINGS_STATUS *status, const char *build_id)
+void v9x_settings_collect(V9X_SETTINGS_STATUS *status,
+                          const char *version,
+                          const char *build_id)
 {
     HDC display = GetDC(0);
     UINT width = (UINT)GetDeviceCaps(display, HORZRES);
@@ -215,7 +217,9 @@ void v9x_settings_collect(V9X_SETTINGS_STATUS *status, const char *build_id)
 
     status->report[0] = '\0';
     v9x_append(status->report, sizeof(status->report),
-               "Velocity9x settings report\r\nBuild: ");
+               "Velocity9x settings report\r\nVersion: ");
+    v9x_append(status->report, sizeof(status->report), version);
+    v9x_append(status->report, sizeof(status->report), "\r\nBuild: ");
     v9x_append(status->report, sizeof(status->report), build_id);
     v9x_append(status->report, sizeof(status->report), "\r\nAdapter: ");
     v9x_append(status->report, sizeof(status->report), status->adapter_name);

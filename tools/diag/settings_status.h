@@ -23,7 +23,9 @@ typedef struct v9x_settings_status {
 } V9X_SETTINGS_STATUS;
 
 unsigned long v9x_settings_string_length(const char *text);
-void v9x_settings_collect(V9X_SETTINGS_STATUS *status, const char *build_id);
+void v9x_settings_collect(V9X_SETTINGS_STATUS *status,
+                          const char *version,
+                          const char *build_id);
 int v9x_settings_copy_report(void *owner_window,
                              const char *caption,
                              const char *report);

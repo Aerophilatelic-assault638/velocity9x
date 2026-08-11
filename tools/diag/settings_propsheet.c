@@ -19,12 +19,9 @@
 #include <windows.h>
 #include <prsht.h>
 
+#include "velocity9x/build.h"
 #include "settings_propsheet.h"
 #include "settings_status.h"
-
-#ifndef V9X_BUILD_ID
-#define V9X_BUILD_ID "local"
-#endif
 
 #define V9X_S_OK                       ((LONG)0x00000000l)
 #define V9X_S_FALSE                    ((LONG)0x00000001l)
@@ -92,7 +89,8 @@ static BOOL CALLBACK v9x_page_dialog_proc(HWND dialog,
     switch (message) {
     case WM_INITDIALOG:
         (void)lparam;
-        v9x_settings_collect(&v9x_page_status, V9X_BUILD_ID);
+        v9x_settings_collect(&v9x_page_status, V9X_VERSION_STRING,
+                             V9X_BUILD_ID);
         SetDlgItemTextA(dialog, V9X_IDC_ADAPTER,
                         v9x_page_status.adapter_name);
         SetDlgItemTextA(dialog, V9X_IDC_ACTIVE_MODE,
@@ -101,6 +99,8 @@ static BOOL CALLBACK v9x_page_dialog_proc(HWND dialog,
                         v9x_page_status.core_clock);
         SetDlgItemTextA(dialog, V9X_IDC_MEMORY_CLOCK,
                         v9x_page_status.memory_clock);
+        SetDlgItemTextA(dialog, V9X_IDC_VERSION,
+                        "Version: " V9X_VERSION_STRING);
         SetDlgItemTextA(dialog, V9X_IDC_BUILD, "Build: " V9X_BUILD_ID);
         SetDlgItemTextA(dialog, V9X_IDC_FRAMEBUFFER,
                         v9x_page_status.framebuffer_status);

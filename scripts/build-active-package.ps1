@@ -12,6 +12,7 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $outputDir = Join-Path $repoRoot "build\win98se-active"
 
 . (Join-Path $PSScriptRoot "common.ps1")
+$ProductVersion = Get-V9xProductVersion -RepoRoot $repoRoot
 if (-not $BuildId) {
     $BuildId = Get-V9xBuildId -RepoRoot $repoRoot -Fallback "phase3-matrix-local"
 }
@@ -141,6 +142,7 @@ Set-Content -LiteralPath (Join-Path $outputDir "V9XFIX.BAT") `
 
 $manifest = @(
     "Velocity9x active display bring-up package",
+    "Version: $ProductVersion",
     "Build: $BuildId",
     "Target: Windows 98SE, PCI 5333:8A01 only",
     "Modes: 640x480, 800x600, 1024x768 at 8/16 bpp and 60 Hz",

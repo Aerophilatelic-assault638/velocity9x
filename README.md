@@ -3,6 +3,9 @@
 Velocity9x is a ground-up Windows 9x display-driver project. The first target is
 Windows 98 Second Edition on the S3 ViRGE/DX 86C375 (`5333:8A01`).
 
+Current development version: **0.2**. See [CHANGELOG.md](CHANGELOG.md) for the
+version history.
+
 The repository contains the portable core, proven Phase 1 loader probes, and a
 guest-proven Phase 3 framebuffer candidate covering 640x480, 800x600, and
 1024x768 at 8 and 16 bpp. All six modes have passed cold-boot activation and

@@ -2,11 +2,8 @@
 #include <windows.h>
 #include <shellapi.h>
 
+#include "velocity9x/build.h"
 #include "settings_status.h"
-
-#ifndef V9X_BUILD_ID
-#define V9X_BUILD_ID "local"
-#endif
 
 #define V9X_ID_COPY_REPORT  1001
 #define V9X_ID_RECOVERY     1002
@@ -113,6 +110,8 @@ static void v9x_create_controls(HWND window)
     control = v9x_control(window, "BUTTON", "Hardware acceleration",
                           BS_AUTOCHECKBOX | WS_DISABLED, 28, 285, 250, 20, 0);
     SendMessageA(control, BM_SETCHECK, BST_UNCHECKED, 0);
+    (void)v9x_control(window, "STATIC", "Version: " V9X_VERSION_STRING,
+                      SS_RIGHT, 218, 287, 180, 18, 0);
     control = v9x_control(window, "BUTTON", "Live mode switching",
                           BS_AUTOCHECKBOX | WS_DISABLED, 28, 308, 190, 20, 0);
     SendMessageA(control, BM_SETCHECK,
@@ -225,7 +224,7 @@ void WINAPI V9xSettingsEntry(void)
     v9x_ui_font = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
     v9x_logo_bitmap = LoadBitmapA(instance,
                                   MAKEINTRESOURCEA(V9X_ID_LOGO_BITMAP));
-    v9x_settings_collect(&v9x_status, V9X_BUILD_ID);
+    v9x_settings_collect(&v9x_status, V9X_VERSION_STRING, V9X_BUILD_ID);
     x = (GetSystemMetrics(SM_CXSCREEN) - 440) / 2;
     y = (GetSystemMetrics(SM_CYSCREEN) - 475) / 2;
     window = CreateWindowExA(WS_EX_DLGMODALFRAME,

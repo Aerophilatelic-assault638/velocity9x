@@ -22,3 +22,18 @@ function Get-V9xBuildId {
     }
     return "$revision"
 }
+
+function Get-V9xProductVersion {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepoRoot
+    )
+
+    $headerPath = Join-Path $RepoRoot "include\velocity9x\build.h"
+    $header = Get-Content -LiteralPath $headerPath -Raw
+    $match = [regex]::Match(
+        $header, '(?m)^#define\s+V9X_VERSION_STRING\s+"([^"]+)"\s*$')
+    if (-not $match.Success) {
+        throw "Could not read V9X_VERSION_STRING from $headerPath."
+    }
+    return $match.Groups[1].Value
+}

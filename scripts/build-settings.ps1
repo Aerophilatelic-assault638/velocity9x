@@ -8,6 +8,7 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $outputDir = Join-Path $repoRoot "build\settings"
 
 . (Join-Path $PSScriptRoot "common.ps1")
+$ProductVersion = Get-V9xProductVersion -RepoRoot $repoRoot
 if (-not $BuildId) {
     $BuildId = Get-V9xBuildId -RepoRoot $repoRoot -Fallback "settings-local"
 }
@@ -47,6 +48,7 @@ $env:INCLUDE = "$(Join-Path $watcomRoot 'h');$(Join-Path $watcomRoot 'h\nt')"
 New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
 
 $diagDir = Join-Path $repoRoot "tools\diag"
+$includeDir = Join-Path $repoRoot "include"
 $sources = @(
     (Join-Path $diagDir "settings_win32.c"),
     (Join-Path $diagDir "settings_status.c")
@@ -84,7 +86,7 @@ foreach ($source in $sources) {
     $object = Join-Path $outputDir (
         [IO.Path]::GetFileNameWithoutExtension($source) + ".obj")
     & $compiler "-bt=nt" "-zq" "-wx" "-zl" "-s" `
-        "-i=$diagDir" `
+        "-i=$diagDir" "-i=$includeDir" `
         "-dV9X_BUILD_ID=`"$BuildId`"" "-fo=$object" $source
     if ($LASTEXITCODE -ne 0) {
         throw "Open Watcom failed to compile $source."
@@ -126,7 +128,7 @@ if ($bytes.Length -lt 64 -or $bytes[0] -ne 0x4d -or
     throw "The settings utility is not an MZ/PE executable."
 }
 $imageText = [System.Text.Encoding]::ASCII.GetString($bytes)
-foreach ($marker in @($BuildId, "Velocity9x Settings", "1024x768",
+foreach ($marker in @($BuildId, "Version: $ProductVersion", "Velocity9x Settings", "1024x768",
                       "Core / engine clock",
                        "Run GDI test")) {
     if (-not $imageText.Contains($marker)) {

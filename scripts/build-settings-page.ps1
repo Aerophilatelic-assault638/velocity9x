@@ -8,6 +8,7 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $outputDir = Join-Path $repoRoot "build\settings-page"
 
 . (Join-Path $PSScriptRoot "common.ps1")
+$ProductVersion = Get-V9xProductVersion -RepoRoot $repoRoot
 if (-not $BuildId) {
     $BuildId = Get-V9xBuildId -RepoRoot $repoRoot -Fallback "settings-page-local"
 }
@@ -47,6 +48,7 @@ $env:INCLUDE = "$(Join-Path $watcomRoot 'h');$(Join-Path $watcomRoot 'h\nt')"
 New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
 
 $diagDir = Join-Path $repoRoot "tools\diag"
+$includeDir = Join-Path $repoRoot "include"
 $sources = @(
     (Join-Path $diagDir "settings_propsheet.c"),
     (Join-Path $diagDir "settings_status.c")
@@ -87,7 +89,7 @@ foreach ($source in $sources) {
     $object = Join-Path $outputDir (
         [IO.Path]::GetFileNameWithoutExtension($source) + ".obj")
     & $compiler "-bt=nt" "-bd" "-zq" "-wx" "-zl" "-s" `
-        "-i=$diagDir" `
+        "-i=$diagDir" "-i=$includeDir" `
         "-dV9X_BUILD_ID=`"$BuildId`"" "-fo=$object" $source
     if ($LASTEXITCODE -ne 0) {
         throw "Open Watcom failed to compile $source."
@@ -132,7 +134,7 @@ if ($bytes.Length -lt 64 -or $bytes[0] -ne 0x4d -or
     throw "The settings page is not an MZ/PE image."
 }
 $imageText = [System.Text.Encoding]::ASCII.GetString($bytes)
-foreach ($marker in @($BuildId, "Velocity9x Settings",
+foreach ($marker in @($BuildId, "Version: $ProductVersion", "Velocity9x Settings",
                       "Velocity9x settings report")) {
     if (-not $imageText.Contains($marker)) {
         throw "The settings page is missing marker $marker."
