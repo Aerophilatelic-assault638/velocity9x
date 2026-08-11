@@ -17,6 +17,7 @@ Velocity9x.Copy=11
 v9xdisp.drv=1
 v9xmini.vxd=1
 v9xsetp.dll=1
+v9xhal.dll=1
 
 [Manufacturer]
 %Manufacturer%=Velocity9x.Models
@@ -33,6 +34,7 @@ AddReg=Velocity9x.Registry
 v9xdisp.drv,,,12
 v9xmini.vxd,,,12
 v9xsetp.dll,,,12
+v9xhal.dll,,,12
 
 [Velocity9x.Previous]
 HKR,,Ver

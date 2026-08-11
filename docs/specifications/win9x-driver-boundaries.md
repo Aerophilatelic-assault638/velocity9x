@@ -75,7 +75,20 @@ callbacks. The following remain unresolved for later phases:
 
 The master VDD retains its default handlers for every unfilled callback.
 
-## DirectDraw boundary
+## DirectDraw boundary (updated 2026-08-11)
+
+A DirectDraw HAL is now present. The 16-bit driver carries only the ABI
+glue the platform requires (DCICOMMAND escape dispatch in
+`src/display16/dd16.c`, the DPMI shared block, 16:16 pointer stamping, and
+the `lpDDHAL_SetInfo` call); all DirectDraw content and runtime callbacks
+live in the flat 32-bit `V9XHAL.DLL` (`src/display32/ddhal.c`), loaded at a
+fixed shared-arena base with shared PE sections. Advertised capability is
+deliberately minimal: `DDCAPS_GDI`, one linear video-memory heap above the
+visible screen, flippable primaries, real vertical-blank services, and
+CRTC display-start page flipping. Blits, palettes, overlays, and Direct3D
+remain with the HEL. See docs/decisions/2026-08-11-directdraw-hal.md.
+
+## Previous DirectDraw boundary
 
 No DirectDraw callbacks or capabilities are present in Phase 1. DirectDraw work
 begins only after framebuffer mode stability. Its capability table must be

@@ -243,7 +243,7 @@ static void v9x_publish_hardware_diagnostics(void)
 #endif
 }
 
-static void v9x_serial_write(const char FAR *message)
+void v9x_serial_write(const char FAR *message)
 {
     BYTE saved_lcr;
     WORD spins;
@@ -361,6 +361,30 @@ static void v9x_select_requested_mode(void)
     }
     v9x_apply_mode(requested);
 }
+
+#ifndef V9X_TARGET_MATROX_MILLENNIUM2
+/* DirectDraw glue accessors (dd16.c). */
+extern WORD FAR PASCAL V9xDdCreateDriverObject(WORD reset);
+extern void FAR PASCAL V9xDdInvalidate(void);
+
+LPVOID v9x_dd_active_pdevice(void)
+{
+    return (LPVOID)v9x_driver_pdevice;
+}
+
+WORD v9x_dd_active_mode(WORD FAR *width, WORD FAR *height,
+                        WORD FAR *bpp, WORD FAR *pitch)
+{
+    if (v9x_enabled == 0u || v9x_active_mode == 0) {
+        return 0u;
+    }
+    *width = v9x_active_mode->width;
+    *height = v9x_active_mode->height;
+    *bpp = v9x_active_mode->bits_per_pixel;
+    *pitch = v9x_active_mode->pitch;
+    return 1u;
+}
+#endif
 
 void v9x_display_boot_log(void)
 {
@@ -670,6 +694,11 @@ static WORD v9x_build_pdevice(LPVOID device_info,
     v9x_serial_write_mode("V9X-DRV enable-ok mode=");
     v9x_serial_write(" lfb-mapped\r\n");
     v9x_publish_hardware_diagnostics();
+#ifndef V9X_TARGET_MATROX_MILLENNIUM2
+    /* Refresh the DirectDraw HAL for the (possibly new) mode; harmless
+     * no-op until DDRAW has delivered SetInfo. */
+    (void)V9xDdCreateDriverObject(1u);
+#endif
     v9x_boot_trace("enable-ok");
     return 1u;
 }
@@ -699,6 +728,9 @@ WORD __loadds FAR PASCAL Disable(LPVOID destination_device)
     v9x_active_mode = 0;
     v9x_driver_pdevice = 0;
     v9x_color_table = 0;
+#ifndef V9X_TARGET_MATROX_MILLENNIUM2
+    V9xDdInvalidate();
+#endif
     V9xVddUnregister();
     V9xHardwareDisable();
     v9x_screen_selector = 0u;

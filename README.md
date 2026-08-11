@@ -28,10 +28,13 @@ matrix repetitions. It is not a release driver.
   a shell property-sheet extension by the INF;
 - host tests and an Open Watcom build entry point.
 
-No acceleration capability is advertised. The active candidate uses firmware
-mode entry and DPMI framebuffer mapping. Same-depth resolution changes apply
-live through the ReEnable path; colour-depth changes take effect after a
-reboot (Windows 9x never changes depth dynamically).
+The active candidate uses firmware mode entry and DPMI framebuffer mapping.
+Same-depth resolution changes apply live through the ReEnable path;
+colour-depth changes take effect after a reboot (Windows 9x never changes
+depth dynamically). A DirectDraw HAL (V9XHAL.DLL, flat 32-bit) provides
+video-memory surfaces, CRTC display-start page flipping, and real
+vertical-blank services; blits, palettes, and Direct3D remain with the
+DirectDraw HEL. No GDI acceleration capability is advertised.
 
 ## Host build
 

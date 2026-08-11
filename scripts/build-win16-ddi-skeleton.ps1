@@ -64,7 +64,8 @@ $sources = @(
     @{ Name = "resources"; Path = "src\common\resources.c" },
     @{ Name = "display_component"; Path = "src\display16\display_component.c" },
     @{ Name = "loader"; Path = "src\display16\loader.c" },
-    @{ Name = "ddi"; Path = "src\display16\ddi.c" }
+    @{ Name = "ddi"; Path = "src\display16\ddi.c" },
+    @{ Name = "dd16"; Path = "src\display16\dd16.c" }
 )
 if (-not $MatroxMillennium2) {
     $sources = @($sources[0..3]) + @(
@@ -148,7 +149,7 @@ $linkLines += @(
     "libfile '$dibEngineLibrary'",
     "library '$runtimeLibrary'",
     "reference RESETHIRESMODE",
-    "export BitBlt.1", "export ColorInfo.2", "export Control.3",
+    "export BitBlt.1", "export ColorInfo.2", "export Control.3=CONTROL",
     "export Disable.4=DISABLE", "export Enable.5=ENABLE", "export EnumDFonts.6",
     "export EnumObj.7", "export Output.8", "export Pixel.9",
     "export RealizeObject.10", "export StrBlt.11", "export ScanLR.12",

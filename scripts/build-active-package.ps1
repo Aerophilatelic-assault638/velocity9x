@@ -30,6 +30,7 @@ if ($BuildId -notmatch '^[A-Za-z0-9._+-]+$') {
 & (Join-Path $PSScriptRoot "build-palette-smoke.ps1") -BuildId $BuildId
 & (Join-Path $PSScriptRoot "build-mode-switch.ps1") -BuildId $BuildId
 & (Join-Path $PSScriptRoot "build-ddraw-probe.ps1") -BuildId $BuildId
+& (Join-Path $PSScriptRoot "build-ddraw-hal-dll.ps1") -BuildId $BuildId
 & (Join-Path $PSScriptRoot "build-vxd-loader-probe.ps1") `
     -BuildId $BuildId -DdkRoot $DdkRoot
 & (Join-Path $PSScriptRoot "build-win16-loader-probe.ps1") -BuildId $BuildId
@@ -77,7 +78,7 @@ foreach ($forbidden in @('MODES\24',
         throw "The active INF contains out-of-scope entry $forbidden."
     }
 }
-foreach ($required in @('v9xdisp.drv', 'v9xmini.vxd', 'v9xsetp.dll',
+foreach ($required in @('v9xdisp.drv', 'v9xmini.vxd', 'v9xhal.dll', 'v9xsetp.dll',
                          'PropertySheetHandlers\Velocity9x',
                          'CLSID\{91925DA2-2EF0-4E20-B4E9-A53ED37E14B1}\InProcServer32',
                          "DEFAULT,Mode,,`"$defaultMode`"",
@@ -106,6 +107,8 @@ Copy-Item -LiteralPath (Join-Path $repoRoot "build\settings\v9xset.exe") `
     -Destination (Join-Path $outputDir "V9XSET.EXE") -Force
 Copy-Item -LiteralPath (Join-Path $repoRoot "build\settings-page\v9xsetp.dll") `
     -Destination (Join-Path $outputDir "V9XSETP.DLL") -Force
+Copy-Item -LiteralPath (Join-Path $repoRoot "build\ddraw-hal\v9xhal.dll") `
+    -Destination (Join-Path $outputDir "V9XHAL.DLL") -Force
 Copy-Item -LiteralPath (Join-Path $repoRoot "build\gdi-smoke\v9xgdi.exe") `
     -Destination (Join-Path $outputDir "V9XGDI.EXE") -Force
 Copy-Item -LiteralPath (Join-Path $repoRoot "build\palette-smoke\v9xpal.exe") `
@@ -147,6 +150,7 @@ $manifest = @(
     "GDI test: on-screen primitives, blits, and tolerant pixel readback",
     "Palette test: 8-bit reserved-entry animation and screen readback",
     "Mode switching: live same-depth via ReEnable; depth change needs restart",
+    "DirectDraw HAL: V9XHAL.DLL (vidmem surfaces + CRTC page flip)",
     "Mode-switch test: V9XMSW.EXE (/set:WxHxB, /cycle:N, /depth)",
     "DirectDraw probe: V9XDDP.EXE (flip timing and mode honesty)",
     "Preflight: V9XSTAGE.EXE (no mode change and no installation)",
@@ -169,7 +173,7 @@ Set-Content -LiteralPath (Join-Path $outputDir "SHA256.TXT") `
 
 $expectedPackageFiles = @(
     "FIRSTBOOT.TXT", "INSTALL.TXT", "MANIFEST.TXT", "RECOVER.TXT", "SHA256.TXT",
-    "V9X16LD.EXE", "V9XDDP.EXE", "V9XDISP.DRV", "V9XFIX.BAT",
+    "V9X16LD.EXE", "V9XDDP.EXE", "V9XDISP.DRV", "V9XFIX.BAT", "V9XHAL.DLL",
     "V9XGDI.EXE", "V9XMSW.EXE", "V9XPAL.EXE", "V9XMINI.VXD", "V9XPROBE.VXD",
     "V9XSET.EXE", "V9XSETP.DLL", "V9XSTAGE.EXE", "VELOCITY9X.INF"
 )

@@ -21,6 +21,11 @@ V9xVmHandle       dw 0
 V9xVddRegistered dw 0
 V9xHardwareStageCode dw 0
 V9xCreateDibReturn dd 0
+V9xDdSharedSel   dw 0
+V9xDdSharedLin   dd 0
+
+; DirectDraw shared-block size: sizeof(V9X_DD_SHARED) rounded up.
+V9X_DD_SHARED_BYTES EQU 2048
 
 .code
 
@@ -77,6 +82,91 @@ V9XDIBENDACCESS ENDP
 ; Typed entry points for cursor exclusion around a live mode switch. They
 ; are the same DIBENG routines as the deBeginAccess/deEndAccess pointers,
 ; re-exported so C code can call them with the full argument list.
+; Typed forward of the DIB engine Control handler for the C escape
+; dispatcher in dd16.c.
+EXTRN DIB_Control:FAR
+PUBLIC V9XDIBCONTROLCALL
+V9XDIBCONTROLCALL PROC FAR
+    jmp DIB_Control
+V9XDIBCONTROLCALL ENDP
+
+; Return the linear address of the mapped framebuffer aperture in DX:AX.
+PUBLIC V9XLINEARBASE
+V9XLINEARBASE PROC FAR
+    mov     ax, word ptr V9xLinearAddress
+    mov     dx, word ptr V9xLinearAddress+2
+    retf
+V9XLINEARBASE ENDP
+
+; Allocate the DirectDraw shared block once: DPMI linear memory plus one
+; LDT descriptor addressing it. Returns the selector in AX (0 on failure).
+PUBLIC V9XDDSHAREDALLOC
+V9XDDSHAREDALLOC PROC FAR
+    push    bx
+    push    cx
+    push    dx
+    push    si
+    push    di
+
+    cmp     V9xDdSharedSel, 0
+    jne     short V9xDdSharedReady
+
+    mov     bx, 0
+    mov     cx, V9X_DD_SHARED_BYTES
+    mov     ax, 0501h
+    int     31h
+    jc      short V9xDdSharedFailed
+    mov     word ptr V9xDdSharedLin, cx
+    mov     word ptr V9xDdSharedLin+2, bx
+
+    xor     ax, ax
+    mov     cx, 1
+    int     31h
+    jc      short V9xDdSharedFailed
+    mov     V9xDdSharedSel, ax
+
+    mov     bx, ax
+    mov     dx, word ptr V9xDdSharedLin
+    mov     cx, word ptr V9xDdSharedLin+2
+    mov     ax, 0007h
+    int     31h
+    jc      short V9xDdSharedFreeSelector
+
+    mov     bx, V9xDdSharedSel
+    xor     cx, cx
+    mov     dx, V9X_DD_SHARED_BYTES - 1
+    mov     ax, 0008h
+    int     31h
+    jc      short V9xDdSharedFreeSelector
+
+V9xDdSharedReady:
+    mov     ax, V9xDdSharedSel
+    jmp     short V9xDdSharedDone
+
+V9xDdSharedFreeSelector:
+    mov     bx, V9xDdSharedSel
+    mov     ax, 0001h
+    int     31h
+    mov     V9xDdSharedSel, 0
+V9xDdSharedFailed:
+    xor     ax, ax
+V9xDdSharedDone:
+    pop     di
+    pop     si
+    pop     dx
+    pop     cx
+    pop     bx
+    retf
+V9XDDSHAREDALLOC ENDP
+
+; Return the linear address of the DirectDraw shared block in DX:AX.
+PUBLIC V9XDDSHAREDLINEAR
+V9XDDSHAREDLINEAR PROC FAR
+    mov     ax, word ptr V9xDdSharedLin
+    mov     dx, word ptr V9xDdSharedLin+2
+    retf
+V9XDDSHAREDLINEAR ENDP
+
 PUBLIC V9XDIBBEGINACCESSRECT
 V9XDIBBEGINACCESSRECT PROC FAR
     jmp DIB_BeginAccess

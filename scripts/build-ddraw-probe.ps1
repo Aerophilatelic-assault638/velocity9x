@@ -28,7 +28,8 @@ $linker = Join-Path $watcomRoot "binnt64\wlink.exe"
 $dumper = Join-Path $watcomRoot "binnt64\wdump.exe"
 $libraries = @(
     (Join-Path $watcomRoot "lib386\nt\kernel32.lib"),
-    (Join-Path $watcomRoot "lib386\nt\user32.lib")
+    (Join-Path $watcomRoot "lib386\nt\user32.lib"),
+    (Join-Path $watcomRoot "lib386\nt\gdi32.lib")
 )
 $missingInputs = @(@($compiler, $linker, $dumper) + $libraries |
     Where-Object { -not (Test-Path -LiteralPath $_) })
@@ -79,7 +80,7 @@ $dllNames = [regex]::Matches($dumpText, "DLL name = <([^>]+)>") |
     ForEach-Object { $_.Groups[1].Value.ToUpperInvariant() } |
     Sort-Object -Unique
 $unexpectedDlls = @($dllNames | Where-Object {
-    $_ -notin @("KERNEL32.DLL", "USER32.DLL")
+    $_ -notin @("KERNEL32.DLL", "USER32.DLL", "GDI32.DLL")
 })
 if ($unexpectedDlls.Count -ne 0 -or
     $dumpText -match "GetCommandLineW|GetModuleFileNameW|__CHK") {

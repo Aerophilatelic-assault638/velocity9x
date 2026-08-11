@@ -49,7 +49,8 @@ EXTRN _v9x_palettized:WORD
 
 V9X_FORWARD BitBlt,                    DIB_BitBlt
 V9X_FORWARD ColorInfo,                 DIB_ColorInfo
-V9X_FORWARD Control,                   DIB_Control
+; Control (ordinal 3) is implemented in C (dd16.c) for DirectDraw escapes
+; and forwards non-DirectDraw functions to DIB_Control itself.
 V9X_FORWARD EnumDFonts,                DIB_EnumDFonts
 V9X_FORWARD_PDEVICE EnumObj,           DIB_EnumObjExt
 V9X_FORWARD Output,                    DIB_Output

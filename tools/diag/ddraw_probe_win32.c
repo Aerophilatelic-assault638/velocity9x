@@ -189,6 +189,31 @@ typedef DWORD (__stdcall *V9X_TIMEGETTIME)(void);
 
 static V9X_TIMEGETTIME v9x_time;
 
+static int v9x_has_switch(const char *option)
+{
+    const char *command_line = GetCommandLineA();
+    unsigned offset;
+    unsigned index;
+
+    for (offset = 0u; command_line[offset] != '\0'; ++offset) {
+        for (index = 0u; option[index] != '\0'; ++index) {
+            char left = command_line[offset + index];
+            char right = option[index];
+
+            if (left >= 'A' && left <= 'Z') {
+                left = (char)(left + ('a' - 'A'));
+            }
+            if (left != right) {
+                break;
+            }
+        }
+        if (option[index] == '\0') {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static void v9x_zero(void *block, unsigned length)
 {
     unsigned char *bytes = (unsigned char *)block;
@@ -449,6 +474,53 @@ void __stdcall V9xDdrawProbeEntry(void)
             flip_total = v9x_time() - started;
             v9x_write_uint("Flip20Ms", flip_total);
             v9x_write_uint("FlipMaxMs", flip_max);
+
+            /* Flip correctness: fill the backbuffer with a known color,
+             * flip, and read the visible screen back through GDI. Two
+             * rounds with different colors catch a flip that never moves
+             * the display as well as one stuck on a single page. */
+            {
+                HDC screen;
+                COLORREF seen_red;
+                COLORREF seen_blue;
+                int pixel_ok;
+                /* /hold pauses on each verification color so the emulated
+                 * scanout can be captured from the host: GDI readback only
+                 * sees the fixed GDI page once real flips are in play. */
+                int hold = v9x_has_switch("/hold");
+
+                v9x_fill_surface(backbuffer, 0xf800f800ul);
+                do {
+                    hr = primary->vtbl->Flip(primary, 0, V9X_DDFLIP_WAIT);
+                } while (hr == (HRESULT)V9X_DDERR_WASSTILLDRAWING);
+                if (hold) {
+                    Sleep(5000);
+                }
+                screen = GetDC(0);
+                seen_red = GetPixel(screen, 100, 100);
+                ReleaseDC(0, screen);
+
+                v9x_fill_surface(backbuffer, 0x001f001ful);
+                do {
+                    hr = primary->vtbl->Flip(primary, 0, V9X_DDFLIP_WAIT);
+                } while (hr == (HRESULT)V9X_DDERR_WASSTILLDRAWING);
+                if (hold) {
+                    Sleep(5000);
+                }
+                screen = GetDC(0);
+                seen_blue = GetPixel(screen, 100, 100);
+                ReleaseDC(0, screen);
+
+                pixel_ok = seen_red != CLR_INVALID &&
+                           seen_blue != CLR_INVALID &&
+                           GetRValue(seen_red) > 0xc0u &&
+                           GetGValue(seen_red) < 0x40u &&
+                           GetBValue(seen_red) < 0x40u &&
+                           GetBValue(seen_blue) > 0xc0u &&
+                           GetRValue(seen_blue) < 0x40u &&
+                           GetGValue(seen_blue) < 0x40u;
+                v9x_write_uint("FlipPixelOk", pixel_ok ? 1u : 0u);
+            }
         }
     }
 
