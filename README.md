@@ -6,6 +6,10 @@ Windows 98 Second Edition on the S3 ViRGE/DX 86C375 (`5333:8A01`).
 Current development version: **0.2**. See [CHANGELOG.md](CHANGELOG.md) for the
 version history.
 
+The focused compatibility plan for getting Hellbender menus and its first
+mission onto the hardware Direct3D path is in
+[docs/plans/hellbender-hardware-d3d.md](docs/plans/hellbender-hardware-d3d.md).
+
 The repository contains the portable core, proven Phase 1 loader probes, and a
 guest-proven Phase 3 framebuffer candidate covering 640x480, 800x600, and
 1024x768 at 8 and 16 bpp. All six modes have passed cold-boot activation and

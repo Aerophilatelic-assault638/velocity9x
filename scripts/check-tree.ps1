@@ -8,6 +8,7 @@ $required = @(
     "README.md",
     "CHANGELOG.md",
     "docs\vm-environment.md",
+    "docs\plans\hellbender-hardware-d3d.md",
     "docs\decisions\2026-08-08-vxd-lifecycle-probe.md",
     "docs\decisions\2026-08-08-active-640-candidate.md",
     "docs\specifications\win9x-driver-boundaries.md",
