@@ -108,6 +108,57 @@ static const BYTE v9x_guid_d3d_callbacks2[16] = {
     0x88u, 0x9du, 0x00u, 0xaau, 0x00u, 0xbbu, 0xb7u, 0x6au
 };
 
+/*
+ * Bounded callback trace (Hellbender plan H1). Events land in the shared
+ * block so the last callbacks before a fault survive the faulting process.
+ * Writers are allocation-free and import-free; status polls are counted
+ * but kept out of the ring so a wait loop cannot flush the history.
+ */
+static void v9x_trace_push(WORD id, DWORD detail)
+{
+    V9X_DD_TRACE *trace;
+    DWORD slot;
+
+    if (v9x_hal == 0) {
+        return;
+    }
+    trace = &v9x_hal->trace;
+    slot = trace->head < V9X_DD_TRACE_RING_COUNT ? trace->head : 0ul;
+    trace->ring[slot].id = id;
+    trace->ring[slot].seq = (WORD)trace->seq;
+    trace->ring[slot].detail = detail;
+    trace->head = slot + 1ul < V9X_DD_TRACE_RING_COUNT ? slot + 1ul : 0ul;
+    ++trace->seq;
+}
+
+static void v9x_trace_count(WORD id, DWORD detail)
+{
+    if (v9x_hal == 0) {
+        return;
+    }
+    v9x_hal->trace.last_enter_id = id;
+    v9x_hal->trace.last_enter_detail = detail;
+    if (id < V9X_DD_TRACE_ID_COUNT) {
+        ++v9x_hal->trace.counters[id];
+    }
+}
+
+static void v9x_trace_enter(WORD id, DWORD detail)
+{
+    v9x_trace_count(id, detail);
+    v9x_trace_push(id, detail);
+}
+
+static void v9x_trace_exit(WORD id, DWORD result)
+{
+    if (v9x_hal == 0) {
+        return;
+    }
+    v9x_hal->trace.last_exit_id = id;
+    v9x_hal->trace.last_exit_result = result;
+    v9x_trace_push((WORD)(id | V9X_DD_TRACE_EXIT_FLAG), result);
+}
+
 static unsigned char v9x_inp(unsigned short port);
 #pragma aux v9x_inp = "in al,dx" parm [dx] value [al] modify exact [al];
 
@@ -318,14 +369,17 @@ DWORD __stdcall V9xHalFlip(V9X_DDHAL_FLIPDATA *data)
     V9X_FPU_AREA fpu;
     DWORD result;
 
+    v9x_trace_enter(V9X_TRACE_FLIP, data->dwFlags);
     v9x_fpu_save(&fpu);
     result = v9x_flip_body(data);
     v9x_fpu_restore(&fpu);
+    v9x_trace_exit(V9X_TRACE_FLIP, data->ddRVal);
     return result;
 }
 
 DWORD __stdcall V9xHalGetFlipStatus(V9X_DDHAL_GETFLIPSTATUSDATA *data)
 {
+    v9x_trace_count(V9X_TRACE_GETFLIPSTATUS, data->dwFlags);
     data->ddRVal = V9X_DD_OK;
     return V9X_DDHAL_DRIVER_HANDLED;
 }
@@ -342,14 +396,17 @@ typedef struct v9x_ddhal_fliptogdidata {
 
 DWORD __stdcall V9xHalFlipToGDISurface(V9X_DDHAL_FLIPTOGDIDATA *data)
 {
+    v9x_trace_enter(V9X_TRACE_FLIPTOGDI, data->dwToGDI);
     if (data->dwToGDI != 0ul) {
         if (v9x_engine_status_validated() && !v9x_wait_idle(1)) {
             data->ddRVal = V9X_DDERR_WASSTILLDRAWING;
+            v9x_trace_exit(V9X_TRACE_FLIPTOGDI, data->ddRVal);
             return V9X_DDHAL_DRIVER_HANDLED;
         }
         v9x_set_display_start(0ul);
     }
     data->ddRVal = V9X_DD_OK;
+    v9x_trace_exit(V9X_TRACE_FLIPTOGDI, data->ddRVal);
     return V9X_DDHAL_DRIVER_HANDLED;
 }
 
@@ -367,33 +424,41 @@ DWORD __stdcall V9xHalSetExclusiveMode(
     if (data == 0) {
         return V9X_DDHAL_DRIVER_HANDLED;
     }
+    v9x_trace_enter(V9X_TRACE_SETEXCLUSIVE, data->dwEnterExcl);
     if (data->dwEnterExcl == 0ul) {
         if (v9x_engine_status_validated() && !v9x_wait_idle(1)) {
             data->ddRVal = V9X_DDERR_WASSTILLDRAWING;
+            v9x_trace_exit(V9X_TRACE_SETEXCLUSIVE, data->ddRVal);
             return V9X_DDHAL_DRIVER_HANDLED;
         }
         v9x_set_display_start(0ul);
     }
     data->ddRVal = V9X_DD_OK;
+    v9x_trace_exit(V9X_TRACE_SETEXCLUSIVE, data->ddRVal);
     return V9X_DDHAL_DRIVER_HANDLED;
 }
 
 DWORD __stdcall V9xHalLock(V9X_DDHAL_LOCKDATA *data)
 {
+    v9x_trace_enter(V9X_TRACE_LOCK, data->dwFlags);
     /* Serialize CPU access after asynchronous engine work. DDRAW still
      * computes and returns the actual surface pointer. */
     if (v9x_engine_status_validated() &&
         !v9x_wait_idle((data->dwFlags & V9X_DDLOCK_DONOTWAIT) == 0ul)) {
         data->ddRVal = V9X_DDERR_WASSTILLDRAWING;
+        v9x_trace_exit(V9X_TRACE_LOCK, data->ddRVal);
         return V9X_DDHAL_DRIVER_HANDLED;
     }
     data->ddRVal = V9X_DD_OK;
+    v9x_trace_exit(V9X_TRACE_LOCK, data->ddRVal);
     return V9X_DDHAL_DRIVER_NOTHANDLED;
 }
 
 DWORD __stdcall V9xHalUnlock(V9X_DDHAL_UNLOCKDATA *data)
 {
+    v9x_trace_enter(V9X_TRACE_UNLOCK, 0ul);
     data->ddRVal = V9X_DD_OK;
+    v9x_trace_exit(V9X_TRACE_UNLOCK, data->ddRVal);
     return V9X_DDHAL_DRIVER_NOTHANDLED;
 }
 
@@ -435,7 +500,7 @@ static int v9x_fill_rect_valid(const V9X_DDHAL_BLTDATA *data,
     return 1;
 }
 
-DWORD __stdcall V9xHalBlt(V9X_DDHAL_BLTDATA *data)
+static DWORD v9x_blt_body(V9X_DDHAL_BLTDATA *data)
 {
     DWORD allowed = V9X_DDBLT_COLORFILL | V9X_DDBLT_WAIT |
                     V9X_DDBLT_DONOTWAIT | V9X_DDBLT_ASYNC;
@@ -489,11 +554,22 @@ DWORD __stdcall V9xHalBlt(V9X_DDHAL_BLTDATA *data)
     return V9X_DDHAL_DRIVER_HANDLED;
 }
 
+DWORD __stdcall V9xHalBlt(V9X_DDHAL_BLTDATA *data)
+{
+    DWORD result;
+
+    v9x_trace_enter(V9X_TRACE_BLT, data != 0 ? data->dwFlags : 0ul);
+    result = v9x_blt_body(data);
+    v9x_trace_exit(V9X_TRACE_BLT, data != 0 ? data->ddRVal : 0ul);
+    return result;
+}
+
 DWORD __stdcall V9xHalGetBltStatus(V9X_DDHAL_GETBLTSTATUSDATA *data)
 {
     int ready;
     DWORD status;
 
+    v9x_trace_count(V9X_TRACE_GETBLTSTATUS, data->dwFlags);
     if (!v9x_engine_ready()) {
         data->ddRVal = V9X_DD_OK;
         return V9X_DDHAL_DRIVER_NOTHANDLED;
@@ -524,6 +600,7 @@ DWORD __stdcall V9xHalWaitForVerticalBlank(
 {
     DWORD spins;
 
+    v9x_trace_count(V9X_TRACE_WAITFORVBLANK, data->dwFlags);
     switch (data->dwFlags) {
     case V9X_DDWAITVB_I_TESTVB:
         data->bIsInVB = v9x_in_vblank() ? 1ul : 0ul;
@@ -616,6 +693,8 @@ DWORD __stdcall V9xD3dContextCreate(V9X_D3DHAL_CONTEXTCREATEDATA *data)
     DWORD index;
     V9X_D3D_CONTEXT *context;
 
+    v9x_trace_enter(V9X_TRACE_D3D_CTXCREATE,
+                    data != 0 ? data->dwPID : 0ul);
     if (data == 0 || v9x_hal == 0 || data->lpDDS == 0 ||
         (v9x_hal->fb.flags & V9X_DD_FB_VALID) == 0ul ||
         v9x_hal->fb.bits_per_pixel != 16ul) {
@@ -625,6 +704,7 @@ DWORD __stdcall V9xD3dContextCreate(V9X_D3DHAL_CONTEXTCREATEDATA *data)
         if (v9x_hal != 0) {
             ++v9x_hal->d3d_diagnostics.context_rejects;
         }
+        v9x_trace_exit(V9X_TRACE_D3D_CTXCREATE, 0x80070057ul);
         return V9X_DDHAL_DRIVER_HANDLED;
     }
     for (index = 0ul; index < V9X_D3D_CONTEXT_COUNT; ++index) {
@@ -633,6 +713,7 @@ DWORD __stdcall V9xD3dContextCreate(V9X_D3DHAL_CONTEXTCREATEDATA *data)
             if (!v9x_d3d_set_target(context, data->lpDDS, data->lpDDSZ)) {
                 data->ddrval = 0x80070057ul;
                 ++v9x_hal->d3d_diagnostics.context_rejects;
+                v9x_trace_exit(V9X_TRACE_D3D_CTXCREATE, data->ddrval);
                 return V9X_DDHAL_DRIVER_HANDLED;
             }
             context->pid = data->dwPID;
@@ -640,11 +721,13 @@ DWORD __stdcall V9xD3dContextCreate(V9X_D3DHAL_CONTEXTCREATEDATA *data)
             data->dwhContext = (DWORD)context;
             data->ddrval = V9X_DD_OK;
             ++v9x_hal->d3d_diagnostics.context_creates;
+            v9x_trace_exit(V9X_TRACE_D3D_CTXCREATE, data->ddrval);
             return V9X_DDHAL_DRIVER_HANDLED;
         }
     }
     data->ddrval = 0x8007000eul;
     ++v9x_hal->d3d_diagnostics.context_rejects;
+    v9x_trace_exit(V9X_TRACE_D3D_CTXCREATE, data->ddrval);
     return V9X_DDHAL_DRIVER_HANDLED;
 }
 
@@ -653,6 +736,8 @@ DWORD __stdcall V9xD3dContextDestroy(V9X_D3DHAL_CONTEXTDESTROYDATA *data)
     V9X_D3D_CONTEXT *context;
 
     context = data != 0 ? v9x_d3d_context_from_handle(data->dwhContext) : 0;
+    v9x_trace_enter(V9X_TRACE_D3D_CTXDESTROY,
+                    data != 0 ? data->dwhContext : 0ul);
     if (context == 0) {
         if (data != 0) {
             data->ddrval = 0x80070057ul;
@@ -660,6 +745,7 @@ DWORD __stdcall V9xD3dContextDestroy(V9X_D3DHAL_CONTEXTDESTROYDATA *data)
         if (v9x_hal != 0) {
             ++v9x_hal->d3d_diagnostics.context_rejects;
         }
+        v9x_trace_exit(V9X_TRACE_D3D_CTXDESTROY, 0x80070057ul);
         return V9X_DDHAL_DRIVER_HANDLED;
     }
     context->active = 0ul;
@@ -672,6 +758,7 @@ DWORD __stdcall V9xD3dContextDestroy(V9X_D3DHAL_CONTEXTDESTROYDATA *data)
     context->height = 0ul;
     data->ddrval = V9X_DD_OK;
     ++v9x_hal->d3d_diagnostics.context_destroys;
+    v9x_trace_exit(V9X_TRACE_D3D_CTXDESTROY, data->ddrval);
     return V9X_DDHAL_DRIVER_HANDLED;
 }
 
@@ -680,6 +767,8 @@ DWORD __stdcall V9xD3dContextDestroyAll(
 {
     DWORD index;
 
+    v9x_trace_enter(V9X_TRACE_D3D_CTXDESTROYALL,
+                    data != 0 ? data->dwPID : 0ul);
     if (data == 0) {
         return V9X_DDHAL_DRIVER_HANDLED;
     }
@@ -698,17 +787,21 @@ DWORD __stdcall V9xD3dContextDestroyAll(
     }
     data->ddrval = V9X_DD_OK;
     ++v9x_hal->d3d_diagnostics.context_destroy_alls;
+    v9x_trace_exit(V9X_TRACE_D3D_CTXDESTROYALL, data->ddrval);
     return V9X_DDHAL_DRIVER_HANDLED;
 }
 
 DWORD __stdcall V9xD3dRenderState(V9X_D3DHAL_RENDERSTATEDATA *data)
 {
+    v9x_trace_enter(V9X_TRACE_D3D_RENDERSTATE,
+                    data != 0 ? data->dwCount : 0ul);
     if (v9x_hal != 0) {
         ++v9x_hal->d3d_diagnostics.render_state_calls;
     }
     if (data != 0) {
         data->ddrval = V9X_DD_OK;
     }
+    v9x_trace_exit(V9X_TRACE_D3D_RENDERSTATE, V9X_DD_OK);
     return V9X_DDHAL_DRIVER_NOTHANDLED;
 }
 
@@ -725,6 +818,12 @@ DWORD __stdcall V9xD3dRenderPrimitive(
     DWORD index;
     int ok = 0;
 
+    v9x_trace_enter(V9X_TRACE_D3D_RENDERPRIM,
+                    data != 0
+                        ? (((DWORD)data->diInstruction.bOpcode << 24) |
+                           ((DWORD)data->diInstruction.bSize << 16) |
+                           (DWORD)data->diInstruction.wCount)
+                        : 0ul);
     v9x_fpu_save(&fpu);
     context = data != 0 ? v9x_d3d_context_from_handle(data->dwhContext) : 0;
     exe = data != 0 ? v9x_d3d_surface_lcl(data->lpExeBuf) : 0;
@@ -776,6 +875,8 @@ DWORD __stdcall V9xD3dRenderPrimitive(
         data->ddrval = ok ? V9X_DD_OK : 0x80070057ul;
     }
     v9x_fpu_restore(&fpu);
+    v9x_trace_exit(V9X_TRACE_D3D_RENDERPRIM,
+                   ok ? V9X_DD_OK : 0x80070057ul);
     return V9X_DDHAL_DRIVER_HANDLED;
 }
 
@@ -785,14 +886,18 @@ DWORD __stdcall V9xD3dSetRenderTarget(
     V9X_D3D_CONTEXT *context = data != 0
         ? v9x_d3d_context_from_handle(data->dwhContext) : 0;
 
+    v9x_trace_enter(V9X_TRACE_D3D_SETRENDERTARGET,
+                    data != 0 ? data->dwhContext : 0ul);
     if (context == 0 ||
         !v9x_d3d_set_target(context, data->lpDDS, data->lpDDSZ)) {
         if (data != 0) {
             data->ddrval = 0x80070057ul;
         }
+        v9x_trace_exit(V9X_TRACE_D3D_SETRENDERTARGET, 0x80070057ul);
         return V9X_DDHAL_DRIVER_HANDLED;
     }
     data->ddrval = V9X_DD_OK;
+    v9x_trace_exit(V9X_TRACE_D3D_SETRENDERTARGET, data->ddrval);
     return V9X_DDHAL_DRIVER_HANDLED;
 }
 
@@ -914,6 +1019,11 @@ DWORD __stdcall V9xD3dDrawOnePrimitive(
     DWORD status;
     int ok = 0;
 
+    v9x_trace_enter(V9X_TRACE_D3D_DRAWONEPRIM,
+                    data != 0
+                        ? ((data->PrimitiveType << 16) |
+                           (data->dwNumVertices & 0xfffful))
+                        : 0ul);
     v9x_fpu_save(&fpu);
     context = data != 0 ? v9x_d3d_context_from_handle(data->dwhContext) : 0;
     if (!v9x_engine_status_validated() && v9x_engine_ready()) {
@@ -937,6 +1047,8 @@ DWORD __stdcall V9xD3dDrawOnePrimitive(
         data->ddrval = ok ? V9X_DD_OK : 0x80070057ul;
     }
     v9x_fpu_restore(&fpu);
+    v9x_trace_exit(V9X_TRACE_D3D_DRAWONEPRIM,
+                   ok ? V9X_DD_OK : 0x80070057ul);
     return V9X_DDHAL_DRIVER_HANDLED;
 }
 
@@ -951,6 +1063,8 @@ DWORD __stdcall V9xD3dDrawPrimitives(V9X_D3DHAL_DRAWPRIMITIVESDATA *data)
     DWORD vertex;
     int ok = 0;
 
+    v9x_trace_enter(V9X_TRACE_D3D_DRAWPRIMS,
+                    data != 0 ? (DWORD)data->lpvData : 0ul);
     v9x_fpu_save(&fpu);
     context = data != 0 ? v9x_d3d_context_from_handle(data->dwhContext) : 0;
     if (!v9x_engine_status_validated() && v9x_engine_ready()) {
@@ -1008,12 +1122,16 @@ DWORD __stdcall V9xD3dDrawPrimitives(V9X_D3DHAL_DRAWPRIMITIVESDATA *data)
         data->ddrval = ok ? V9X_DD_OK : 0x80070057ul;
     }
     v9x_fpu_restore(&fpu);
+    v9x_trace_exit(V9X_TRACE_D3D_DRAWPRIMS,
+                   ok ? V9X_DD_OK : 0x80070057ul);
     return V9X_DDHAL_DRIVER_HANDLED;
 }
 
 DWORD __stdcall V9xD3dDrawOneIndexedPrimitive(void *data)
 {
     (void)data;
+    v9x_trace_enter(V9X_TRACE_D3D_DRAWONEINDEXED, 0ul);
+    v9x_trace_exit(V9X_TRACE_D3D_DRAWONEINDEXED, 0ul);
     return V9X_DDHAL_DRIVER_NOTHANDLED;
 }
 
@@ -1027,10 +1145,16 @@ DWORD __stdcall V9xHalGetDriverInfo(V9X_DDHAL_GETDRIVERINFODATA *data)
     if (data == 0) {
         return V9X_DD_OK;
     }
+    v9x_trace_enter(V9X_TRACE_GETDRIVERINFO,
+                    ((DWORD)data->guidInfo[3] << 24) |
+                    ((DWORD)data->guidInfo[2] << 16) |
+                    ((DWORD)data->guidInfo[1] << 8) |
+                    (DWORD)data->guidInfo[0]);
     data->dwActualSize = 0ul;
     data->ddRVal = 0x88760028ul;
     for (index = 0ul; index < 16ul; ++index) {
         if (data->guidInfo[index] != v9x_guid_d3d_callbacks2[index]) {
+            v9x_trace_exit(V9X_TRACE_GETDRIVERINFO, data->ddRVal);
             return V9X_DD_OK;
         }
     }
@@ -1046,6 +1170,7 @@ DWORD __stdcall V9xHalGetDriverInfo(V9X_DDHAL_GETDRIVERINFODATA *data)
         }
         data->ddRVal = V9X_DD_OK;
     }
+    v9x_trace_exit(V9X_TRACE_GETDRIVERINFO, data->ddRVal);
     return V9X_DD_OK;
 }
 
@@ -1098,6 +1223,7 @@ DWORD __stdcall DriverInit(DWORD context)
         return 0ul;
     }
     v9x_hal = shared;
+    v9x_trace_enter(V9X_TRACE_DRIVERINIT, (DWORD)shared);
 
     v9x_fill_modes(shared);
 
@@ -1226,6 +1352,7 @@ DWORD __stdcall DriverInit(DWORD context)
 
     shared->hInstance = V9X_HAL_BASE;
     shared->driver_init_done = 1ul;
+    v9x_trace_exit(V9X_TRACE_DRIVERINIT, 1ul);
     return 1ul;
 }
 

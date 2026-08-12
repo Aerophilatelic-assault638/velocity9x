@@ -32,6 +32,7 @@ if ($BuildId -notmatch '^[A-Za-z0-9._+-]+$') {
 & (Join-Path $PSScriptRoot "build-mode-switch.ps1") -BuildId $BuildId
 & (Join-Path $PSScriptRoot "build-power-cycle.ps1") -BuildId $BuildId
 & (Join-Path $PSScriptRoot "build-ddraw-probe.ps1") -BuildId $BuildId
+& (Join-Path $PSScriptRoot "build-trace-dump.ps1") -BuildId $BuildId
 & (Join-Path $PSScriptRoot "build-ddraw-hal-dll.ps1") -BuildId $BuildId
 & (Join-Path $PSScriptRoot "build-vxd-loader-probe.ps1") `
     -BuildId $BuildId -DdkRoot $DdkRoot
@@ -121,6 +122,8 @@ Copy-Item -LiteralPath (Join-Path $repoRoot "build\power-cycle\v9xpwr.exe") `
     -Destination (Join-Path $outputDir "V9XPWR.EXE") -Force
 Copy-Item -LiteralPath (Join-Path $repoRoot "build\ddraw-probe\v9xddp.exe") `
     -Destination (Join-Path $outputDir "V9XDDP.EXE") -Force
+Copy-Item -LiteralPath (Join-Path $repoRoot "build\trace-dump\v9xtrace.exe") `
+    -Destination (Join-Path $outputDir "V9XTRACE.EXE") -Force
 Copy-Item -LiteralPath (Join-Path $repoRoot "build\vxd-probe\v9xprobe.vxd") `
     -Destination (Join-Path $outputDir "V9XPROBE.VXD") -Force
 Copy-Item -LiteralPath (Join-Path $repoRoot "build\win16-loader-probe\v9x16ld.exe") `
@@ -159,6 +162,7 @@ $manifest = @(
     "Mode-switch test: V9XMSW.EXE (/set:WxHxB, /cycle:N, /depth)",
     "Monitor-power test: V9XPWR.EXE (D3 off, then D0 wake)",
     "DirectDraw probe: V9XDDP.EXE (flip timing and mode honesty)",
+    "HAL trace dump: V9XTRACE.EXE (writes C:\\V9XTRACE.INI after a crash)",
     "Preflight: V9XSTAGE.EXE (no mode change and no installation)",
     "Status: HOST-AUDITED; GUEST ACTIVATION NOT YET TESTED",
     "",
@@ -182,7 +186,8 @@ $expectedPackageFiles = @(
     "V9X16LD.EXE", "V9XDDP.EXE", "V9XDISP.DRV", "V9XFIX.BAT", "V9XHAL.DLL",
     "V9XGDI.EXE", "V9XMSW.EXE", "V9XPAL.EXE", "V9XPWR.EXE",
     "V9XMINI.VXD", "V9XPROBE.VXD",
-    "V9XSET.EXE", "V9XSETP.DLL", "V9XSTAGE.EXE", "VELOCITY9X.INF"
+    "V9XSET.EXE", "V9XSETP.DLL", "V9XSTAGE.EXE", "V9XTRACE.EXE",
+    "VELOCITY9X.INF"
 )
 $actualPackageFiles = @(Get-ChildItem -LiteralPath $outputDir -File |
     ForEach-Object { $_.Name } | Sort-Object)

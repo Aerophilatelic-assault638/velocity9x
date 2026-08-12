@@ -37,6 +37,30 @@ static void v9x_dd_trace(const char FAR *stage)
                               "C:\\V9XDDH.INI");
 }
 
+/* 16-bit writer for the shared callback trace ring (same record layout as
+ * the 32-bit HAL writers in ddhal.c). */
+static void v9x_dd_trace_event(WORD id, DWORD detail)
+{
+    V9X_DD_TRACE FAR *trace;
+    DWORD slot;
+
+    if (v9x_dd_shared == 0) {
+        return;
+    }
+    trace = &v9x_dd_shared->trace;
+    trace->last_enter_id = id;
+    trace->last_enter_detail = detail;
+    if (id < V9X_DD_TRACE_ID_COUNT) {
+        ++trace->counters[id];
+    }
+    slot = trace->head < V9X_DD_TRACE_RING_COUNT ? trace->head : 0ul;
+    trace->ring[slot].id = id;
+    trace->ring[slot].seq = (WORD)trace->seq;
+    trace->ring[slot].detail = detail;
+    trace->head = slot + 1ul < V9X_DD_TRACE_RING_COUNT ? slot + 1ul : 0ul;
+    ++trace->seq;
+}
+
 /* Provided by ddi.c: the live PDEVICE far pointer and the active mode. */
 extern V9X_DD_VOID_PTR v9x_dd_active_pdevice(void);
 extern WORD v9x_dd_active_mode(WORD FAR *width, WORD FAR *height,
@@ -72,6 +96,7 @@ static V9X_DD_SHARED FAR *v9x_dd_block(void)
 static DWORD __loadds FAR PASCAL v9x_dd_destroy_driver(
     V9X_DDHAL_DESTROYDRIVERDATA FAR *data)
 {
+    v9x_dd_trace_event(V9X_TRACE_DD16_DESTROYDRIVER, 0ul);
     data->ddRVal = V9X_DD_OK;
     v9x_dd_set_info = 0;
     v9x_serial_write("V9X-DD destroy-driver\r\n");
@@ -190,6 +215,7 @@ WORD FAR PASCAL V9xDdCreateDriverObject(WORD reset)
     if (v9x_dd_block() == 0) {
         return 0u;
     }
+    v9x_dd_trace_event(V9X_TRACE_DD16_CREATEOBJECT, (DWORD)reset);
     v9x_dd_refresh_framebuffer();
     v9x_dd_refresh_info();
     if (v9x_dd_shared->driver_init_done == 0ul) {
@@ -245,6 +271,7 @@ static LONG v9x_dd_command(V9X_DCICMD FAR *command, LPVOID output)
             }
             data->dwContext = V9xDdSharedLinear();
         }
+        v9x_dd_trace_event(V9X_TRACE_DD16_GET32BITNAME, 0ul);
         v9x_serial_write("V9X-DD get32bitname\r\n");
         v9x_dd_trace("get32bitname");
         return 1;
@@ -258,8 +285,47 @@ static LONG v9x_dd_command(V9X_DCICMD FAR *command, LPVOID output)
             }
             v9x_dd_set_info = (V9X_SETINFO_FN)fns->lpSetInfo;
         }
+        v9x_dd_trace_event(V9X_TRACE_DD16_NEWCALLBACKFNS, 0ul);
         v9x_serial_write("V9X-DD newcallbackfns\r\n");
         v9x_dd_trace("newcallbackfns");
+        return 1;
+    case V9X_DDGETTRACE:
+        /* Copy a snapshot of the trace state for the diagnostics tool.
+         * Byte copy keeps the 16-bit build free of runtime helpers. */
+        if (v9x_dd_block() == 0 || output == 0) {
+            return 0;
+        }
+        {
+            V9X_DD_TRACE_SNAPSHOT FAR *snapshot =
+                (V9X_DD_TRACE_SNAPSHOT FAR *)output;
+            const BYTE FAR *source;
+            BYTE FAR *destination;
+            WORD index;
+
+            snapshot->dwSize = sizeof(V9X_DD_TRACE_SNAPSHOT);
+            snapshot->abi = v9x_dd_shared->abi;
+            snapshot->driver_init_done = v9x_dd_shared->driver_init_done;
+            source = (const BYTE FAR *)&v9x_dd_shared->fb;
+            destination = (BYTE FAR *)&snapshot->fb;
+            for (index = 0u; index < sizeof(V9X_DD_FRAMEBUFFER); ++index) {
+                destination[index] = source[index];
+            }
+            source = (const BYTE FAR *)&v9x_dd_shared->engine;
+            destination = (BYTE FAR *)&snapshot->engine;
+            for (index = 0u; index < sizeof(V9X_DD_ENGINE); ++index) {
+                destination[index] = source[index];
+            }
+            source = (const BYTE FAR *)&v9x_dd_shared->d3d_diagnostics;
+            destination = (BYTE FAR *)&snapshot->d3d;
+            for (index = 0u; index < sizeof(V9X_D3D_DIAGNOSTICS); ++index) {
+                destination[index] = source[index];
+            }
+            source = (const BYTE FAR *)&v9x_dd_shared->trace;
+            destination = (BYTE FAR *)&snapshot->trace;
+            for (index = 0u; index < sizeof(V9X_DD_TRACE); ++index) {
+                destination[index] = source[index];
+            }
+        }
         return 1;
     case V9X_DDVERSIONINFO:
         if (output != 0) {

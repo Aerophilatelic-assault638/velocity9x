@@ -37,6 +37,11 @@ typedef void (FAR PASCAL *V9X_DD_CODE_PTR)();
 #define V9X_DDNEWCALLBACKFNS             12ul
 #define V9X_DDVERSIONINFO                13ul
 
+/* Project-private DCICOMMAND: copy the HAL trace snapshot to the output
+ * buffer. The value is far outside the documented DCI/DDRAW command range
+ * so a runtime that does not know it cannot collide with it. */
+#define V9X_DDGETTRACE           0x56395452ul /* 'V9TR' */
+
 /* Driver-side return conventions. */
 #define V9X_DDHAL_DRIVER_NOTHANDLED  0x00000000ul
 #define V9X_DDHAL_DRIVER_HANDLED     0x00000001ul
@@ -682,7 +687,7 @@ typedef struct v9x_ddhal_destroydriverdata {
  * V9XHAL.DLL's DriverInit. The 32-bit side owns all content except the
  * framebuffer descriptor, which the 16-bit side refreshes on every enable.
  */
-#define V9X_DD_SHARED_ABI   2026081102ul
+#define V9X_DD_SHARED_ABI   2026081201ul
 #define V9X_DD_MODE_COUNT            6u
 
 /* fb.flags */
@@ -734,6 +739,72 @@ typedef struct v9x_d3d_diagnostics {
     DWORD render_primitive_calls;
 } V9X_D3D_DIAGNOSTICS;
 
+/*
+ * Bounded HAL callback trace (Hellbender plan H1). Both sides append
+ * fixed-size records to a ring inside the shared block, so the last
+ * callbacks before a fault survive the faulting process and can be read
+ * back with the V9X_DDGETTRACE escape. All writers are allocation-free.
+ */
+#define V9X_DD_TRACE_RING_COUNT     32u
+#define V9X_DD_TRACE_ID_COUNT       40u
+#define V9X_DD_TRACE_EXIT_FLAG   0x8000u
+
+/* Trace event ids. Gaps group the sources: 16-bit escapes, DirectDraw
+ * HAL callbacks, Direct3D HAL callbacks. */
+#define V9X_TRACE_DRIVERINIT           1u
+#define V9X_TRACE_DD16_CREATEOBJECT    2u
+#define V9X_TRACE_DD16_DESTROYDRIVER   3u
+#define V9X_TRACE_DD16_NEWCALLBACKFNS  4u
+#define V9X_TRACE_DD16_GET32BITNAME    5u
+#define V9X_TRACE_FLIP                10u
+#define V9X_TRACE_GETFLIPSTATUS       11u
+#define V9X_TRACE_LOCK                12u
+#define V9X_TRACE_UNLOCK              13u
+#define V9X_TRACE_BLT                 14u
+#define V9X_TRACE_GETBLTSTATUS        15u
+#define V9X_TRACE_WAITFORVBLANK       16u
+#define V9X_TRACE_SETEXCLUSIVE        17u
+#define V9X_TRACE_FLIPTOGDI           18u
+#define V9X_TRACE_GETDRIVERINFO       19u
+#define V9X_TRACE_D3D_CTXCREATE       30u
+#define V9X_TRACE_D3D_CTXDESTROY      31u
+#define V9X_TRACE_D3D_CTXDESTROYALL   32u
+#define V9X_TRACE_D3D_RENDERSTATE     33u
+#define V9X_TRACE_D3D_RENDERPRIM      34u
+#define V9X_TRACE_D3D_SETRENDERTARGET 35u
+#define V9X_TRACE_D3D_DRAWONEPRIM     36u
+#define V9X_TRACE_D3D_DRAWPRIMS       37u
+#define V9X_TRACE_D3D_DRAWONEINDEXED  38u
+
+typedef struct v9x_dd_trace_entry {
+    WORD id;            /* trace id, V9X_DD_TRACE_EXIT_FLAG on exit    */
+    WORD seq;           /* low word of the event sequence              */
+    DWORD detail;       /* enter: callback argument; exit: result code */
+} V9X_DD_TRACE_ENTRY;
+
+typedef struct v9x_dd_trace {
+    DWORD seq;          /* total events recorded                       */
+    DWORD head;         /* next ring slot                              */
+    DWORD last_enter_id;
+    DWORD last_enter_detail;
+    DWORD last_exit_id;
+    DWORD last_exit_result;
+    WORD counters[V9X_DD_TRACE_ID_COUNT]; /* per-id enter counts       */
+    V9X_DD_TRACE_ENTRY ring[V9X_DD_TRACE_RING_COUNT];
+} V9X_DD_TRACE;
+
+/* V9X_DDGETTRACE output. Field-for-field copy of the live shared state;
+ * dwSize/abi let the reader reject a mismatched driver build. */
+typedef struct v9x_dd_trace_snapshot {
+    DWORD dwSize;
+    DWORD abi;
+    DWORD driver_init_done;
+    V9X_DD_FRAMEBUFFER fb;
+    V9X_DD_ENGINE engine;
+    V9X_D3D_DIAGNOSTICS d3d;
+    V9X_DD_TRACE trace;
+} V9X_DD_TRACE_SNAPSHOT;
+
 typedef struct v9x_dd_shared {
     DWORD dwSize;           /* sizeof(V9X_DD_SHARED)                    */
     DWORD abi;              /* V9X_DD_SHARED_ABI                        */
@@ -751,6 +822,7 @@ typedef struct v9x_dd_shared {
     V9X_D3D_DIAGNOSTICS d3d_diagnostics;
     V9X_VIDMEM heaps[1];
     V9X_DDHALMODEINFO modes[V9X_DD_MODE_COUNT];
+    V9X_DD_TRACE trace;
 } V9X_DD_SHARED;
 
 #pragma pack(pop)
@@ -782,6 +854,10 @@ typedef char v9x_dd_assert_dd32data[
 typedef char v9x_dd_assert_bltdata[
     sizeof(V9X_DDHAL_BLTDATA) == 160 ? 1 : -1];
 #endif
+typedef char v9x_dd_assert_trace_entry[
+    sizeof(V9X_DD_TRACE_ENTRY) == 8 ? 1 : -1];
+typedef char v9x_dd_assert_trace[
+    sizeof(V9X_DD_TRACE) == 360 ? 1 : -1];
 typedef char v9x_dd_assert_shared_fits_dpmi_block[
     sizeof(V9X_DD_SHARED) <= 2048 ? 1 : -1];
 
