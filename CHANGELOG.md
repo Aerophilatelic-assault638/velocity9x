@@ -4,6 +4,21 @@ All notable Velocity9x changes are recorded here. The project uses semantic
 version numbers for product milestones; diagnostic builds retain a separate
 build identifier so exact guest-tested binaries remain traceable.
 
+## Unreleased
+
+### Added
+
+- The DirectDraw HAL now writes its callback ring directly to
+  `C:\V9XTRACE.INI` on an unhandled process fault or bounded ViRGE engine
+  timeout, before recovery can discard the last useful callback history. The
+  manual trace utility writes `C:\V9XSNAP.INI` so it cannot erase that evidence.
+
+### Fixed
+
+- Direct3D primary and flip-chain render targets now use the live scanout
+  pitch, dimensions, and RGB565 description instead of potentially stale
+  per-surface metadata. Target layout is included in the callback trace.
+
 ## 0.2 - 2026-08-11
 
 ### Added

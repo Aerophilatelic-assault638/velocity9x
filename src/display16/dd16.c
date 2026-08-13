@@ -225,6 +225,9 @@ WORD FAR PASCAL V9xDdCreateDriverObject(WORD reset)
         return 0u;
     }
     result = v9x_dd_set_info(&v9x_dd_shared->info, reset);
+    v9x_dd_trace_event((WORD)(V9X_TRACE_DD16_CREATEOBJECT |
+                              V9X_DD_TRACE_EXIT_FLAG),
+                       (DWORD)result);
     v9x_serial_write(result != 0u ? "V9X-DD setinfo-ok\r\n"
                                   : "V9X-DD setinfo-fail\r\n");
     v9x_dd_trace(result != 0u ? "setinfo-ok" : "setinfo-fail");

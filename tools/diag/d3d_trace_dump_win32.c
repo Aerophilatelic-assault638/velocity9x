@@ -3,10 +3,11 @@
  *
  * Reads the bounded callback trace out of the driver's shared block with
  * the project-private V9X_DDGETTRACE DCICOMMAND escape and writes it to
- * C:\V9XTRACE.INI. Run it after a Direct3D application crash to see the
- * last completed HAL callbacks, per-callback counts, and engine timeout
- * counters. The tool follows the diagnostic-suite rule of runtime-free
- * static imports (KERNEL32/USER32/GDI32 only).
+ * C:\V9XSNAP.INI. The HAL reserves C:\V9XTRACE.INI for automatic fault and
+ * engine-timeout captures, so a manual snapshot cannot erase crash evidence. It
+ * reports the last completed HAL callbacks, per-callback counts, and engine
+ * timeout counters. The tool follows the diagnostic-suite rule of runtime-
+ * free static imports (KERNEL32/USER32/GDI32 only).
  */
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -18,7 +19,7 @@
 #endif
 
 #define V9X_SECTION      "Velocity9xTrace"
-#define V9X_RESULT_PATH  "C:\\V9XTRACE.INI"
+#define V9X_RESULT_PATH  "C:\\V9XSNAP.INI"
 
 static void v9x_uint_text(char *text, DWORD value)
 {
@@ -97,6 +98,7 @@ static const char *v9x_trace_name(WORD id)
     case V9X_TRACE_D3D_DRAWONEPRIM:      return "D3dDrawOnePrimitive";
     case V9X_TRACE_D3D_DRAWPRIMS:        return "D3dDrawPrimitives";
     case V9X_TRACE_D3D_DRAWONEINDEXED:   return "D3dDrawOneIndexed";
+    case V9X_TRACE_D3D_TARGET_LAYOUT:    return "D3dTargetLayout";
     default:                             return "Unknown";
     }
 }

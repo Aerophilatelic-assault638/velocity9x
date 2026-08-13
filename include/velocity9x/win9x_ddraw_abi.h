@@ -54,6 +54,7 @@ typedef void (FAR PASCAL *V9X_DD_CODE_PTR)();
 #define V9X_DDCAPS_GDI               0x00000400ul
 #define V9X_DDCAPS_BLTCOLORFILL      0x04000000ul
 #define V9X_DDSCAPS_3DDEVICE         0x00002000ul
+#define V9X_DDSCAPS_BACKBUFFER       0x00000004ul
 #define V9X_DDSCAPS_OFFSCREENPLAIN   0x00000040ul
 #define V9X_DDSCAPS_PRIMARYSURFACE   0x00000200ul
 #define V9X_DDSCAPS_SYSTEMMEMORY     0x00000800ul
@@ -775,6 +776,7 @@ typedef struct v9x_d3d_diagnostics {
 #define V9X_TRACE_D3D_DRAWONEPRIM     36u
 #define V9X_TRACE_D3D_DRAWPRIMS       37u
 #define V9X_TRACE_D3D_DRAWONEINDEXED  38u
+#define V9X_TRACE_D3D_TARGET_LAYOUT   39u
 
 typedef struct v9x_dd_trace_entry {
     WORD id;            /* trace id, V9X_DD_TRACE_EXIT_FLAG on exit    */

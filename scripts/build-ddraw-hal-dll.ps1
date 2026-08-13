@@ -28,7 +28,8 @@ if (-not $watcomRoot) {
 $compiler = Join-Path $watcomRoot "binnt64\wcc386.exe"
 $linker = Join-Path $watcomRoot "binnt64\wlink.exe"
 $dumper = Join-Path $watcomRoot "binnt64\wdump.exe"
-$missingInputs = @(@($compiler, $linker, $dumper) |
+$kernel32 = Join-Path $watcomRoot "lib386\nt\kernel32.lib"
+$missingInputs = @(@($compiler, $linker, $dumper, $kernel32) |
     Where-Object { -not (Test-Path -LiteralPath $_) })
 if ($missingInputs.Count -ne 0) {
     throw "Required DirectDraw HAL inputs are missing: $($missingInputs -join ', ')"
@@ -64,7 +65,8 @@ $linkLines = @(
     "option modname='V9XHAL'",
     "export DriverInit='_DriverInit@4'",
     "name '$dll'",
-    "file '$object'"
+    "file '$object'",
+    "library '$kernel32'"
 )
 Set-Content -LiteralPath $linkFile -Encoding Ascii -Value $linkLines
 & $linker "@$linkFile"
@@ -121,6 +123,12 @@ $unexpectedDlls = @($dllNames | Where-Object { $_ -notin @("KERNEL32.DLL") })
 if ($unexpectedDlls.Count -ne 0 -or
     $dumpText -match "GetCommandLineW|GetModuleFileNameW|__CHK") {
     throw "The DirectDraw HAL DLL contains an incompatible runtime import."
+}
+foreach ($requiredApi in @("CloseHandle", "CreateFileA", "FlushFileBuffers",
+                            "SetUnhandledExceptionFilter", "WriteFile")) {
+    if ($dumpText -notmatch [regex]::Escape($requiredApi)) {
+        throw "The DirectDraw HAL DLL is missing import $requiredApi."
+    }
 }
 $imageText = [System.Text.Encoding]::ASCII.GetString($bytes)
 if (-not $imageText.Contains($BuildId)) {

@@ -159,6 +159,179 @@ static void v9x_trace_exit(WORD id, DWORD result)
     v9x_trace_push((WORD)(id | V9X_DD_TRACE_EXIT_FLAG), result);
 }
 
+#define V9X_TRACE_PATH "C:\\V9XTRACE.INI"
+
+static int v9x_fault_flush_active;
+
+static const char *v9x_trace_name(WORD id)
+{
+    switch (id & (WORD)~V9X_DD_TRACE_EXIT_FLAG) {
+    case V9X_TRACE_DRIVERINIT:           return "DriverInit";
+    case V9X_TRACE_DD16_CREATEOBJECT:    return "Dd16CreateObject";
+    case V9X_TRACE_DD16_DESTROYDRIVER:   return "Dd16DestroyDriver";
+    case V9X_TRACE_DD16_NEWCALLBACKFNS:  return "Dd16NewCallbackFns";
+    case V9X_TRACE_DD16_GET32BITNAME:    return "Dd16Get32BitName";
+    case V9X_TRACE_FLIP:                 return "Flip";
+    case V9X_TRACE_GETFLIPSTATUS:        return "GetFlipStatus";
+    case V9X_TRACE_LOCK:                 return "Lock";
+    case V9X_TRACE_UNLOCK:               return "Unlock";
+    case V9X_TRACE_BLT:                  return "Blt";
+    case V9X_TRACE_GETBLTSTATUS:         return "GetBltStatus";
+    case V9X_TRACE_WAITFORVBLANK:        return "WaitForVerticalBlank";
+    case V9X_TRACE_SETEXCLUSIVE:         return "SetExclusiveMode";
+    case V9X_TRACE_FLIPTOGDI:            return "FlipToGDISurface";
+    case V9X_TRACE_GETDRIVERINFO:        return "GetDriverInfo";
+    case V9X_TRACE_D3D_CTXCREATE:        return "D3dContextCreate";
+    case V9X_TRACE_D3D_CTXDESTROY:       return "D3dContextDestroy";
+    case V9X_TRACE_D3D_CTXDESTROYALL:    return "D3dContextDestroyAll";
+    case V9X_TRACE_D3D_RENDERSTATE:      return "D3dRenderState";
+    case V9X_TRACE_D3D_RENDERPRIM:       return "D3dRenderPrimitive";
+    case V9X_TRACE_D3D_SETRENDERTARGET:  return "D3dSetRenderTarget";
+    case V9X_TRACE_D3D_DRAWONEPRIM:      return "D3dDrawOnePrimitive";
+    case V9X_TRACE_D3D_DRAWPRIMS:        return "D3dDrawPrimitives";
+    case V9X_TRACE_D3D_DRAWONEINDEXED:   return "D3dDrawOneIndexed";
+    case V9X_TRACE_D3D_TARGET_LAYOUT:    return "D3dTargetLayout";
+    default:                             return "Unknown";
+    }
+}
+
+static char *v9x_text_append(char *at, const char *text)
+{
+    while (*text != '\0') {
+        *at++ = *text++;
+    }
+    return at;
+}
+
+static char *v9x_hex_append(char *at, DWORD value)
+{
+    static const char digits[] = "0123456789ABCDEF";
+    int shift;
+
+    *at++ = '0';
+    *at++ = 'x';
+    for (shift = 28; shift >= 0; shift -= 4) {
+        *at++ = digits[(value >> shift) & 0xful];
+    }
+    return at;
+}
+
+static void v9x_file_text(HANDLE file, const char *text)
+{
+    DWORD length = 0ul;
+    DWORD written;
+
+    while (text[length] != '\0') {
+        ++length;
+    }
+    WriteFile(file, text, length, &written, 0);
+}
+
+/* This deliberately uses only fixed storage and KERNEL32 file I/O. It is
+ * callable after an engine timeout and from the process exception filter,
+ * where profile APIs, heap allocation, and GDI re-entry are unsafe. */
+static void v9x_trace_flush_fault(DWORD code, DWORD address)
+{
+    HANDLE file;
+    char line[112];
+    char *at;
+    DWORD index;
+
+    if (v9x_hal == 0 || v9x_fault_flush_active) {
+        return;
+    }
+    v9x_fault_flush_active = 1;
+    file = CreateFileA(V9X_TRACE_PATH, GENERIC_WRITE,
+                       FILE_SHARE_READ | FILE_SHARE_WRITE, 0, CREATE_ALWAYS,
+                       FILE_ATTRIBUTE_NORMAL | FILE_FLAG_WRITE_THROUGH, 0);
+    if (file == INVALID_HANDLE_VALUE) {
+        v9x_fault_flush_active = 0;
+        return;
+    }
+    v9x_file_text(file, "[Velocity9xTrace]\r\nFaultFlush=1\r\nBuild=");
+    v9x_file_text(file, v9x_hal_build_id);
+    v9x_file_text(file, "\r\n");
+
+#define V9X_WRITE_HEX_KEY(key, value) \
+    do { \
+        at = v9x_text_append(line, key "="); \
+        at = v9x_hex_append(at, (DWORD)(value)); \
+        at = v9x_text_append(at, "\r\n"); \
+        *at = '\0'; \
+        v9x_file_text(file, line); \
+    } while (0)
+
+    V9X_WRITE_HEX_KEY("FaultCode", code);
+    V9X_WRITE_HEX_KEY("FaultAddress", address);
+    V9X_WRITE_HEX_KEY("ModeWidth", v9x_hal->fb.width);
+    V9X_WRITE_HEX_KEY("ModeHeight", v9x_hal->fb.height);
+    V9X_WRITE_HEX_KEY("ModeBpp", v9x_hal->fb.bits_per_pixel);
+    V9X_WRITE_HEX_KEY("ModePitch", v9x_hal->fb.pitch);
+    V9X_WRITE_HEX_KEY("DisplayPitch", v9x_hal->info.vmiData.lDisplayPitch);
+    V9X_WRITE_HEX_KEY("DisplayFormatFlags",
+                      v9x_hal->info.vmiData.ddpfDisplay.dwFlags);
+    V9X_WRITE_HEX_KEY("DisplayRMask",
+                      v9x_hal->info.vmiData.ddpfDisplay.dwRBitMask);
+    V9X_WRITE_HEX_KEY("DisplayGMask",
+                      v9x_hal->info.vmiData.ddpfDisplay.dwGBitMask);
+    V9X_WRITE_HEX_KEY("DisplayBMask",
+                      v9x_hal->info.vmiData.ddpfDisplay.dwBBitMask);
+    V9X_WRITE_HEX_KEY("TraceEvents", v9x_hal->trace.seq);
+    V9X_WRITE_HEX_KEY("LastEnterId", v9x_hal->trace.last_enter_id);
+    V9X_WRITE_HEX_KEY("LastEnterDetail",
+                      v9x_hal->trace.last_enter_detail);
+    V9X_WRITE_HEX_KEY("LastExitId", v9x_hal->trace.last_exit_id);
+    V9X_WRITE_HEX_KEY("LastExitResult",
+                      v9x_hal->trace.last_exit_result);
+    V9X_WRITE_HEX_KEY("EngineFifoTimeouts",
+                      v9x_hal->engine.fifo_timeouts);
+    V9X_WRITE_HEX_KEY("EngineIdleTimeouts",
+                      v9x_hal->engine.idle_timeouts);
+    V9X_WRITE_HEX_KEY("EngineResets", v9x_hal->engine.reset_count);
+
+    for (index = 0ul; index < V9X_DD_TRACE_RING_COUNT; ++index) {
+        DWORD slot = v9x_hal->trace.head + index;
+        const V9X_DD_TRACE_ENTRY *entry;
+
+        if (slot >= V9X_DD_TRACE_RING_COUNT) {
+            slot -= V9X_DD_TRACE_RING_COUNT;
+        }
+        entry = &v9x_hal->trace.ring[slot];
+        if (entry->id == 0u && entry->seq == 0u && entry->detail == 0ul) {
+            continue;
+        }
+        at = v9x_text_append(line, "Ring=");
+        at = v9x_hex_append(at, entry->seq);
+        *at++ = ' ';
+        at = v9x_text_append(at, v9x_trace_name(entry->id));
+        at = v9x_text_append(at,
+            (entry->id & V9X_DD_TRACE_EXIT_FLAG) != 0u ? " exit "
+                                                       : " enter ");
+        at = v9x_hex_append(at, entry->detail);
+        at = v9x_text_append(at, "\r\n");
+        *at = '\0';
+        v9x_file_text(file, line);
+    }
+#undef V9X_WRITE_HEX_KEY
+    FlushFileBuffers(file);
+    CloseHandle(file);
+    v9x_fault_flush_active = 0;
+}
+
+static LONG WINAPI v9x_unhandled_exception_filter(
+    struct _EXCEPTION_POINTERS *exception)
+{
+    DWORD code = 0ul;
+    DWORD address = 0ul;
+
+    if (exception != 0 && exception->ExceptionRecord != 0) {
+        code = exception->ExceptionRecord->ExceptionCode;
+        address = (DWORD)exception->ExceptionRecord->ExceptionAddress;
+    }
+    v9x_trace_flush_fault(code, address);
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
 static unsigned char v9x_inp(unsigned short port);
 #pragma aux v9x_inp = "in al,dx" parm [dx] value [al] modify exact [al];
 
@@ -276,6 +449,7 @@ static int v9x_wait_fifo(DWORD entries, int wait)
         }
     }
     ++v9x_hal->engine.fifo_timeouts;
+    v9x_trace_flush_fault(0x56394646ul, V9X_VIRGE_ENGINE_STATUS);
     v9x_engine_recover();
     return 0;
 }
@@ -300,6 +474,7 @@ static int v9x_wait_idle(int wait)
         }
     }
     ++v9x_hal->engine.idle_timeouts;
+    v9x_trace_flush_fault(0x56394944ul, V9X_VIRGE_ENGINE_STATUS);
     v9x_engine_recover();
     return 0;
 }
@@ -660,6 +835,11 @@ static int v9x_d3d_set_target(V9X_D3D_CONTEXT *context, void *surface,
     V9X_DD_SURFACE_GBL *global;
     DWORD offset;
     DWORD last_byte;
+    DWORD pitch;
+    DWORD width;
+    DWORD height;
+    int primary;
+    int display_layout;
 
     if (context == 0 || target == 0 || target->lpGbl == 0 ||
         (target->ddsCaps & V9X_DDSCAPS_SYSTEMMEMORY) != 0ul) {
@@ -667,14 +847,53 @@ static int v9x_d3d_set_target(V9X_D3D_CONTEXT *context, void *surface,
     }
     global = target->lpGbl;
     offset = v9x_surface_offset(target);
-    if (offset == 0xfffffffful || global->lPitch <= 0l ||
-        ((DWORD)global->lPitch & 7ul) != 0ul || global->wWidth == 0u ||
-        global->wHeight == 0u || global->wWidth > 2048u ||
-        global->wHeight > 2048u) {
+    primary = (target->ddsCaps & V9X_DDSCAPS_PRIMARYSURFACE) != 0ul;
+    display_layout = (target->ddsCaps &
+        (V9X_DDSCAPS_PRIMARYSURFACE | V9X_DDSCAPS_BACKBUFFER)) != 0ul;
+    pitch = (DWORD)global->lPitch;
+    width = global->wWidth;
+    height = global->wHeight;
+    /* Low byte: 0x80 marks raw DDRAW metadata; bits 1:0 identify
+     * offscreen/primary/backbuffer. The following event records the pitch
+     * actually selected after display-layout normalization. */
+    v9x_trace_push(V9X_TRACE_D3D_TARGET_LAYOUT,
+                   ((pitch & 0xfffful) << 16) |
+                   ((v9x_hal->fb.bits_per_pixel & 0xfful) << 8) | 0x80ul |
+                   (primary ? 1ul : (display_layout ? 2ul : 0ul)));
+    if (display_layout) {
+        V9X_DDPIXELFORMAT *format = &v9x_hal->info.vmiData.ddpfDisplay;
+
+        /* DDRAW's primary/flip-chain metadata has varied across the legacy
+         * runtime paths. The scanout descriptor is authoritative for these
+         * display-sized surfaces: using a stale surface pitch here creates
+         * diagonal/striped S3D output and can walk beyond the page. */
+        if ((primary && offset != 0ul) ||
+            v9x_hal->fb.bits_per_pixel != 16ul ||
+            v9x_hal->info.vmiData.lDisplayPitch !=
+                (LONG)v9x_hal->fb.pitch ||
+            format->dwSize != sizeof(V9X_DDPIXELFORMAT) ||
+            (format->dwFlags & V9X_DDPF_RGB) == 0ul ||
+            format->dwRGBBitCount != 16ul ||
+            format->dwRBitMask != 0x0000f800ul ||
+            format->dwGBitMask != 0x000007e0ul ||
+            format->dwBBitMask != 0x0000001ful) {
+            return 0;
+        }
+        pitch = v9x_hal->fb.pitch;
+        width = v9x_hal->fb.width;
+        height = v9x_hal->fb.height;
+    }
+    v9x_trace_push(V9X_TRACE_D3D_TARGET_LAYOUT,
+                   ((pitch & 0xfffful) << 16) |
+                   ((v9x_hal->fb.bits_per_pixel & 0xfful) << 8) |
+                   (primary ? 1ul : (display_layout ? 2ul : 0ul)));
+    if (offset == 0xfffffffful || (!display_layout && global->lPitch <= 0l) ||
+        (pitch & 7ul) != 0ul || pitch > 0x00000ff8ul ||
+        width == 0ul || width > pitch / 2ul || height == 0ul ||
+        width > 2048ul || height > 2048ul) {
         return 0;
     }
-    last_byte = (DWORD)(global->wHeight - 1u) * (DWORD)global->lPitch +
-                (DWORD)global->wWidth * 2ul;
+    last_byte = (height - 1ul) * pitch + width * 2ul;
     if (last_byte > v9x_hal->fb.vram_bytes ||
         offset > v9x_hal->fb.vram_bytes - last_byte) {
         return 0;
@@ -682,9 +901,9 @@ static int v9x_d3d_set_target(V9X_D3D_CONTEXT *context, void *surface,
     context->target = target;
     context->zbuffer = zbuffer != 0 ? v9x_d3d_surface_lcl(zbuffer) : 0;
     context->target_offset = offset;
-    context->pitch = (DWORD)global->lPitch;
-    context->width = global->wWidth;
-    context->height = global->wHeight;
+    context->pitch = pitch;
+    context->width = width;
+    context->height = height;
     return context->zbuffer == 0;
 }
 
@@ -1223,6 +1442,7 @@ DWORD __stdcall DriverInit(DWORD context)
         return 0ul;
     }
     v9x_hal = shared;
+    SetUnhandledExceptionFilter(v9x_unhandled_exception_filter);
     v9x_trace_enter(V9X_TRACE_DRIVERINIT, (DWORD)shared);
 
     v9x_fill_modes(shared);

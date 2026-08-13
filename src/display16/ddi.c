@@ -706,9 +706,14 @@ static WORD v9x_build_pdevice(LPVOID device_info,
     v9x_serial_write(" lfb-mapped\r\n");
     v9x_publish_hardware_diagnostics();
 #ifndef V9X_TARGET_MATROX_MILLENNIUM2
-    /* Refresh the DirectDraw HAL for the (possibly new) mode; harmless
-     * no-op until DDRAW has delivered SetInfo. */
-    (void)V9xDdCreateDriverObject(1u);
+    /* A live ReEnable owns a DIBENGINE BeginAccessRect exclusion until the
+     * rebuilt PDEVICE has been finalized below. Calling DIBENGINE's SetInfo
+     * from inside that exclusion re-enters DIBENG and can fault. The
+     * ReEnable path publishes the refreshed HAL after EndAccessRect instead.
+     * Normal Enable still performs the harmless pre-DDRAW refresh here. */
+    if (v9x_reenabling == 0u) {
+        (void)V9xDdCreateDriverObject(1u);
+    }
 #endif
     v9x_boot_trace("enable-ok");
     return 1u;
@@ -816,6 +821,11 @@ WORD __loadds FAR PASCAL ReEnable(LPVOID destination_device,
         return 0u;
     }
     device->deFlags &= (WORD)~V9X_DE_BUSY;
+#ifndef V9X_TARGET_MATROX_MILLENNIUM2
+    /* DIBENGINE access exclusion and PDEVICE reconstruction are complete;
+     * it is now safe to call the runtime's SetInfo reset callback. */
+    (void)V9xDdCreateDriverObject(1u);
+#endif
     v9x_serial_write_mode("V9X-DRV switch-ok mode=");
     v9x_serial_write("\r\n");
     return 1u;
