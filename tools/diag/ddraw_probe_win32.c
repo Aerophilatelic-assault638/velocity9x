@@ -311,6 +311,12 @@ typedef struct v9x_d3d_enum_result {
     DWORD hal_found;
     DWORD flags;
     DWORD render_depth;
+    DWORD count;
+    GUID guid[8];
+    char description[8][64];
+    char name[8][64];
+    V9X_D3D_DEVICE_DESC hardware[8];
+    V9X_D3D_DEVICE_DESC software[8];
 } V9X_D3D_ENUM_RESULT;
 
 typedef struct v9x_texture_enum_result {
@@ -448,10 +454,26 @@ static HRESULT __stdcall v9x_enum_d3d_device(
     void *context)
 {
     V9X_D3D_ENUM_RESULT *result = (V9X_D3D_ENUM_RESULT *)context;
+    DWORD index = result->count;
 
-    (void)description;
-    (void)name;
-    (void)software;
+    if (index < 8ul) {
+        if (guid != 0) {
+            result->guid[index] = *guid;
+        }
+        if (description != 0) {
+            lstrcpynA(result->description[index], description, 64);
+        }
+        if (name != 0) {
+            lstrcpynA(result->name[index], name, 64);
+        }
+        if (hardware != 0) {
+            result->hardware[index] = *hardware;
+        }
+        if (software != 0) {
+            result->software[index] = *software;
+        }
+    }
+    ++result->count;
     if (guid != 0 && hardware != 0 &&
         v9x_guid_equal(guid, &v9x_iid_d3d_hal)) {
         result->hal_found = 1ul;
@@ -561,6 +583,67 @@ static void v9x_write_hresult(const char *key, HRESULT value)
 
     v9x_hex_text(text, (DWORD)value);
     v9x_write_text(key, text);
+}
+
+static void v9x_write_d3d_devices(const V9X_D3D_ENUM_RESULT *result)
+{
+    char key[64];
+    DWORD count = result->count < 8ul ? result->count : 8ul;
+    DWORD index;
+
+    v9x_write_uint("D3DDeviceCount", result->count);
+    for (index = 0ul; index < count; ++index) {
+        const V9X_D3D_DEVICE_DESC *hw = &result->hardware[index];
+        const V9X_D3D_DEVICE_DESC *sw = &result->software[index];
+        const DWORD *tri = hw->dpcTriCaps.values;
+
+        wsprintfA(key, "D3DDevice%luDescription", index);
+        v9x_write_text(key, result->description[index]);
+        wsprintfA(key, "D3DDevice%luName", index);
+        v9x_write_text(key, result->name[index]);
+        wsprintfA(key, "D3DDevice%luGuidData1", index);
+        v9x_write_uint(key, result->guid[index].Data1);
+        wsprintfA(key, "D3DDevice%luHwFlags", index);
+        v9x_write_uint(key, hw->dwFlags);
+        wsprintfA(key, "D3DDevice%luHwColorModel", index);
+        v9x_write_uint(key, hw->dcmColorModel);
+        wsprintfA(key, "D3DDevice%luHwDevCaps", index);
+        v9x_write_uint(key, hw->dwDevCaps);
+        wsprintfA(key, "D3DDevice%luHwClipping", index);
+        v9x_write_uint(key, hw->bClipping);
+        wsprintfA(key, "D3DDevice%luHwTriMisc", index);
+        v9x_write_uint(key, tri[1]);
+        wsprintfA(key, "D3DDevice%luHwTriRaster", index);
+        v9x_write_uint(key, tri[2]);
+        wsprintfA(key, "D3DDevice%luHwTriZCmp", index);
+        v9x_write_uint(key, tri[3]);
+        wsprintfA(key, "D3DDevice%luHwTriSrcBlend", index);
+        v9x_write_uint(key, tri[4]);
+        wsprintfA(key, "D3DDevice%luHwTriDestBlend", index);
+        v9x_write_uint(key, tri[5]);
+        wsprintfA(key, "D3DDevice%luHwTriAlphaCmp", index);
+        v9x_write_uint(key, tri[6]);
+        wsprintfA(key, "D3DDevice%luHwTriShade", index);
+        v9x_write_uint(key, tri[7]);
+        wsprintfA(key, "D3DDevice%luHwTriTexture", index);
+        v9x_write_uint(key, tri[8]);
+        wsprintfA(key, "D3DDevice%luHwTriFilter", index);
+        v9x_write_uint(key, tri[9]);
+        wsprintfA(key, "D3DDevice%luHwTriBlend", index);
+        v9x_write_uint(key, tri[10]);
+        wsprintfA(key, "D3DDevice%luHwTriAddress", index);
+        v9x_write_uint(key, tri[11]);
+        wsprintfA(key, "D3DDevice%luHwRenderDepth", index);
+        v9x_write_uint(key, hw->dwDeviceRenderBitDepth);
+        wsprintfA(key, "D3DDevice%luHwZDepth", index);
+        v9x_write_uint(key, hw->dwDeviceZBufferBitDepth);
+        wsprintfA(key, "D3DDevice%luHwMaxBuffer", index);
+        v9x_write_uint(key, hw->dwMaxBufferSize);
+        wsprintfA(key, "D3DDevice%luHwMaxVertices", index);
+        v9x_write_uint(key, hw->dwMaxVertexCount);
+        wsprintfA(key, "D3DDevice%luSwFlags", index);
+        v9x_write_uint(key, sw->dwFlags);
+    }
 }
 
 static void v9x_write_mode(const char *prefix,
@@ -779,6 +862,7 @@ void __stdcall V9xDdrawProbeEntry(void)
         v9x_write_uint("D3DHalFound", d3d_result.hal_found);
         v9x_write_uint("D3DHalFlags", d3d_result.flags);
         v9x_write_uint("D3DHalRenderDepth", d3d_result.render_depth);
+        v9x_write_d3d_devices(&d3d_result);
     }
 
     /* Desktop mode and monitor frequency before any mode request. */

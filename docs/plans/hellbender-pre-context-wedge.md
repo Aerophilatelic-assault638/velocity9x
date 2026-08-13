@@ -38,6 +38,68 @@ Evidence: `build/driver-results/hellbender-surface-trace-vm1/V9XDD.INI`,
 not restore the live wedged mode; boot counter 130 -> 131 and desktop readiness
 were confirmed.
 
+### C3 result and C4a checkpoint
+
+C3 was completed with two separately installed and gated builds:
+
+- `hellbender-getdriverinfo-decline`: `GETDRIVERINFOSET` was accepted by the
+  runtime and V9XDDP passed, with 18 handled-and-declined queries. Hellbender
+  queried the full GUID inventory, then displayed a visible `#32770` dialog
+  titled `Hellbend`. Pressing Enter produced an orderly
+  `ContextDestroyAll`/`Dd16DestroyDriver` exit.
+- `hellbender-getdriverinfo-callbacks2`: serving `GUID_D3DCallbacks2` also
+  passed the mandatory V9XDDP gate. Hellbender returned to the original silent
+  pre-context wedge: callbacks2 was served successfully, the remaining GUIDs
+  were declined, and no new surface or context callback followed the final
+  `DriverInit`. The probe additionally recorded `TexSwapHr=0x80070057` with
+  zero HAL texture-swap calls, while texture enumeration/create/handle/load and
+  every mandatory gate result still passed.
+
+The repeated Hellbender queries include `GUID_D3DCallbacks2` (`0x0BA584E1`),
+`GUID_D3DExtendedCaps` (`0x7DE41F80`), `GUID_KernelCaps` (`0xFFAA7540`), and
+`0x3B8A0466`. C3 therefore does not fix the wedge; callbacks2 prevents the
+explicit initialization-error dialog but is not sufficient for progress.
+
+C4a (`hellbender-caps-no-texture`) is implemented and host-built with the
+texture format and perspective bit removed. Its first install attempt did not
+reach reboot: the guest agent became unreachable while the previous
+Hellbender wedge was active. Resume by resetting the VM, confirming a new boot
+counter and 1024x768x16 desktop, then rerunning
+`update-associated-driver.ps1 -JobId hellbender-caps-no-texture-vm1`.
+
+After guest recovery, C4a installed and passed the mandatory non-texture
+probe results. V9XDDP reported zero formats and `TexEnumHr=0x887602D0` while
+the HAL, context, triangle, and blit gates remained good. Hellbender rejected
+the HAL immediately with a `3D Adapter Error` naming missing perspective
+correction, before any fullscreen transition.
+
+C4b (`hellbender-caps-consistent`) advertised perspective plus POW2 and
+square-only textures, nearest/linear filtering, decal/modulate/copy blending,
+and wrap/clamp addressing. It passed the mandatory gate but reproduced the
+same silent pre-context wedge, with the same final GUID queries and no surface
+or context callback after the final `DriverInit`. The caps inconsistency is
+therefore not the wedge trigger.
+
+The stock ViRGE reference on VM 9870 was configured temporarily with
+`useDirect3D=1`. Hellbender remained in 640x480 gameplay for 30 seconds and
+responded to `Alt+F4` by cleanly restoring 1024x768. Its GDI-free window list
+contained the visible game window and no blocking dialog. The original
+reference INI was preserved as
+`build/driver-results/stock-virge-reference-20260813/hellbend-original.ini`.
+
+With C3 and C4 complete, the source default returns to the instrumented
+control: `GETDRIVERINFOSET` off and the original texture caps. The experiments
+show the wedge is specific to the Velocity9x/runtime interaction above the
+published HAL callbacks, not a general Hellbender/ViRGE behavior, hidden
+dialog, callbacks2 omission, or inconsistent texture-cap advertisement.
+
+The final `hellbender-post-experiments-control` package built and was uploaded
+and staged successfully, but its reboot request lost the agent connection
+while C4b Hellbender was wedged. The source and staged package are already at
+the control configuration. Reset VM 9869 once, require a boot counter greater
+than 136 and 1024x768x16 desktop readiness, then rerun the updater or verify
+the pending boot-time replacement before the final V9XDDP gate.
+
 ## Context
 
 Per the 2026-08-13 handoff, Hellbender in hardware D3D mode wedges after

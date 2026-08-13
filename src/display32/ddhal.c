@@ -21,6 +21,14 @@
 #define V9X_BUILD_ID "local"
 #endif
 
+/* C3 negotiation experiment. Stage 1 publishes GetDriverInfo but declines
+ * every GUID; stage 2 changes this to 1 to serve only D3DCallbacks2. */
+#define V9X_C3_SERVE_D3D_CALLBACKS2 1
+
+/* C4 caps discriminator: 0 = control, 1 = no textures/perspective,
+ * 2 = self-consistent texture advertisement. */
+#define V9X_C4_CAPS_VARIANT 0
+
 #define V9X_HAL_BASE            0xb0400000ul
 
 #define V9X_CRTC_INDEX              0x03d4u
@@ -89,6 +97,7 @@ static V9X_DD_SHARED *v9x_hal;
 
 #define V9X_D3D_CONTEXT_COUNT 16u
 #define V9X_D3D_TEXTURE_COUNT 256u
+#define V9X_D3D_MAX_BATCH_TRIANGLES 256u
 
 typedef struct v9x_d3d_context {
     DWORD active;
@@ -111,10 +120,12 @@ static V9X_D3D_CONTEXT v9x_d3d_contexts[V9X_D3D_CONTEXT_COUNT];
 static V9X_D3D_TEXTURE v9x_d3d_textures[V9X_D3D_TEXTURE_COUNT];
 static V9X_D3DHAL_CALLBACKS2 v9x_d3d_callbacks2;
 
+#if V9X_C3_SERVE_D3D_CALLBACKS2
 static const BYTE v9x_guid_d3d_callbacks2[16] = {
     0xe1u, 0x84u, 0xa5u, 0x0bu, 0xb6u, 0x70u, 0xd0u, 0x11u,
     0x88u, 0x9du, 0x00u, 0xaau, 0x00u, 0xbbu, 0xb7u, 0x6au
 };
+#endif
 
 /*
  * Bounded callback trace (Hellbender plan H1). Events land in the shared
@@ -213,6 +224,7 @@ static const char *v9x_trace_name(WORD id)
     case V9X_TRACE_D3D_TEXTUREDESTROY:   return "D3dTextureDestroy";
     case V9X_TRACE_D3D_TEXTURESWAP:      return "D3dTextureSwap";
     case V9X_TRACE_D3D_TEXTUREGETSURF:   return "D3dTextureGetSurf";
+    case V9X_TRACE_D3D_PRIMREJECT:       return "D3dPrimitiveReject";
     default:                             return "Unknown";
     }
 }
@@ -976,6 +988,121 @@ static int v9x_d3d_triangle(V9X_D3D_CONTEXT *context,
 DWORD __stdcall V9xD3dRenderPrimitive(
     V9X_D3DHAL_RENDERPRIMITIVEDATA *data);
 
+static BYTE v9x_d3d_lerp_byte(BYTE first, BYTE second, float amount)
+{
+    return (BYTE)v9x_float_to_long((float)first +
+        ((float)second - (float)first) * amount);
+}
+
+static DWORD v9x_d3d_lerp_color(DWORD first, DWORD second, float amount)
+{
+    return ((DWORD)v9x_d3d_lerp_byte((BYTE)(first >> 24),
+                                     (BYTE)(second >> 24), amount) << 24) |
+           ((DWORD)v9x_d3d_lerp_byte((BYTE)(first >> 16),
+                                     (BYTE)(second >> 16), amount) << 16) |
+           ((DWORD)v9x_d3d_lerp_byte((BYTE)(first >> 8),
+                                     (BYTE)(second >> 8), amount) << 8) |
+           (DWORD)v9x_d3d_lerp_byte((BYTE)first, (BYTE)second, amount);
+}
+
+static void v9x_d3d_lerp_vertex(V9X_D3DTLVERTEX *result,
+                                const V9X_D3DTLVERTEX *first,
+                                const V9X_D3DTLVERTEX *second,
+                                float amount)
+{
+    result->sx = first->sx + (second->sx - first->sx) * amount;
+    result->sy = first->sy + (second->sy - first->sy) * amount;
+    result->sz = first->sz + (second->sz - first->sz) * amount;
+    result->rhw = first->rhw + (second->rhw - first->rhw) * amount;
+    result->color = v9x_d3d_lerp_color(first->color, second->color, amount);
+    result->specular = v9x_d3d_lerp_color(first->specular,
+                                          second->specular, amount);
+    result->tu = first->tu + (second->tu - first->tu) * amount;
+    result->tv = first->tv + (second->tv - first->tv) * amount;
+}
+
+static int v9x_d3d_clip_triangle(const V9X_D3D_CONTEXT *context,
+                                 const V9X_D3DTLVERTEX *triangle,
+                                 V9X_D3DTLVERTEX *result)
+{
+    V9X_D3DTLVERTEX buffers[2][8];
+    V9X_D3DTLVERTEX *input = buffers[0];
+    V9X_D3DTLVERTEX *output = buffers[1];
+    DWORD count = 3ul;
+    DWORD edge;
+    DWORD index;
+
+    for (index = 0ul; index < 3ul; ++index) {
+        if (!(triangle[index].sx >= -2048.0f &&
+              triangle[index].sx < 2048.0f &&
+              triangle[index].sy >= -2048.0f &&
+              triangle[index].sy < 2048.0f)) {
+            return -1;
+        }
+        input[index] = triangle[index];
+    }
+    for (edge = 0ul; edge < 4ul && count != 0ul; ++edge) {
+        V9X_D3DTLVERTEX previous = input[count - 1ul];
+        int previous_inside;
+        DWORD output_count = 0ul;
+        float boundary = (edge == 0ul || edge == 2ul) ? 0.0f :
+            (edge == 1ul ? (float)(context->width - 1ul) :
+                           (float)(context->height - 1ul));
+
+        if (edge < 2ul) {
+            previous_inside = edge == 0ul ? previous.sx >= boundary
+                                          : previous.sx <= boundary;
+        } else {
+            previous_inside = edge == 2ul ? previous.sy >= boundary
+                                          : previous.sy <= boundary;
+        }
+        for (index = 0ul; index < count; ++index) {
+            V9X_D3DTLVERTEX current = input[index];
+            int current_inside;
+
+            if (edge < 2ul) {
+                current_inside = edge == 0ul ? current.sx >= boundary
+                                             : current.sx <= boundary;
+            } else {
+                current_inside = edge == 2ul ? current.sy >= boundary
+                                             : current.sy <= boundary;
+            }
+            if (current_inside != previous_inside) {
+                float denominator = edge < 2ul
+                    ? current.sx - previous.sx : current.sy - previous.sy;
+                float numerator = edge < 2ul
+                    ? boundary - previous.sx : boundary - previous.sy;
+
+                if (denominator != 0.0f && output_count < 8ul) {
+                    v9x_d3d_lerp_vertex(&output[output_count], &previous,
+                                        &current, numerator / denominator);
+                    if (edge < 2ul) {
+                        output[output_count].sx = boundary;
+                    } else {
+                        output[output_count].sy = boundary;
+                    }
+                    ++output_count;
+                }
+            }
+            if (current_inside && output_count < 8ul) {
+                output[output_count++] = current;
+            }
+            previous = current;
+            previous_inside = current_inside;
+        }
+        count = output_count;
+        {
+            V9X_D3DTLVERTEX *swap = input;
+            input = output;
+            output = swap;
+        }
+    }
+    for (index = 0ul; index < count; ++index) {
+        result[index] = input[index];
+    }
+    return (int)count;
+}
+
 static V9X_DD_SURFACE_LCL *v9x_d3d_surface_lcl(void *surface)
 {
     V9X_DD_SURFACE_INT *wrapper = (V9X_DD_SURFACE_INT *)surface;
@@ -987,6 +1114,8 @@ static int v9x_d3d_set_target(V9X_D3D_CONTEXT *context, void *surface,
                               void *zbuffer)
 {
     V9X_DD_SURFACE_LCL *target = v9x_d3d_surface_lcl(surface);
+    V9X_DD_SURFACE_LCL *depth = zbuffer != 0
+        ? v9x_d3d_surface_lcl(zbuffer) : 0;
     V9X_DD_SURFACE_GBL *global;
     DWORD offset;
     DWORD last_byte;
@@ -1053,13 +1182,35 @@ static int v9x_d3d_set_target(V9X_D3D_CONTEXT *context, void *surface,
         offset > v9x_hal->fb.vram_bytes - last_byte) {
         return 0;
     }
+    if (depth != 0) {
+        DWORD depth_offset;
+        DWORD depth_pitch;
+        DWORD depth_last_byte;
+
+        if (depth->lpGbl == 0 ||
+            (depth->ddsCaps & V9X_DDSCAPS_ZBUFFER) == 0ul ||
+            (depth->ddsCaps & V9X_DDSCAPS_SYSTEMMEMORY) != 0ul ||
+            depth->lpGbl->lPitch <= 0l || depth->lpGbl->wWidth < width ||
+            depth->lpGbl->wHeight < height) {
+            return 0;
+        }
+        depth_offset = v9x_surface_offset(depth);
+        depth_pitch = (DWORD)depth->lpGbl->lPitch;
+        depth_last_byte = (height - 1ul) * depth_pitch + width * 2ul;
+        if ((depth_pitch & 7ul) != 0ul || depth_pitch > 0x00000ff8ul ||
+            depth_offset == 0xfffffffful ||
+            depth_last_byte > v9x_hal->fb.vram_bytes ||
+            depth_offset > v9x_hal->fb.vram_bytes - depth_last_byte) {
+            return 0;
+        }
+    }
     context->target = target;
-    context->zbuffer = zbuffer != 0 ? v9x_d3d_surface_lcl(zbuffer) : 0;
+    context->zbuffer = depth;
     context->target_offset = offset;
     context->pitch = pitch;
     context->width = width;
     context->height = height;
-    return context->zbuffer == 0;
+    return 1;
 }
 
 DWORD __stdcall V9xD3dContextCreate(V9X_D3DHAL_CONTEXTCREATEDATA *data)
@@ -1442,7 +1593,7 @@ DWORD __stdcall V9xD3dRenderPrimitive(
         tl->lpGbl != 0 && v9x_engine_status_validated() &&
         data->diInstruction.bOpcode == 3u &&
         data->diInstruction.bSize >= sizeof(V9X_D3DTRIANGLE) &&
-        data->diInstruction.wCount <= 64u) {
+        data->diInstruction.wCount <= V9X_D3D_MAX_BATCH_TRIANGLES) {
         triangles = (const V9X_D3DTRIANGLE *)
             (exe->lpGbl->fpVidMem + data->dwOffset);
         vertices = (const V9X_D3DTLVERTEX *)
@@ -1453,21 +1604,36 @@ DWORD __stdcall V9xD3dRenderPrimitive(
                 (const V9X_D3DTRIANGLE *)
                 ((const BYTE *)triangles +
                  index * data->diInstruction.bSize);
-            if (triangle->v1 >= 192u || triangle->v2 >= 192u ||
-                triangle->v3 >= 192u) {
+            V9X_D3DTLVERTEX source[3];
+            V9X_D3DTLVERTEX clipped[8];
+            int clipped_count;
+            int fan;
+
+            source[0] = vertices[triangle->v1];
+            source[1] = vertices[triangle->v2];
+            source[2] = vertices[triangle->v3];
+            clipped_count = v9x_d3d_clip_triangle(context, source, clipped);
+            if (clipped_count < 0) {
+                v9x_trace_push(V9X_TRACE_D3D_PRIMREJECT,
+                               0x20000000ul | index);
                 ok = 0;
                 break;
             }
-            {
-                V9X_D3DTLVERTEX ordered[3];
+            for (fan = 1; fan + 1 < clipped_count; ++fan) {
+                V9X_D3DTLVERTEX clipped_triangle[3];
 
-                ordered[0] = vertices[triangle->v1];
-                ordered[1] = vertices[triangle->v2];
-                ordered[2] = vertices[triangle->v3];
-                if (!v9x_d3d_triangle(context, ordered)) {
+                clipped_triangle[0] = clipped[0];
+                clipped_triangle[1] = clipped[fan];
+                clipped_triangle[2] = clipped[fan + 1];
+                if (!v9x_d3d_triangle(context, clipped_triangle)) {
+                    v9x_trace_push(V9X_TRACE_D3D_PRIMREJECT,
+                                   0x30000000ul | index);
                     ok = 0;
                     break;
                 }
+            }
+            if (!ok) {
+                break;
             }
         }
     }
@@ -1778,10 +1944,12 @@ DWORD __stdcall V9xD3dDrawOneIndexedPrimitive(void *data)
 
 DWORD __stdcall V9xHalGetDriverInfo(V9X_DDHAL_GETDRIVERINFODATA *data)
 {
+#if V9X_C3_SERVE_D3D_CALLBACKS2
     DWORD index;
     DWORD bytes;
     BYTE *destination;
     const BYTE *source;
+#endif
 
     if (data == 0) {
         return V9X_DDHAL_DRIVER_HANDLED;
@@ -1793,6 +1961,7 @@ DWORD __stdcall V9xHalGetDriverInfo(V9X_DDHAL_GETDRIVERINFODATA *data)
                     (DWORD)data->guidInfo[0]);
     data->dwActualSize = 0ul;
     data->ddRVal = 0x88760028ul;
+#if V9X_C3_SERVE_D3D_CALLBACKS2
     for (index = 0ul; index < 16ul; ++index) {
         if (data->guidInfo[index] != v9x_guid_d3d_callbacks2[index]) {
             v9x_trace_exit(V9X_TRACE_GETDRIVERINFO, data->ddRVal);
@@ -1811,6 +1980,7 @@ DWORD __stdcall V9xHalGetDriverInfo(V9X_DDHAL_GETDRIVERINFODATA *data)
         }
         data->ddRVal = V9X_DD_OK;
     }
+#endif
     v9x_trace_exit(V9X_TRACE_GETDRIVERINFO, data->ddRVal);
     return V9X_DDHAL_DRIVER_HANDLED;
 }
@@ -1894,7 +2064,8 @@ DWORD __stdcall DriverInit(DWORD context)
                                   V9X_DDSCAPS_OFFSCREENPLAIN |
                                   V9X_DDSCAPS_FLIP |
                                   V9X_DDSCAPS_PRIMARYSURFACE |
-                                  V9X_DDSCAPS_TEXTURE;
+                                  V9X_DDSCAPS_TEXTURE |
+                                  V9X_DDSCAPS_ZBUFFER;
     shared->info.ddCaps.dwVidMemTotal =
         shared->fb.vram_bytes - shared->fb.visible_bytes;
     shared->info.ddCaps.dwVidMemFree = shared->info.ddCaps.dwVidMemTotal;
@@ -1964,7 +2135,8 @@ DWORD __stdcall DriverInit(DWORD context)
     shared->d3d_global.hwCaps.dwFlags =
         V9X_D3DDD_COLORMODEL | V9X_D3DDD_DEVCAPS |
         V9X_D3DDD_TRICAPS |
-        V9X_D3DDD_DEVICERENDERBITDEPTH;
+        V9X_D3DDD_DEVICERENDERBITDEPTH |
+        V9X_D3DDD_DEVICEZBUFFERBITDEPTH;
     shared->d3d_global.hwCaps.dcmColorModel = V9X_D3DCOLOR_RGB;
     shared->d3d_global.hwCaps.dwDevCaps =
         V9X_D3DDEVCAPS_FLOATTLVERTEX |
@@ -1980,13 +2152,37 @@ DWORD __stdcall DriverInit(DWORD context)
         sizeof(V9X_D3DPRIMCAPS);
     shared->d3d_global.hwCaps.dpcTriCaps.dwMiscCaps =
         V9X_D3DPMISCCAPS_CULLNONE;
+    shared->d3d_global.hwCaps.dpcTriCaps.dwRasterCaps =
+        V9X_D3DPRASTERCAPS_ZTEST;
+    shared->d3d_global.hwCaps.dpcTriCaps.dwZCmpCaps =
+        V9X_D3DPCMPCAPS_NEVER | V9X_D3DPCMPCAPS_LESS |
+        V9X_D3DPCMPCAPS_EQUAL | V9X_D3DPCMPCAPS_LESSEQUAL |
+        V9X_D3DPCMPCAPS_GREATER | V9X_D3DPCMPCAPS_NOTEQUAL |
+        V9X_D3DPCMPCAPS_GREATEREQUAL | V9X_D3DPCMPCAPS_ALWAYS;
     shared->d3d_global.hwCaps.dpcTriCaps.dwShadeCaps =
         V9X_D3DPSHADECAPS_COLORFLATRGB |
         V9X_D3DPSHADECAPS_COLORGOURAUDRGB;
     shared->d3d_global.hwCaps.dpcTriCaps.dwTextureCaps =
+#if V9X_C4_CAPS_VARIANT == 1
+        0ul;
+#elif V9X_C4_CAPS_VARIANT == 2
+        V9X_D3DPTEXTURECAPS_PERSPECTIVE |
+        V9X_D3DPTEXTURECAPS_POW2 |
+        V9X_D3DPTEXTURECAPS_SQUAREONLY;
+#else
         V9X_D3DPTEXTURECAPS_PERSPECTIVE;
+#endif
+#if V9X_C4_CAPS_VARIANT != 1
+    shared->d3d_global.hwCaps.dpcTriCaps.dwTextureFilterCaps =
+        V9X_D3DPTFILTERCAPS_NEAREST | V9X_D3DPTFILTERCAPS_LINEAR;
+    shared->d3d_global.hwCaps.dpcTriCaps.dwTextureBlendCaps =
+        V9X_D3DPTBLENDCAPS_DECAL | V9X_D3DPTBLENDCAPS_MODULATE |
+        V9X_D3DPTBLENDCAPS_COPY;
+    shared->d3d_global.hwCaps.dpcTriCaps.dwTextureAddressCaps =
+        V9X_D3DPTADDRESSCAPS_WRAP | V9X_D3DPTADDRESSCAPS_CLAMP;
+#endif
     shared->d3d_global.hwCaps.dwDeviceRenderBitDepth = V9X_DDBD_16;
-    shared->d3d_global.hwCaps.dwDeviceZBufferBitDepth = 0ul;
+    shared->d3d_global.hwCaps.dwDeviceZBufferBitDepth = V9X_DDBD_16;
     shared->d3d_global.dwNumVertices = 0ul;
     shared->d3d_global.dwNumClipVertices = 0ul;
     shared->texture_formats[0].dwSize = sizeof(V9X_DDSURFACEDESC);
@@ -2000,8 +2196,13 @@ DWORD __stdcall DriverInit(DWORD context)
     shared->texture_formats[0].ddpfPixelFormat.dwGBitMask = 0x000007e0ul;
     shared->texture_formats[0].ddpfPixelFormat.dwBBitMask = 0x0000001ful;
     shared->texture_formats[0].ddsCaps.dwCaps = V9X_DDSCAPS_TEXTURE;
+#if V9X_C4_CAPS_VARIANT == 1
+    shared->d3d_global.dwNumTextureFormats = 0ul;
+    shared->d3d_global.lpTextureFormats = 0;
+#else
     shared->d3d_global.dwNumTextureFormats = 1ul;
     shared->d3d_global.lpTextureFormats = &shared->texture_formats[0];
+#endif
 
     shared->d3d_callbacks.dwSize = sizeof(V9X_D3DHAL_CALLBACKS);
     shared->d3d_callbacks.ContextCreate =
