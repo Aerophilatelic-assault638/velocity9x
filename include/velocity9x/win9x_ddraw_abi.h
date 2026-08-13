@@ -68,13 +68,17 @@ typedef void (FAR PASCAL *V9X_DD_CODE_PTR)();
 #define V9X_DDHALINFO_ISPRIMARYDISPLAY 0x00000001ul
 #define V9X_DDHALINFO_GETDRIVERINFOSET 0x00000004ul
 
+#define V9X_DDHAL_CB32_CREATESURFACE        0x00000002ul
 #define V9X_DDHAL_CB32_WAITFORVERTICALBLANK 0x00000010ul
+#define V9X_DDHAL_CB32_CANCREATESURFACE     0x00000020ul
 #define V9X_DDHAL_CB32_SETEXCLUSIVEMODE     0x00000100ul
 #define V9X_DDHAL_CB32_FLIPTOGDISURFACE     0x00000200ul
+#define V9X_DDHAL_SURFCB32_DESTROYSURFACE  0x00000001ul
 #define V9X_DDHAL_SURFCB32_FLIP          0x00000002ul
 #define V9X_DDHAL_SURFCB32_LOCK          0x00000008ul
 #define V9X_DDHAL_SURFCB32_UNLOCK        0x00000010ul
 #define V9X_DDHAL_SURFCB32_BLT           0x00000020ul
+#define V9X_DDHAL_SURFCB32_ADDATTACHEDSURFACE 0x00000080ul
 #define V9X_DDHAL_SURFCB32_GETBLTSTATUS  0x00000100ul
 #define V9X_DDHAL_SURFCB32_GETFLIPSTATUS 0x00000200ul
 
@@ -541,6 +545,14 @@ typedef struct v9x_ddhal_destroysurfacedata {
     DWORD DestroySurface;
 } V9X_DDHAL_DESTROYSURFACEDATA;
 
+typedef struct v9x_ddhal_addattachedsurfacedata {
+    DWORD lpDD;
+    DWORD lpDDSurface;
+    DWORD lpSurfAttached;
+    DWORD ddRVal;
+    DWORD AddAttachedSurface;
+} V9X_DDHAL_ADDATTACHEDSURFACEDATA;
+
 /* DDRAWI_DDRAWSURFACE_GBL prefix: fpVidMem at +20, lPitch at +24. */
 typedef struct v9x_dd_surface_gbl {
     DWORD dwRefCnt;
@@ -830,7 +842,7 @@ typedef struct v9x_ddhal_destroydriverdata {
  * V9XHAL.DLL's DriverInit. The 32-bit side owns all content except the
  * framebuffer descriptor, which the 16-bit side refreshes on every enable.
  */
-#define V9X_DD_SHARED_ABI   2026081303ul
+#define V9X_DD_SHARED_ABI   2026081401ul
 #define V9X_DD_MODE_COUNT            6u
 
 /* fb.flags */
@@ -893,7 +905,7 @@ typedef struct v9x_d3d_diagnostics {
  * callbacks before a fault survive the faulting process and can be read
  * back with the V9X_DDGETTRACE escape. All writers are allocation-free.
  */
-#define V9X_DD_TRACE_RING_COUNT     32u
+#define V9X_DD_TRACE_RING_COUNT     56u
 #define V9X_DD_TRACE_ID_COUNT       50u
 #define V9X_DD_TRACE_EXIT_FLAG   0x8000u
 
@@ -914,6 +926,10 @@ typedef struct v9x_d3d_diagnostics {
 #define V9X_TRACE_SETEXCLUSIVE        17u
 #define V9X_TRACE_FLIPTOGDI           18u
 #define V9X_TRACE_GETDRIVERINFO       19u
+#define V9X_TRACE_CANCREATESURFACE    20u
+#define V9X_TRACE_CREATESURFACE       21u
+#define V9X_TRACE_DESTROYSURFACE      22u
+#define V9X_TRACE_ADDATTACHEDSURFACE  23u
 #define V9X_TRACE_D3D_CTXCREATE       30u
 #define V9X_TRACE_D3D_CTXDESTROY      31u
 #define V9X_TRACE_D3D_CTXDESTROYALL   32u
@@ -1040,7 +1056,7 @@ typedef char v9x_dd_assert_bltdata[
 typedef char v9x_dd_assert_trace_entry[
     sizeof(V9X_DD_TRACE_ENTRY) == 8 ? 1 : -1];
 typedef char v9x_dd_assert_trace[
-    sizeof(V9X_DD_TRACE) == 380 ? 1 : -1];
+    sizeof(V9X_DD_TRACE) == 572 ? 1 : -1];
 typedef char v9x_dd_assert_shared_fits_dpmi_block[
     sizeof(V9X_DD_SHARED) <= 2048 ? 1 : -1];
 

@@ -89,6 +89,10 @@ static const char *v9x_trace_name(WORD id)
     case V9X_TRACE_SETEXCLUSIVE:         return "SetExclusiveMode";
     case V9X_TRACE_FLIPTOGDI:            return "FlipToGDISurface";
     case V9X_TRACE_GETDRIVERINFO:        return "GetDriverInfo";
+    case V9X_TRACE_CANCREATESURFACE:     return "CanCreateSurface";
+    case V9X_TRACE_CREATESURFACE:        return "CreateSurface";
+    case V9X_TRACE_DESTROYSURFACE:       return "DestroySurface";
+    case V9X_TRACE_ADDATTACHEDSURFACE:   return "AddAttachedSurface";
     case V9X_TRACE_D3D_CTXCREATE:        return "D3dContextCreate";
     case V9X_TRACE_D3D_CTXDESTROY:       return "D3dContextDestroy";
     case V9X_TRACE_D3D_CTXDESTROYALL:    return "D3dContextDestroyAll";

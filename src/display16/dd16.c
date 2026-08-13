@@ -48,10 +48,15 @@ static void v9x_dd_trace_event(WORD id, DWORD detail)
         return;
     }
     trace = &v9x_dd_shared->trace;
-    trace->last_enter_id = id;
-    trace->last_enter_detail = detail;
-    if (id < V9X_DD_TRACE_ID_COUNT) {
-        ++trace->counters[id];
+    if ((id & V9X_DD_TRACE_EXIT_FLAG) != 0u) {
+        trace->last_exit_id = id & (WORD)~V9X_DD_TRACE_EXIT_FLAG;
+        trace->last_exit_result = detail;
+    } else {
+        trace->last_enter_id = id;
+        trace->last_enter_detail = detail;
+        if (id < V9X_DD_TRACE_ID_COUNT) {
+            ++trace->counters[id];
+        }
     }
     slot = trace->head < V9X_DD_TRACE_RING_COUNT ? trace->head : 0ul;
     trace->ring[slot].id = id;

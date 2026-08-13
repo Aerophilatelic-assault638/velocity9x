@@ -1,5 +1,12 @@
 # Changelog
 
+- Trace DirectDraw surface negotiation through `CanCreateSurface`,
+  `CreateSurface`, `DestroySurface`, and `AddAttachedSurface`; enlarge the
+  shared callback ring, correct Win16 exit bookkeeping, and honor the
+  `GetDriverInfo` handled-return contract.
+- Extend V9XDDP with an RGB565 Direct3D texture lifecycle and add V9XWND, a
+  GDI-free top-level window inventory for diagnosing blocked fullscreen
+  dialogs.
 - Program ViRGE 8.7 color gradients for Gouraud-shaded triangles and expose
   the hardware's perspective-correction raster capability required by
   Hellbender's Direct3D device filter.

@@ -189,6 +189,10 @@ static const char *v9x_trace_name(WORD id)
     case V9X_TRACE_SETEXCLUSIVE:         return "SetExclusiveMode";
     case V9X_TRACE_FLIPTOGDI:            return "FlipToGDISurface";
     case V9X_TRACE_GETDRIVERINFO:        return "GetDriverInfo";
+    case V9X_TRACE_CANCREATESURFACE:     return "CanCreateSurface";
+    case V9X_TRACE_CREATESURFACE:        return "CreateSurface";
+    case V9X_TRACE_DESTROYSURFACE:       return "DestroySurface";
+    case V9X_TRACE_ADDATTACHEDSURFACE:   return "AddAttachedSurface";
     case V9X_TRACE_D3D_CTXCREATE:        return "D3dContextCreate";
     case V9X_TRACE_D3D_CTXDESTROY:       return "D3dContextDestroy";
     case V9X_TRACE_D3D_CTXDESTROYALL:    return "D3dContextDestroyAll";
@@ -555,6 +559,55 @@ static DWORD v9x_flip_body(V9X_DDHAL_FLIPDATA *data)
     }
     data->ddRVal = V9X_DD_OK;
     return V9X_DDHAL_DRIVER_HANDLED;
+}
+
+DWORD __stdcall V9xHalCanCreateSurface(
+    V9X_DDHAL_CANCREATESURFACEDATA *data)
+{
+    const V9X_DDSURFACEDESC *desc = data != 0
+        ? (const V9X_DDSURFACEDESC *)data->lpDDSurfaceDesc : 0;
+    DWORD caps = desc != 0 ? desc->ddsCaps.dwCaps : 0ul;
+
+    v9x_trace_enter(V9X_TRACE_CANCREATESURFACE, caps);
+    if (data != 0) {
+        data->ddRVal = V9X_DD_OK;
+    }
+    v9x_trace_exit(V9X_TRACE_CANCREATESURFACE, V9X_DD_OK);
+    return V9X_DDHAL_DRIVER_HANDLED;
+}
+
+DWORD __stdcall V9xHalCreateSurface(V9X_DDHAL_CREATESURFACEDATA *data)
+{
+    v9x_trace_enter(V9X_TRACE_CREATESURFACE,
+                    data != 0 ? data->dwSCnt : 0ul);
+    if (data != 0) {
+        data->ddRVal = V9X_DD_OK;
+    }
+    v9x_trace_exit(V9X_TRACE_CREATESURFACE, V9X_DD_OK);
+    return V9X_DDHAL_DRIVER_NOTHANDLED;
+}
+
+DWORD __stdcall V9xHalDestroySurface(V9X_DDHAL_DESTROYSURFACEDATA *data)
+{
+    v9x_trace_enter(V9X_TRACE_DESTROYSURFACE,
+                    data != 0 ? data->lpDDSurface : 0ul);
+    if (data != 0) {
+        data->ddRVal = V9X_DD_OK;
+    }
+    v9x_trace_exit(V9X_TRACE_DESTROYSURFACE, V9X_DD_OK);
+    return V9X_DDHAL_DRIVER_NOTHANDLED;
+}
+
+DWORD __stdcall V9xHalAddAttachedSurface(
+    V9X_DDHAL_ADDATTACHEDSURFACEDATA *data)
+{
+    v9x_trace_enter(V9X_TRACE_ADDATTACHEDSURFACE,
+                    data != 0 ? data->lpSurfAttached : 0ul);
+    if (data != 0) {
+        data->ddRVal = V9X_DD_OK;
+    }
+    v9x_trace_exit(V9X_TRACE_ADDATTACHEDSURFACE, V9X_DD_OK);
+    return V9X_DDHAL_DRIVER_NOTHANDLED;
 }
 
 DWORD __stdcall V9xHalFlip(V9X_DDHAL_FLIPDATA *data)
@@ -1731,7 +1784,7 @@ DWORD __stdcall V9xHalGetDriverInfo(V9X_DDHAL_GETDRIVERINFODATA *data)
     const BYTE *source;
 
     if (data == 0) {
-        return V9X_DD_OK;
+        return V9X_DDHAL_DRIVER_HANDLED;
     }
     v9x_trace_enter(V9X_TRACE_GETDRIVERINFO,
                     ((DWORD)data->guidInfo[3] << 24) |
@@ -1743,7 +1796,7 @@ DWORD __stdcall V9xHalGetDriverInfo(V9X_DDHAL_GETDRIVERINFODATA *data)
     for (index = 0ul; index < 16ul; ++index) {
         if (data->guidInfo[index] != v9x_guid_d3d_callbacks2[index]) {
             v9x_trace_exit(V9X_TRACE_GETDRIVERINFO, data->ddRVal);
-            return V9X_DD_OK;
+            return V9X_DDHAL_DRIVER_HANDLED;
         }
     }
     bytes = data->dwExpectedSize < sizeof(v9x_d3d_callbacks2)
@@ -1759,7 +1812,7 @@ DWORD __stdcall V9xHalGetDriverInfo(V9X_DDHAL_GETDRIVERINFODATA *data)
         data->ddRVal = V9X_DD_OK;
     }
     v9x_trace_exit(V9X_TRACE_GETDRIVERINFO, data->ddRVal);
-    return V9X_DD_OK;
+    return V9X_DDHAL_DRIVER_HANDLED;
 }
 
 static void v9x_fill_modes(V9X_DD_SHARED *shared)
@@ -1847,9 +1900,15 @@ DWORD __stdcall DriverInit(DWORD context)
     shared->info.ddCaps.dwVidMemFree = shared->info.ddCaps.dwVidMemTotal;
 
     shared->dd_callbacks.dwSize = sizeof(V9X_DDHAL_DDCALLBACKS);
-    shared->dd_callbacks.dwFlags = V9X_DDHAL_CB32_WAITFORVERTICALBLANK |
+    shared->dd_callbacks.dwFlags = V9X_DDHAL_CB32_CREATESURFACE |
+                                   V9X_DDHAL_CB32_CANCREATESURFACE |
+                                   V9X_DDHAL_CB32_WAITFORVERTICALBLANK |
                                    V9X_DDHAL_CB32_SETEXCLUSIVEMODE |
                                    V9X_DDHAL_CB32_FLIPTOGDISURFACE;
+    shared->dd_callbacks.CreateSurface =
+        (V9X_DD_CODE_PTR)V9xHalCreateSurface;
+    shared->dd_callbacks.CanCreateSurface =
+        (V9X_DD_CODE_PTR)V9xHalCanCreateSurface;
     shared->dd_callbacks.WaitForVerticalBlank =
         (V9X_DD_CODE_PTR)V9xHalWaitForVerticalBlank;
     shared->dd_callbacks.SetExclusiveMode =
@@ -1859,15 +1918,21 @@ DWORD __stdcall DriverInit(DWORD context)
 
     shared->surface_callbacks.dwSize = sizeof(V9X_DDHAL_DDSURFACECALLBACKS);
     shared->surface_callbacks.dwFlags =
+        V9X_DDHAL_SURFCB32_DESTROYSURFACE |
         V9X_DDHAL_SURFCB32_FLIP | V9X_DDHAL_SURFCB32_GETFLIPSTATUS |
         V9X_DDHAL_SURFCB32_LOCK | V9X_DDHAL_SURFCB32_UNLOCK |
-        V9X_DDHAL_SURFCB32_BLT | V9X_DDHAL_SURFCB32_GETBLTSTATUS;
+        V9X_DDHAL_SURFCB32_BLT | V9X_DDHAL_SURFCB32_ADDATTACHEDSURFACE |
+        V9X_DDHAL_SURFCB32_GETBLTSTATUS;
+    shared->surface_callbacks.DestroySurface =
+        (V9X_DD_CODE_PTR)V9xHalDestroySurface;
     shared->surface_callbacks.Flip = (V9X_DD_CODE_PTR)V9xHalFlip;
     shared->surface_callbacks.GetFlipStatus =
         (V9X_DD_CODE_PTR)V9xHalGetFlipStatus;
     shared->surface_callbacks.Lock = (V9X_DD_CODE_PTR)V9xHalLock;
     shared->surface_callbacks.Unlock = (V9X_DD_CODE_PTR)V9xHalUnlock;
     shared->surface_callbacks.Blt = (V9X_DD_CODE_PTR)V9xHalBlt;
+    shared->surface_callbacks.AddAttachedSurface =
+        (V9X_DD_CODE_PTR)V9xHalAddAttachedSurface;
     shared->surface_callbacks.GetBltStatus =
         (V9X_DD_CODE_PTR)V9xHalGetBltStatus;
 

@@ -5,6 +5,39 @@ Date: 2026-08-13
 Related: [2026-08-13 handoff](../handoffs/2026-08-13-hellbender-d3d-review.md),
 [Hellbender hardware Direct3D plan](hellbender-hardware-d3d.md)
 
+## Progress: `hellbender-surface-trace`
+
+Implemented and VM-tested on 2026-08-13:
+
+- A1-A5: surface callback tracing, 56-entry ring, corrected Win16 exit
+  bookkeeping, handled `GetDriverInfo` returns, ABI `2026081401`;
+- B: RGB565 texture enumeration and two-texture handle/load/swap lifecycle in
+  V9XDDP; and
+- C1/C2: instrumented Hellbender rerun plus the GDI-free V9XWND window-list
+  diagnostic.
+
+The VM 9869 install passed with boot counter 129 -> 130 and byte verification.
+V9XDDP completed with every mandatory gate result, `TexFormatCount=1`,
+`TexFormat565=1`, and successful surface/handle/load/swap HRESULTs. V9XTRACE
+reported two texture creates, two destroys, one swap, five clean
+`CanCreateSurface`/`CreateSurface` pairs, and zero engine timeouts/resets.
+
+The Hellbender New Game repro switched to 640x480x16, then stopped after two
+additional successful `Dd16CreateObject` calls following the second
+`DriverInit`. No surface callback entered after that `DriverInit`, no HAL
+callback was left unmatched, and no engine timeout/reset occurred. V9XWND
+showed the Quick Configuration `#32770` had closed and found no replacement
+dialog or Winoldap window; only the visible `Hellbender` application window
+belonged to the game. This rules out C2's hidden-dialog hypothesis for this
+run and places the stop above the callbacks published by the HAL. Proceed with
+C3 next.
+
+Evidence: `build/driver-results/hellbender-surface-trace-vm1/V9XDD.INI`,
+`V9XSNAP.INI`, `HELLBENDER-WEDGE.INI`, `V9XWND-HEALTHY.INI`, and
+`V9XWND-WEDGE.INI`. Recovery required a controlled reboot after V9XMSW could
+not restore the live wedged mode; boot counter 130 -> 131 and desktop readiness
+were confirmed.
+
 ## Context
 
 Per the 2026-08-13 handoff, Hellbender in hardware D3D mode wedges after

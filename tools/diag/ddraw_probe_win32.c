@@ -22,12 +22,14 @@
 #define V9X_DDSD_HEIGHT             0x00000002ul
 #define V9X_DDSD_WIDTH              0x00000004ul
 #define V9X_DDSD_BACKBUFFERCOUNT    0x00000020ul
+#define V9X_DDSD_PIXELFORMAT        0x00001000ul
 #define V9X_DDSCAPS_BACKBUFFER      0x00000004ul
 #define V9X_DDSCAPS_COMPLEX         0x00000008ul
 #define V9X_DDSCAPS_FLIP            0x00000010ul
 #define V9X_DDSCAPS_OFFSCREENPLAIN  0x00000040ul
 #define V9X_DDSCAPS_PRIMARYSURFACE  0x00000200ul
 #define V9X_DDSCAPS_SYSTEMMEMORY    0x00000800ul
+#define V9X_DDSCAPS_TEXTURE         0x00001000ul
 #define V9X_DDSCAPS_3DDEVICE        0x00002000ul
 #define V9X_DDSCAPS_VIDEOMEMORY     0x00004000ul
 #define V9X_DDSCL_FULLSCREEN        0x00000001ul
@@ -113,6 +115,7 @@ struct v9x_dd;
 struct v9x_dds;
 struct v9x_d3d2;
 struct v9x_d3d_device2;
+struct v9x_d3d_texture2;
 struct v9x_d3d_viewport2;
 
 typedef struct v9x_d3d_transform_caps {
@@ -174,14 +177,19 @@ typedef struct v9x_d3d_device2_vtbl {
     ULONG (__stdcall *AddRef)(struct v9x_d3d_device2 *);
     ULONG (__stdcall *Release)(struct v9x_d3d_device2 *);
     void *GetCaps;
-    void *SwapTextureHandles;
+    HRESULT (__stdcall *SwapTextureHandles)(struct v9x_d3d_device2 *,
+                                             struct v9x_d3d_texture2 *,
+                                             struct v9x_d3d_texture2 *);
     void *GetStats;
     HRESULT (__stdcall *AddViewport)(struct v9x_d3d_device2 *,
                                      struct v9x_d3d_viewport2 *);
     HRESULT (__stdcall *DeleteViewport)(struct v9x_d3d_device2 *,
                                         struct v9x_d3d_viewport2 *);
     void *NextViewport;
-    void *EnumTextureFormats;
+    HRESULT (__stdcall *EnumTextureFormats)(struct v9x_d3d_device2 *,
+                                             HRESULT (__stdcall *)(
+                                                 V9X_DDSURFACEDESC *,
+                                                 void *), void *);
     HRESULT (__stdcall *BeginScene)(struct v9x_d3d_device2 *);
     HRESULT (__stdcall *EndScene)(struct v9x_d3d_device2 *);
     void *GetDirect3D;
@@ -208,6 +216,19 @@ typedef struct v9x_d3d_device2_vtbl {
     void *SetClipStatus;
     void *GetClipStatus;
 } V9X_D3D_DEVICE2_VTBL;
+
+typedef struct v9x_d3d_texture2_vtbl {
+    HRESULT (__stdcall *QueryInterface)(struct v9x_d3d_texture2 *,
+                                        const void *, void **);
+    ULONG (__stdcall *AddRef)(struct v9x_d3d_texture2 *);
+    ULONG (__stdcall *Release)(struct v9x_d3d_texture2 *);
+    HRESULT (__stdcall *GetHandle)(struct v9x_d3d_texture2 *,
+                                   struct v9x_d3d_device2 *, DWORD *);
+    HRESULT (__stdcall *PaletteChanged)(struct v9x_d3d_texture2 *,
+                                        DWORD, DWORD);
+    HRESULT (__stdcall *Load)(struct v9x_d3d_texture2 *,
+                              struct v9x_d3d_texture2 *);
+} V9X_D3D_TEXTURE2_VTBL;
 
 typedef struct v9x_d3d_viewport2_vtbl {
     void *QueryInterface;
@@ -267,6 +288,10 @@ struct v9x_d3d_device2 {
     const V9X_D3D_DEVICE2_VTBL *vtbl;
 };
 
+struct v9x_d3d_texture2 {
+    const V9X_D3D_TEXTURE2_VTBL *vtbl;
+};
+
 static const GUID v9x_iid_d3d2 = {
     0x6aae1ec1ul, 0x662a, 0x11d0,
     { 0x88, 0x9d, 0x00, 0xaa, 0x00, 0xbb, 0xb7, 0x6a }
@@ -277,11 +302,21 @@ static const GUID v9x_iid_d3d_hal = {
     { 0x81, 0x6f, 0x00, 0x00, 0xc0, 0x20, 0x15, 0x6e }
 };
 
+static const GUID v9x_iid_d3d_texture2 = {
+    0x93281502ul, 0x8cf8, 0x11d0,
+    { 0x89, 0xab, 0x00, 0xa0, 0xc9, 0x05, 0x41, 0x29 }
+};
+
 typedef struct v9x_d3d_enum_result {
     DWORD hal_found;
     DWORD flags;
     DWORD render_depth;
 } V9X_D3D_ENUM_RESULT;
+
+typedef struct v9x_texture_enum_result {
+    DWORD count;
+    DWORD rgb565;
+} V9X_TEXTURE_ENUM_RESULT;
 
 /* IDirectDraw version 1 method table, in vtable order. */
 typedef struct v9x_dd_vtbl {
@@ -422,6 +457,24 @@ static HRESULT __stdcall v9x_enum_d3d_device(
         result->hal_found = 1ul;
         result->flags = hardware->dwFlags;
         result->render_depth = hardware->dwDeviceRenderBitDepth;
+    }
+    return 1l;
+}
+
+static HRESULT __stdcall v9x_enum_texture_format(
+    V9X_DDSURFACEDESC *desc, void *context)
+{
+    V9X_TEXTURE_ENUM_RESULT *result = (V9X_TEXTURE_ENUM_RESULT *)context;
+
+    if (desc != 0) {
+        ++result->count;
+        if ((desc->ddpfPixelFormat.dwFlags & 0x00000040ul) != 0ul &&
+            desc->ddpfPixelFormat.dwRGBBitCount == 16ul &&
+            desc->ddpfPixelFormat.dwRBitMask == 0x0000f800ul &&
+            desc->ddpfPixelFormat.dwGBitMask == 0x000007e0ul &&
+            desc->ddpfPixelFormat.dwBBitMask == 0x0000001ful) {
+            result->rgb565 = 1ul;
+        }
     }
     return 1l;
 }
@@ -652,10 +705,15 @@ void __stdcall V9xDdrawProbeEntry(void)
     struct v9x_dds *backbuffer = 0;
     struct v9x_dds *stage = 0;
     struct v9x_dds *d3d_target = 0;
+    struct v9x_dds *texture_surface = 0;
+    struct v9x_dds *texture_surface2 = 0;
     struct v9x_d3d2 *d3d = 0;
     struct v9x_d3d_device2 *d3d_device = 0;
+    struct v9x_d3d_texture2 *texture = 0;
+    struct v9x_d3d_texture2 *texture2 = 0;
     struct v9x_d3d_viewport2 *d3d_viewport = 0;
     V9X_D3D_ENUM_RESULT d3d_result;
+    V9X_TEXTURE_ENUM_RESULT texture_result;
     V9X_DDSURFACEDESC desc;
     V9X_DDSCAPS caps;
     HRESULT hr;
@@ -670,6 +728,11 @@ void __stdcall V9xDdrawProbeEntry(void)
     WritePrivateProfileStringA(V9X_SECTION, 0, 0, V9X_RESULT_PATH);
     v9x_write_text("Build", V9X_BUILD_ID);
     v9x_write_text("Result", "INCOMPLETE");
+    v9x_write_uint("TexFormatCount", 0ul);
+    v9x_write_uint("TexFormat565", 0ul);
+    v9x_write_hresult("TexSurfaceHr", (HRESULT)0x80004005ul);
+    v9x_write_hresult("TexHandleHr", (HRESULT)0x80004005ul);
+    v9x_write_hresult("TexSwapHr", (HRESULT)0x80004005ul);
 
     winmm = LoadLibraryA("WINMM.DLL");
     v9x_time = winmm != 0
@@ -796,7 +859,73 @@ void __stdcall V9xDdrawProbeEntry(void)
                 HRESULT draw_hr;
                 HRESULT end_hr;
                 HRESULT viewport_hr;
+                HRESULT texture_hr;
+                HRESULT texture2_hr;
+                HRESULT swap_hr;
+                DWORD texture_handle = 0ul;
+                DWORD texture_handle2 = 0ul;
                 V9X_D3D_VIEWPORT_DESC2 viewport_desc;
+
+                v9x_zero(&texture_result, sizeof(texture_result));
+                texture_hr = d3d_device->vtbl->EnumTextureFormats(
+                    d3d_device, v9x_enum_texture_format, &texture_result);
+                v9x_write_hresult("TexEnumHr", texture_hr);
+                v9x_write_uint("TexFormatCount", texture_result.count);
+                v9x_write_uint("TexFormat565", texture_result.rgb565);
+
+                v9x_zero(&desc, sizeof(desc));
+                desc.dwSize = sizeof(desc);
+                desc.dwFlags = V9X_DDSD_CAPS | V9X_DDSD_WIDTH |
+                               V9X_DDSD_HEIGHT | V9X_DDSD_PIXELFORMAT;
+                desc.dwWidth = 64ul;
+                desc.dwHeight = 64ul;
+                desc.ddsCaps.dwCaps = V9X_DDSCAPS_TEXTURE;
+                desc.ddpfPixelFormat.dwSize = sizeof(V9X_DDPIXELFORMAT);
+                desc.ddpfPixelFormat.dwFlags = 0x00000040ul;
+                desc.ddpfPixelFormat.dwRGBBitCount = 16ul;
+                desc.ddpfPixelFormat.dwRBitMask = 0x0000f800ul;
+                desc.ddpfPixelFormat.dwGBitMask = 0x000007e0ul;
+                desc.ddpfPixelFormat.dwBBitMask = 0x0000001ful;
+                texture_hr = ddraw->vtbl->CreateSurface(
+                    ddraw, &desc, &texture_surface, 0);
+                v9x_write_hresult("TexSurfaceHr", texture_hr);
+                texture2_hr = ddraw->vtbl->CreateSurface(
+                    ddraw, &desc, &texture_surface2, 0);
+                v9x_write_hresult("TexSurface2Hr", texture2_hr);
+
+                if (texture_hr == 0 && texture_surface != 0) {
+                    texture_hr = texture_surface->vtbl->QueryInterface(
+                        texture_surface, &v9x_iid_d3d_texture2,
+                        (void **)&texture);
+                }
+                if (texture_hr == 0 && texture != 0) {
+                    texture_hr = texture->vtbl->GetHandle(
+                        texture, d3d_device, &texture_handle);
+                }
+                if (texture2_hr == 0 && texture_surface2 != 0) {
+                    texture2_hr = texture_surface2->vtbl->QueryInterface(
+                        texture_surface2, &v9x_iid_d3d_texture2,
+                        (void **)&texture2);
+                }
+                if (texture2_hr == 0 && texture2 != 0) {
+                    texture2_hr = texture2->vtbl->GetHandle(
+                        texture2, d3d_device, &texture_handle2);
+                }
+                v9x_write_hresult("TexHandleHr",
+                    texture_hr != 0 ? texture_hr : texture2_hr);
+                v9x_write_uint("TexHandle", texture_handle);
+                v9x_write_uint("TexHandle2", texture_handle2);
+
+                swap_hr = texture_hr != 0 ? texture_hr : texture2_hr;
+                if (swap_hr == 0) {
+                    swap_hr = texture2->vtbl->Load(texture2, texture);
+                }
+                v9x_write_hresult("TexLoadHr", swap_hr);
+                if (swap_hr == 0) {
+                    swap_hr = d3d_device->vtbl->SwapTextureHandles(
+                        d3d_device, texture, texture2);
+                }
+                v9x_write_hresult("TexSwapHr", swap_hr);
 
                 viewport_hr = d3d->vtbl->CreateViewport(
                     d3d, (void **)&d3d_viewport, 0);
@@ -866,6 +995,22 @@ void __stdcall V9xDdrawProbeEntry(void)
                                                      d3d_viewport);
                     d3d_viewport->vtbl->Release(d3d_viewport);
                     d3d_viewport = 0;
+                }
+                if (texture2 != 0) {
+                    texture2->vtbl->Release(texture2);
+                    texture2 = 0;
+                }
+                if (texture != 0) {
+                    texture->vtbl->Release(texture);
+                    texture = 0;
+                }
+                if (texture_surface2 != 0) {
+                    texture_surface2->vtbl->Release(texture_surface2);
+                    texture_surface2 = 0;
+                }
+                if (texture_surface != 0) {
+                    texture_surface->vtbl->Release(texture_surface);
+                    texture_surface = 0;
                 }
                 d3d_device->vtbl->Release(d3d_device);
                 d3d_device = 0;
