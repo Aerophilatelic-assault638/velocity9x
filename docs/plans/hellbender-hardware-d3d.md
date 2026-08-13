@@ -2,6 +2,12 @@
 
 Date: 2026-08-12
 
+Current implementation and VM-test status is recorded in the dated
+[2026-08-13 review handoff](../handoffs/2026-08-13-hellbender-d3d-review.md).
+Read and run its regression gates before reproducing the current hard wedge;
+the capability list below describes the original baseline and is not the
+latest implementation inventory.
+
 Target milestone: Hellbender menus and the first mission use the Velocity9x
 hardware Direct3D device on Windows 98SE with the S3 ViRGE/DX 86C375.
 
@@ -310,4 +316,3 @@ re-scope at these decision points:
 - unsupported capabilities remain unadvertised; and
 - the accepted build, evidence, limitations, and recovery procedure are
   documented in the repository.
-

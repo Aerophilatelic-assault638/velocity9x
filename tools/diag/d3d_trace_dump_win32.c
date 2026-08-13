@@ -95,11 +95,20 @@ static const char *v9x_trace_name(WORD id)
     case V9X_TRACE_D3D_RENDERSTATE:      return "D3dRenderState";
     case V9X_TRACE_D3D_RENDERPRIM:       return "D3dRenderPrimitive";
     case V9X_TRACE_D3D_EXECUTE:          return "D3dExecute";
+    case V9X_TRACE_EXEBUF_CANCREATE:     return "ExeBufCanCreate";
+    case V9X_TRACE_EXEBUF_CREATE:        return "ExeBufCreate";
+    case V9X_TRACE_EXEBUF_DESTROY:       return "ExeBufDestroy";
+    case V9X_TRACE_EXEBUF_LOCK:          return "ExeBufLock";
+    case V9X_TRACE_EXEBUF_UNLOCK:        return "ExeBufUnlock";
     case V9X_TRACE_D3D_SETRENDERTARGET:  return "D3dSetRenderTarget";
     case V9X_TRACE_D3D_DRAWONEPRIM:      return "D3dDrawOnePrimitive";
     case V9X_TRACE_D3D_DRAWPRIMS:        return "D3dDrawPrimitives";
     case V9X_TRACE_D3D_DRAWONEINDEXED:   return "D3dDrawOneIndexed";
     case V9X_TRACE_D3D_TARGET_LAYOUT:    return "D3dTargetLayout";
+    case V9X_TRACE_D3D_TEXTURECREATE:    return "D3dTextureCreate";
+    case V9X_TRACE_D3D_TEXTUREDESTROY:   return "D3dTextureDestroy";
+    case V9X_TRACE_D3D_TEXTURESWAP:      return "D3dTextureSwap";
+    case V9X_TRACE_D3D_TEXTUREGETSURF:   return "D3dTextureGetSurf";
     default:                             return "Unknown";
     }
 }
@@ -241,6 +250,10 @@ void __stdcall V9xTraceDumpEntry(void)
     v9x_write_uint("D3dRenderPrimitiveCalls",
                    snapshot.d3d.render_primitive_calls);
     v9x_write_uint("D3dExecuteCalls", snapshot.d3d.execute_calls);
+    v9x_write_uint("D3dTextureCreates", snapshot.d3d.texture_creates);
+    v9x_write_uint("D3dTextureDestroys", snapshot.d3d.texture_destroys);
+    v9x_write_uint("D3dTextureSwaps", snapshot.d3d.texture_swaps);
+    v9x_write_uint("D3dTextureGetSurfs", snapshot.d3d.texture_get_surfs);
     v9x_write_uint("TraceEvents", snapshot.trace.seq);
     v9x_write_text("LastEnter", v9x_trace_name(
         (WORD)snapshot.trace.last_enter_id));

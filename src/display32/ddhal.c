@@ -88,6 +88,7 @@ static const char v9x_hal_build_id[] = "V9XHAL build=" V9X_BUILD_ID;
 static V9X_DD_SHARED *v9x_hal;
 
 #define V9X_D3D_CONTEXT_COUNT 16u
+#define V9X_D3D_TEXTURE_COUNT 256u
 
 typedef struct v9x_d3d_context {
     DWORD active;
@@ -100,7 +101,14 @@ typedef struct v9x_d3d_context {
     DWORD height;
 } V9X_D3D_CONTEXT;
 
+typedef struct v9x_d3d_texture {
+    DWORD active;
+    DWORD context;
+    void *surface;
+} V9X_D3D_TEXTURE;
+
 static V9X_D3D_CONTEXT v9x_d3d_contexts[V9X_D3D_CONTEXT_COUNT];
+static V9X_D3D_TEXTURE v9x_d3d_textures[V9X_D3D_TEXTURE_COUNT];
 static V9X_D3DHAL_CALLBACKS2 v9x_d3d_callbacks2;
 
 static const BYTE v9x_guid_d3d_callbacks2[16] = {
@@ -192,6 +200,15 @@ static const char *v9x_trace_name(WORD id)
     case V9X_TRACE_D3D_DRAWONEINDEXED:   return "D3dDrawOneIndexed";
     case V9X_TRACE_D3D_TARGET_LAYOUT:    return "D3dTargetLayout";
     case V9X_TRACE_D3D_EXECUTE:          return "D3dExecute";
+    case V9X_TRACE_EXEBUF_CANCREATE:     return "ExeBufCanCreate";
+    case V9X_TRACE_EXEBUF_CREATE:        return "ExeBufCreate";
+    case V9X_TRACE_EXEBUF_DESTROY:       return "ExeBufDestroy";
+    case V9X_TRACE_EXEBUF_LOCK:          return "ExeBufLock";
+    case V9X_TRACE_EXEBUF_UNLOCK:        return "ExeBufUnlock";
+    case V9X_TRACE_D3D_TEXTURECREATE:    return "D3dTextureCreate";
+    case V9X_TRACE_D3D_TEXTUREDESTROY:   return "D3dTextureDestroy";
+    case V9X_TRACE_D3D_TEXTURESWAP:      return "D3dTextureSwap";
+    case V9X_TRACE_D3D_TEXTUREGETSURF:   return "D3dTextureGetSurf";
     default:                             return "Unknown";
     }
 }
@@ -638,6 +655,59 @@ DWORD __stdcall V9xHalUnlock(V9X_DDHAL_UNLOCKDATA *data)
     return V9X_DDHAL_DRIVER_NOTHANDLED;
 }
 
+DWORD __stdcall V9xExeBufCanCreate(V9X_DDHAL_CANCREATESURFACEDATA *data)
+{
+    v9x_trace_enter(V9X_TRACE_EXEBUF_CANCREATE,
+                    data != 0 ? data->bIsDifferentPixelFormat : 0ul);
+    if (data != 0) {
+        data->ddRVal = V9X_DD_OK;
+    }
+    v9x_trace_exit(V9X_TRACE_EXEBUF_CANCREATE, V9X_DD_OK);
+    return V9X_DDHAL_DRIVER_NOTHANDLED;
+}
+
+DWORD __stdcall V9xExeBufCreate(V9X_DDHAL_CREATESURFACEDATA *data)
+{
+    v9x_trace_enter(V9X_TRACE_EXEBUF_CREATE,
+                    data != 0 ? data->dwSCnt : 0ul);
+    if (data != 0) {
+        data->ddRVal = V9X_DD_OK;
+    }
+    v9x_trace_exit(V9X_TRACE_EXEBUF_CREATE, V9X_DD_OK);
+    return V9X_DDHAL_DRIVER_NOTHANDLED;
+}
+
+DWORD __stdcall V9xExeBufDestroy(V9X_DDHAL_DESTROYSURFACEDATA *data)
+{
+    v9x_trace_enter(V9X_TRACE_EXEBUF_DESTROY, 0ul);
+    if (data != 0) {
+        data->ddRVal = V9X_DD_OK;
+    }
+    v9x_trace_exit(V9X_TRACE_EXEBUF_DESTROY, V9X_DD_OK);
+    return V9X_DDHAL_DRIVER_NOTHANDLED;
+}
+
+DWORD __stdcall V9xExeBufLock(V9X_DDHAL_LOCKDATA *data)
+{
+    v9x_trace_enter(V9X_TRACE_EXEBUF_LOCK,
+                    data != 0 ? data->dwFlags : 0ul);
+    if (data != 0) {
+        data->ddRVal = V9X_DD_OK;
+    }
+    v9x_trace_exit(V9X_TRACE_EXEBUF_LOCK, V9X_DD_OK);
+    return V9X_DDHAL_DRIVER_NOTHANDLED;
+}
+
+DWORD __stdcall V9xExeBufUnlock(V9X_DDHAL_UNLOCKDATA *data)
+{
+    v9x_trace_enter(V9X_TRACE_EXEBUF_UNLOCK, 0ul);
+    if (data != 0) {
+        data->ddRVal = V9X_DD_OK;
+    }
+    v9x_trace_exit(V9X_TRACE_EXEBUF_UNLOCK, V9X_DD_OK);
+    return V9X_DDHAL_DRIVER_NOTHANDLED;
+}
+
 static int v9x_fill_rect_valid(const V9X_DDHAL_BLTDATA *data,
                                DWORD bytes_per_pixel,
                                DWORD *offset_out)
@@ -819,6 +889,35 @@ static V9X_D3D_CONTEXT *v9x_d3d_context_from_handle(DWORD handle)
     return 0;
 }
 
+static V9X_D3D_TEXTURE *v9x_d3d_texture_from_handle(DWORD handle,
+                                                     DWORD context)
+{
+    DWORD index;
+
+    for (index = 0ul; index < V9X_D3D_TEXTURE_COUNT; ++index) {
+        if ((DWORD)&v9x_d3d_textures[index] == handle &&
+            v9x_d3d_textures[index].active != 0ul &&
+            v9x_d3d_textures[index].context == context) {
+            return &v9x_d3d_textures[index];
+        }
+    }
+    return 0;
+}
+
+static void v9x_d3d_textures_destroy_context(DWORD context)
+{
+    DWORD index;
+
+    for (index = 0ul; index < V9X_D3D_TEXTURE_COUNT; ++index) {
+        if (v9x_d3d_textures[index].active != 0ul &&
+            v9x_d3d_textures[index].context == context) {
+            v9x_d3d_textures[index].active = 0ul;
+            v9x_d3d_textures[index].context = 0ul;
+            v9x_d3d_textures[index].surface = 0;
+        }
+    }
+}
+
 static int v9x_d3d_triangle(V9X_D3D_CONTEXT *context,
                             const V9X_D3DTLVERTEX *first);
 DWORD __stdcall V9xD3dRenderPrimitive(
@@ -970,6 +1069,7 @@ DWORD __stdcall V9xD3dContextDestroy(V9X_D3DHAL_CONTEXTDESTROYDATA *data)
         v9x_trace_exit(V9X_TRACE_D3D_CTXDESTROY, 0x80070057ul);
         return V9X_DDHAL_DRIVER_HANDLED;
     }
+    v9x_d3d_textures_destroy_context(data->dwhContext);
     context->active = 0ul;
     context->pid = 0ul;
     context->target = 0;
@@ -997,6 +1097,8 @@ DWORD __stdcall V9xD3dContextDestroyAll(
     for (index = 0ul; index < V9X_D3D_CONTEXT_COUNT; ++index) {
         if (v9x_d3d_contexts[index].active != 0ul &&
             v9x_d3d_contexts[index].pid == data->dwPID) {
+            v9x_d3d_textures_destroy_context(
+                (DWORD)&v9x_d3d_contexts[index]);
             v9x_d3d_contexts[index].active = 0ul;
             v9x_d3d_contexts[index].pid = 0ul;
             v9x_d3d_contexts[index].target = 0;
@@ -1010,6 +1112,111 @@ DWORD __stdcall V9xD3dContextDestroyAll(
     data->ddrval = V9X_DD_OK;
     ++v9x_hal->d3d_diagnostics.context_destroy_alls;
     v9x_trace_exit(V9X_TRACE_D3D_CTXDESTROYALL, data->ddrval);
+    return V9X_DDHAL_DRIVER_HANDLED;
+}
+
+DWORD __stdcall V9xD3dTextureCreate(V9X_D3DHAL_TEXTURECREATEDATA *data)
+{
+    DWORD index;
+
+    v9x_trace_enter(V9X_TRACE_D3D_TEXTURECREATE,
+                    data != 0 ? data->dwhContext : 0ul);
+    if (data == 0 || data->lpDDS == 0 ||
+        v9x_d3d_context_from_handle(data->dwhContext) == 0) {
+        if (data != 0) {
+            data->ddrval = 0x80070057ul;
+        }
+        v9x_trace_exit(V9X_TRACE_D3D_TEXTURECREATE, 0x80070057ul);
+        return V9X_DDHAL_DRIVER_HANDLED;
+    }
+    for (index = 0ul; index < V9X_D3D_TEXTURE_COUNT; ++index) {
+        if (v9x_d3d_textures[index].active == 0ul) {
+            v9x_d3d_textures[index].active = 1ul;
+            v9x_d3d_textures[index].context = data->dwhContext;
+            v9x_d3d_textures[index].surface = data->lpDDS;
+            data->dwHandle = (DWORD)&v9x_d3d_textures[index];
+            data->ddrval = V9X_DD_OK;
+            ++v9x_hal->d3d_diagnostics.texture_creates;
+            v9x_trace_exit(V9X_TRACE_D3D_TEXTURECREATE, data->ddrval);
+            return V9X_DDHAL_DRIVER_HANDLED;
+        }
+    }
+    data->ddrval = 0x8007000eul;
+    v9x_trace_exit(V9X_TRACE_D3D_TEXTURECREATE, data->ddrval);
+    return V9X_DDHAL_DRIVER_HANDLED;
+}
+
+DWORD __stdcall V9xD3dTextureDestroy(V9X_D3DHAL_TEXTUREDESTROYDATA *data)
+{
+    V9X_D3D_TEXTURE *texture;
+
+    v9x_trace_enter(V9X_TRACE_D3D_TEXTUREDESTROY,
+                    data != 0 ? data->dwHandle : 0ul);
+    texture = data != 0
+        ? v9x_d3d_texture_from_handle(data->dwHandle, data->dwhContext) : 0;
+    if (texture == 0) {
+        if (data != 0) {
+            data->ddrval = 0x80070057ul;
+        }
+        v9x_trace_exit(V9X_TRACE_D3D_TEXTUREDESTROY, 0x80070057ul);
+        return V9X_DDHAL_DRIVER_HANDLED;
+    }
+    texture->active = 0ul;
+    texture->context = 0ul;
+    texture->surface = 0;
+    data->ddrval = V9X_DD_OK;
+    ++v9x_hal->d3d_diagnostics.texture_destroys;
+    v9x_trace_exit(V9X_TRACE_D3D_TEXTUREDESTROY, data->ddrval);
+    return V9X_DDHAL_DRIVER_HANDLED;
+}
+
+DWORD __stdcall V9xD3dTextureSwap(V9X_D3DHAL_TEXTURESWAPDATA *data)
+{
+    V9X_D3D_TEXTURE *first;
+    V9X_D3D_TEXTURE *second;
+    void *surface;
+
+    v9x_trace_enter(V9X_TRACE_D3D_TEXTURESWAP,
+                    data != 0 ? data->dwHandle1 : 0ul);
+    first = data != 0
+        ? v9x_d3d_texture_from_handle(data->dwHandle1, data->dwhContext) : 0;
+    second = data != 0
+        ? v9x_d3d_texture_from_handle(data->dwHandle2, data->dwhContext) : 0;
+    if (first == 0 || second == 0) {
+        if (data != 0) {
+            data->ddrval = 0x80070057ul;
+        }
+        v9x_trace_exit(V9X_TRACE_D3D_TEXTURESWAP, 0x80070057ul);
+        return V9X_DDHAL_DRIVER_HANDLED;
+    }
+    surface = first->surface;
+    first->surface = second->surface;
+    second->surface = surface;
+    data->ddrval = V9X_DD_OK;
+    ++v9x_hal->d3d_diagnostics.texture_swaps;
+    v9x_trace_exit(V9X_TRACE_D3D_TEXTURESWAP, data->ddrval);
+    return V9X_DDHAL_DRIVER_HANDLED;
+}
+
+DWORD __stdcall V9xD3dTextureGetSurf(V9X_D3DHAL_TEXTUREGETSURFDATA *data)
+{
+    V9X_D3D_TEXTURE *texture;
+
+    v9x_trace_enter(V9X_TRACE_D3D_TEXTUREGETSURF,
+                    data != 0 ? data->dwHandle : 0ul);
+    texture = data != 0
+        ? v9x_d3d_texture_from_handle(data->dwHandle, data->dwhContext) : 0;
+    if (texture == 0) {
+        if (data != 0) {
+            data->ddrval = 0x80070057ul;
+        }
+        v9x_trace_exit(V9X_TRACE_D3D_TEXTUREGETSURF, 0x80070057ul);
+        return V9X_DDHAL_DRIVER_HANDLED;
+    }
+    data->lpDDS = (DWORD)texture->surface;
+    data->ddrval = V9X_DD_OK;
+    ++v9x_hal->d3d_diagnostics.texture_get_surfs;
+    v9x_trace_exit(V9X_TRACE_D3D_TEXTUREGETSURF, data->ddrval);
     return V9X_DDHAL_DRIVER_HANDLED;
 }
 
@@ -1249,6 +1456,18 @@ static LONG v9x_d3d_fixed_12_20(float value)
     return v9x_float_to_long(value * 1048576.0f);
 }
 
+static WORD v9x_d3d_fixed_8_7(float value)
+{
+    LONG fixed = v9x_float_to_long(value * 128.0f);
+
+    if (fixed < -32768l) {
+        fixed = -32768l;
+    } else if (fixed > 32767l) {
+        fixed = 32767l;
+    }
+    return (WORD)fixed;
+}
+
 static int v9x_d3d_triangle(V9X_D3D_CONTEXT *context,
                             const V9X_D3DTLVERTEX *first)
 {
@@ -1260,7 +1479,10 @@ static int v9x_d3d_triangle(V9X_D3D_CONTEXT *context,
     LONG dy01, dy12, dy02;
     float fdy01, fdy12, fdy02r, fdycc;
     float dxdy01, dxdy12, dxdy02, dx;
-    DWORD color = first->color;
+    float fdxr;
+    float dgdx, dbdx, drdx;
+    float dgdy, dbdy, drdy;
+    DWORD color;
     DWORD gs_bs;
     DWORD as_rs;
 
@@ -1304,6 +1526,23 @@ static int v9x_d3d_triangle(V9X_D3D_CONTEXT *context,
     if (dx > -0.000002f && dx < 0.000002f) {
         return 1;
     }
+    fdxr = dx < 0.0f ? -1.0f / dx : 1.0f / dx;
+    dgdy = ((float)((LONG)((p2->color >> 8) & 0xfful) -
+                          (LONG)((p0->color >> 8) & 0xfful))) * fdy02r;
+    dbdy = ((float)((LONG)(p2->color & 0xfful) -
+                          (LONG)(p0->color & 0xfful))) * fdy02r;
+    drdy = ((float)((LONG)((p2->color >> 16) & 0xfful) -
+                          (LONG)((p0->color >> 16) & 0xfful))) * fdy02r;
+    dgdx = ((float)((LONG)((p1->color >> 8) & 0xfful) -
+                          (LONG)((p0->color >> 8) & 0xfful)) -
+            dgdy * fdy01) * fdxr;
+    dbdx = ((float)((LONG)(p1->color & 0xfful) -
+                          (LONG)(p0->color & 0xfful)) -
+            dbdy * fdy01) * fdxr;
+    drdx = ((float)((LONG)((p1->color >> 16) & 0xfful) -
+                          (LONG)((p0->color >> 16) & 0xfful)) -
+            drdy * fdy01) * fdxr;
+    color = p0->color;
 
     if (!v9x_wait_idle(1) || !v9x_wait_fifo(9ul, 1)) {
         return 0;
@@ -1327,10 +1566,16 @@ static int v9x_d3d_triangle(V9X_D3D_CONTEXT *context,
     gs_bs = (((color >> 8) & 0xfful) << 23) |
             ((color & 0xfful) << 7);
     as_rs = (255ul << 23) | (((color >> 16) & 0xfful) << 7);
-    v9x_mmio_write(V9X_VIRGE_3D_DGDX_DBDX, 0ul);
-    v9x_mmio_write(V9X_VIRGE_3D_DADX_DRDX, 0ul);
-    v9x_mmio_write(V9X_VIRGE_3D_DGDY_DBDY, 0ul);
-    v9x_mmio_write(V9X_VIRGE_3D_DADY_DRDY, 0ul);
+    v9x_mmio_write(V9X_VIRGE_3D_DGDX_DBDX,
+                   ((DWORD)v9x_d3d_fixed_8_7(dgdx) << 16) |
+                   (DWORD)v9x_d3d_fixed_8_7(dbdx));
+    v9x_mmio_write(V9X_VIRGE_3D_DADX_DRDX,
+                   (DWORD)v9x_d3d_fixed_8_7(drdx));
+    v9x_mmio_write(V9X_VIRGE_3D_DGDY_DBDY,
+                   ((DWORD)v9x_d3d_fixed_8_7(dgdy) << 16) |
+                   (DWORD)v9x_d3d_fixed_8_7(dbdy));
+    v9x_mmio_write(V9X_VIRGE_3D_DADY_DRDY,
+                   (DWORD)v9x_d3d_fixed_8_7(drdy));
     v9x_mmio_write(V9X_VIRGE_3D_GS_BS, gs_bs);
     v9x_mmio_write(V9X_VIRGE_3D_AS_RS, as_rs);
     v9x_mmio_write(V9X_VIRGE_3D_DXDY12,
@@ -1595,7 +1840,8 @@ DWORD __stdcall DriverInit(DWORD context)
     shared->info.ddCaps.ddsCaps = V9X_DDSCAPS_3DDEVICE |
                                   V9X_DDSCAPS_OFFSCREENPLAIN |
                                   V9X_DDSCAPS_FLIP |
-                                  V9X_DDSCAPS_PRIMARYSURFACE;
+                                  V9X_DDSCAPS_PRIMARYSURFACE |
+                                  V9X_DDSCAPS_TEXTURE;
     shared->info.ddCaps.dwVidMemTotal =
         shared->fb.vram_bytes - shared->fb.visible_bytes;
     shared->info.ddCaps.dwVidMemFree = shared->info.ddCaps.dwVidMemTotal;
@@ -1629,6 +1875,25 @@ DWORD __stdcall DriverInit(DWORD context)
         sizeof(V9X_DDHAL_DDPALETTECALLBACKS);
     shared->palette_callbacks.dwFlags = 0ul;
 
+    shared->execute_buffer_callbacks.dwSize =
+        sizeof(V9X_DDHAL_DDEXEBUFCALLBACKS);
+    shared->execute_buffer_callbacks.dwFlags =
+        V9X_DDHAL_EXEBUFCB32_CANCREATE |
+        V9X_DDHAL_EXEBUFCB32_CREATE |
+        V9X_DDHAL_EXEBUFCB32_DESTROY |
+        V9X_DDHAL_EXEBUFCB32_LOCK |
+        V9X_DDHAL_EXEBUFCB32_UNLOCK;
+    shared->execute_buffer_callbacks.CanCreateExecuteBuffer =
+        (V9X_DD_CODE_PTR)V9xExeBufCanCreate;
+    shared->execute_buffer_callbacks.CreateExecuteBuffer =
+        (V9X_DD_CODE_PTR)V9xExeBufCreate;
+    shared->execute_buffer_callbacks.DestroyExecuteBuffer =
+        (V9X_DD_CODE_PTR)V9xExeBufDestroy;
+    shared->execute_buffer_callbacks.LockExecuteBuffer =
+        (V9X_DD_CODE_PTR)V9xExeBufLock;
+    shared->execute_buffer_callbacks.UnlockExecuteBuffer =
+        (V9X_DD_CODE_PTR)V9xExeBufUnlock;
+
     shared->d3d_global.dwSize = sizeof(V9X_D3DHAL_GLOBALDRIVERDATA);
     shared->d3d_global.hwCaps.dwSize = sizeof(V9X_D3DDEVICEDESC_V1);
     shared->d3d_global.hwCaps.dwFlags =
@@ -1651,13 +1916,27 @@ DWORD __stdcall DriverInit(DWORD context)
     shared->d3d_global.hwCaps.dpcTriCaps.dwMiscCaps =
         V9X_D3DPMISCCAPS_CULLNONE;
     shared->d3d_global.hwCaps.dpcTriCaps.dwShadeCaps =
-        V9X_D3DPSHADECAPS_COLORFLATRGB;
+        V9X_D3DPSHADECAPS_COLORFLATRGB |
+        V9X_D3DPSHADECAPS_COLORGOURAUDRGB;
+    shared->d3d_global.hwCaps.dpcTriCaps.dwTextureCaps =
+        V9X_D3DPTEXTURECAPS_PERSPECTIVE;
     shared->d3d_global.hwCaps.dwDeviceRenderBitDepth = V9X_DDBD_16;
     shared->d3d_global.hwCaps.dwDeviceZBufferBitDepth = 0ul;
     shared->d3d_global.dwNumVertices = 0ul;
     shared->d3d_global.dwNumClipVertices = 0ul;
-    shared->d3d_global.dwNumTextureFormats = 0ul;
-    shared->d3d_global.lpTextureFormats = 0;
+    shared->texture_formats[0].dwSize = sizeof(V9X_DDSURFACEDESC);
+    shared->texture_formats[0].dwFlags =
+        V9X_DDSD_CAPS | V9X_DDSD_PIXELFORMAT;
+    shared->texture_formats[0].ddpfPixelFormat.dwSize =
+        sizeof(V9X_DDPIXELFORMAT);
+    shared->texture_formats[0].ddpfPixelFormat.dwFlags = V9X_DDPF_RGB;
+    shared->texture_formats[0].ddpfPixelFormat.dwRGBBitCount = 16ul;
+    shared->texture_formats[0].ddpfPixelFormat.dwRBitMask = 0x0000f800ul;
+    shared->texture_formats[0].ddpfPixelFormat.dwGBitMask = 0x000007e0ul;
+    shared->texture_formats[0].ddpfPixelFormat.dwBBitMask = 0x0000001ful;
+    shared->texture_formats[0].ddsCaps.dwCaps = V9X_DDSCAPS_TEXTURE;
+    shared->d3d_global.dwNumTextureFormats = 1ul;
+    shared->d3d_global.lpTextureFormats = &shared->texture_formats[0];
 
     shared->d3d_callbacks.dwSize = sizeof(V9X_D3DHAL_CALLBACKS);
     shared->d3d_callbacks.ContextCreate =
@@ -1666,10 +1945,20 @@ DWORD __stdcall DriverInit(DWORD context)
         (V9X_DD_CODE_PTR)V9xD3dContextDestroy;
     shared->d3d_callbacks.ContextDestroyAll =
         (V9X_DD_CODE_PTR)V9xD3dContextDestroyAll;
+    shared->d3d_callbacks.Execute = 0;
+    shared->d3d_callbacks.ExecuteClipped = 0;
     shared->d3d_callbacks.RenderState =
         (V9X_DD_CODE_PTR)V9xD3dRenderState;
     shared->d3d_callbacks.RenderPrimitive =
         (V9X_DD_CODE_PTR)V9xD3dRenderPrimitive;
+    shared->d3d_callbacks.TextureCreate =
+        (V9X_DD_CODE_PTR)V9xD3dTextureCreate;
+    shared->d3d_callbacks.TextureDestroy =
+        (V9X_DD_CODE_PTR)V9xD3dTextureDestroy;
+    shared->d3d_callbacks.TextureSwap =
+        (V9X_DD_CODE_PTR)V9xD3dTextureSwap;
+    shared->d3d_callbacks.TextureGetSurf =
+        (V9X_DD_CODE_PTR)V9xD3dTextureGetSurf;
 
     v9x_d3d_callbacks2.dwSize = sizeof(V9X_D3DHAL_CALLBACKS2);
     v9x_d3d_callbacks2.dwFlags =

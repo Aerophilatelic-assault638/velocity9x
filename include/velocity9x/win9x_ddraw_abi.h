@@ -57,6 +57,7 @@ typedef void (FAR PASCAL *V9X_DD_CODE_PTR)();
 #define V9X_DDSCAPS_BACKBUFFER       0x00000004ul
 #define V9X_DDSCAPS_OFFSCREENPLAIN   0x00000040ul
 #define V9X_DDSCAPS_PRIMARYSURFACE   0x00000200ul
+#define V9X_DDSCAPS_TEXTURE          0x00001000ul
 #define V9X_DDSCAPS_SYSTEMMEMORY     0x00000800ul
 #define V9X_DDSCAPS_FLIP             0x00000010ul
 #define V9X_DDSCAPS_VIDEOMEMORY      0x00004000ul
@@ -93,6 +94,9 @@ typedef void (FAR PASCAL *V9X_DD_CODE_PTR)();
 #define V9X_DDBLT_DONOTWAIT          0x08000000ul
 #define V9X_DDLOCK_WAIT              0x00000001ul
 #define V9X_DDLOCK_DONOTWAIT         0x00004000ul
+
+#define V9X_DDSD_CAPS                0x00000001ul
+#define V9X_DDSD_PIXELFORMAT         0x00001000ul
 
 #pragma pack(push, 1)
 
@@ -143,6 +147,31 @@ typedef struct v9x_ddcolorkey {
     DWORD dwColorSpaceLowValue;
     DWORD dwColorSpaceHighValue;
 } V9X_DDCOLORKEY;
+
+/* DDSCAPS/DDSURFACEDESC v1, used by D3DHAL_GLOBALDRIVERDATA's texture
+ * format array. The union members in the public DDK layout are DWORD-sized. */
+typedef struct v9x_ddcaps {
+    DWORD dwCaps;
+} V9X_DDSCAPS;
+
+typedef struct v9x_ddsurfacedesc {
+    DWORD dwSize;
+    DWORD dwFlags;
+    DWORD dwHeight;
+    DWORD dwWidth;
+    LONG lPitch;
+    DWORD dwBackBufferCount;
+    DWORD dwMipMapCount;
+    DWORD dwAlphaBitDepth;
+    DWORD dwReserved;
+    V9X_DD_VOID_PTR lpSurface;
+    V9X_DDCOLORKEY ddckCKDestOverlay;
+    V9X_DDCOLORKEY ddckCKDestBlt;
+    V9X_DDCOLORKEY ddckCKSrcOverlay;
+    V9X_DDCOLORKEY ddckCKSrcBlt;
+    V9X_DDPIXELFORMAT ddpfPixelFormat;
+    V9X_DDSCAPS ddsCaps;
+} V9X_DDSURFACEDESC;
 
 /* DDBLTFX (100 bytes). Pointer-valued union members are all DWORD-sized on
  * both sides of the Win9x DirectDraw boundary. */
@@ -315,6 +344,22 @@ typedef struct v9x_ddhal_ddpalettecallbacks {
     V9X_DD_CODE_PTR SetEntries;
 } V9X_DDHAL_DDPALETTECALLBACKS;
 
+/* DIRECTDRAWEXEBUF pseudo-surface callbacks (28 bytes). */
+#define V9X_DDHAL_EXEBUFCB32_CANCREATE 0x00000001ul
+#define V9X_DDHAL_EXEBUFCB32_CREATE    0x00000002ul
+#define V9X_DDHAL_EXEBUFCB32_DESTROY   0x00000004ul
+#define V9X_DDHAL_EXEBUFCB32_LOCK      0x00000008ul
+#define V9X_DDHAL_EXEBUFCB32_UNLOCK    0x00000010ul
+typedef struct v9x_ddhal_ddexecutebuffercallbacks {
+    DWORD dwSize;
+    DWORD dwFlags;
+    V9X_DD_CODE_PTR CanCreateExecuteBuffer;
+    V9X_DD_CODE_PTR CreateExecuteBuffer;
+    V9X_DD_CODE_PTR DestroyExecuteBuffer;
+    V9X_DD_CODE_PTR LockExecuteBuffer;
+    V9X_DD_CODE_PTR UnlockExecuteBuffer;
+} V9X_DDHAL_DDEXEBUFCALLBACKS;
+
 /* DDHALINFO (V2 layout, 456 bytes at pack(1)). */
 typedef struct v9x_ddhalinfo {
     DWORD dwSize;
@@ -347,11 +392,14 @@ typedef struct v9x_ddhalinfo {
 #define V9X_D3DCOLOR_RGB                         2ul
 #define V9X_DDBD_16                      0x00000400ul
 #define V9X_D3DDEVCAPS_FLOATTLVERTEX      0x00000001ul
+#define V9X_D3DDEVCAPS_SORTEXACT          0x00000008ul
 #define V9X_D3DDEVCAPS_EXECUTESYSTEMMEMORY 0x00000010ul
 #define V9X_D3DDEVCAPS_TLVERTEXSYSTEMMEMORY 0x00000040ul
 #define V9X_D3DDEVCAPS_DRAWPRIMTLVERTEX  0x00000400ul
 #define V9X_D3DPMISCCAPS_CULLNONE         0x00000010ul
 #define V9X_D3DPSHADECAPS_COLORFLATRGB    0x00000002ul
+#define V9X_D3DPSHADECAPS_COLORGOURAUDRGB 0x00000008ul
+#define V9X_D3DPTEXTURECAPS_PERSPECTIVE   0x00000001ul
 #define V9X_D3DPT_TRIANGLELIST                     4ul
 #define V9X_D3DVT_TLVERTEX                         3ul
 
@@ -469,6 +517,30 @@ typedef struct v9x_d3dhal_callbacks2 {
  */
 #ifdef __386__
 
+typedef struct v9x_ddhal_cancreatesurfacedata {
+    DWORD lpDD;
+    DWORD lpDDSurfaceDesc;
+    DWORD bIsDifferentPixelFormat;
+    DWORD ddRVal;
+    DWORD CanCreateSurface;
+} V9X_DDHAL_CANCREATESURFACEDATA;
+
+typedef struct v9x_ddhal_createsurfacedata {
+    DWORD lpDD;
+    DWORD lpDDSurfaceDesc;
+    DWORD lplpSList;
+    DWORD dwSCnt;
+    DWORD ddRVal;
+    DWORD CreateSurface;
+} V9X_DDHAL_CREATESURFACEDATA;
+
+typedef struct v9x_ddhal_destroysurfacedata {
+    DWORD lpDD;
+    DWORD lpDDSurface;
+    DWORD ddRVal;
+    DWORD DestroySurface;
+} V9X_DDHAL_DESTROYSURFACEDATA;
+
 /* DDRAWI_DDRAWSURFACE_GBL prefix: fpVidMem at +20, lPitch at +24. */
 typedef struct v9x_dd_surface_gbl {
     DWORD dwRefCnt;
@@ -584,6 +656,33 @@ typedef struct v9x_d3dhal_contextdestroyalldata {
     DWORD dwPID;
     DWORD ddrval;
 } V9X_D3DHAL_CONTEXTDESTROYALLDATA;
+
+typedef struct v9x_d3dhal_texturecreatedata {
+    DWORD dwhContext;
+    void *lpDDS;
+    DWORD dwHandle;
+    DWORD ddrval;
+} V9X_D3DHAL_TEXTURECREATEDATA;
+
+typedef struct v9x_d3dhal_texturedestroydata {
+    DWORD dwhContext;
+    DWORD dwHandle;
+    DWORD ddrval;
+} V9X_D3DHAL_TEXTUREDESTROYDATA;
+
+typedef struct v9x_d3dhal_textureswapdata {
+    DWORD dwhContext;
+    DWORD dwHandle1;
+    DWORD dwHandle2;
+    DWORD ddrval;
+} V9X_D3DHAL_TEXTURESWAPDATA;
+
+typedef struct v9x_d3dhal_texturegetsurfdata {
+    DWORD dwhContext;
+    DWORD lpDDS;
+    DWORD dwHandle;
+    DWORD ddrval;
+} V9X_D3DHAL_TEXTUREGETSURFDATA;
 
 typedef struct v9x_d3dhal_renderstatedata {
     DWORD dwhContext;
@@ -731,7 +830,7 @@ typedef struct v9x_ddhal_destroydriverdata {
  * V9XHAL.DLL's DriverInit. The 32-bit side owns all content except the
  * framebuffer descriptor, which the 16-bit side refreshes on every enable.
  */
-#define V9X_DD_SHARED_ABI   2026081301ul
+#define V9X_DD_SHARED_ABI   2026081303ul
 #define V9X_DD_MODE_COUNT            6u
 
 /* fb.flags */
@@ -782,6 +881,10 @@ typedef struct v9x_d3d_diagnostics {
     DWORD render_state_calls;
     DWORD render_primitive_calls;
     DWORD execute_calls;
+    DWORD texture_creates;
+    DWORD texture_destroys;
+    DWORD texture_swaps;
+    DWORD texture_get_surfs;
 } V9X_D3D_DIAGNOSTICS;
 
 /*
@@ -791,7 +894,7 @@ typedef struct v9x_d3d_diagnostics {
  * back with the V9X_DDGETTRACE escape. All writers are allocation-free.
  */
 #define V9X_DD_TRACE_RING_COUNT     32u
-#define V9X_DD_TRACE_ID_COUNT       41u
+#define V9X_DD_TRACE_ID_COUNT       50u
 #define V9X_DD_TRACE_EXIT_FLAG   0x8000u
 
 /* Trace event ids. Gaps group the sources: 16-bit escapes, DirectDraw
@@ -822,6 +925,15 @@ typedef struct v9x_d3d_diagnostics {
 #define V9X_TRACE_D3D_DRAWONEINDEXED  38u
 #define V9X_TRACE_D3D_TARGET_LAYOUT   39u
 #define V9X_TRACE_D3D_EXECUTE         40u
+#define V9X_TRACE_EXEBUF_CANCREATE    41u
+#define V9X_TRACE_EXEBUF_CREATE       42u
+#define V9X_TRACE_EXEBUF_DESTROY      43u
+#define V9X_TRACE_EXEBUF_LOCK         44u
+#define V9X_TRACE_EXEBUF_UNLOCK       45u
+#define V9X_TRACE_D3D_TEXTURECREATE   46u
+#define V9X_TRACE_D3D_TEXTUREDESTROY  47u
+#define V9X_TRACE_D3D_TEXTURESWAP     48u
+#define V9X_TRACE_D3D_TEXTUREGETSURF  49u
 
 typedef struct v9x_dd_trace_entry {
     WORD id;            /* trace id, V9X_DD_TRACE_EXIT_FLAG on exit    */
@@ -864,7 +976,9 @@ typedef struct v9x_dd_shared {
     V9X_DDHAL_DDCALLBACKS dd_callbacks;
     V9X_DDHAL_DDSURFACECALLBACKS surface_callbacks;
     V9X_DDHAL_DDPALETTECALLBACKS palette_callbacks;
+    V9X_DDHAL_DDEXEBUFCALLBACKS execute_buffer_callbacks;
     V9X_D3DHAL_GLOBALDRIVERDATA d3d_global;
+    V9X_DDSURFACEDESC texture_formats[1];
     V9X_D3DHAL_CALLBACKS d3d_callbacks;
     V9X_D3D_DIAGNOSTICS d3d_diagnostics;
     V9X_VIDMEM heaps[1];
@@ -877,6 +991,8 @@ typedef struct v9x_dd_shared {
 /* One-byte-per-check size guards; both compilers must agree. */
 typedef char v9x_dd_assert_pixelformat[
     sizeof(V9X_DDPIXELFORMAT) == 32 ? 1 : -1];
+typedef char v9x_dd_assert_surfacedesc[
+    sizeof(V9X_DDSURFACEDESC) == 108 ? 1 : -1];
 typedef char v9x_dd_assert_vidmem[sizeof(V9X_VIDMEM) == 24 ? 1 : -1];
 typedef char v9x_dd_assert_bltfx[sizeof(V9X_DDBLTFX) == 100 ? 1 : -1];
 typedef char v9x_dd_assert_vidmeminfo[sizeof(V9X_VIDMEMINFO) == 80 ? 1 : -1];
@@ -894,6 +1010,8 @@ typedef char v9x_dd_assert_d3dglobal[
     sizeof(V9X_D3DHAL_GLOBALDRIVERDATA) == 192 ? 1 : -1];
 typedef char v9x_dd_assert_d3dcallbacks[
     sizeof(V9X_D3DHAL_CALLBACKS) == 140 ? 1 : -1];
+typedef char v9x_dd_assert_exebufcallbacks[
+    sizeof(V9X_DDHAL_DDEXEBUFCALLBACKS) == 28 ? 1 : -1];
 #ifdef __386__
 typedef char v9x_dd_assert_d3dstatus[
     sizeof(V9X_D3DSTATUS) == 24 ? 1 : -1];
@@ -903,6 +1021,14 @@ typedef char v9x_dd_assert_d3dhalexecute[
     sizeof(V9X_D3DHAL_EXECUTEDATA) == 84 ? 1 : -1];
 typedef char v9x_dd_assert_d3dhalexecuteclipped[
     sizeof(V9X_D3DHAL_EXECUTECLIPPEDDATA) == 88 ? 1 : -1];
+typedef char v9x_dd_assert_d3dhaltexturecreate[
+    sizeof(V9X_D3DHAL_TEXTURECREATEDATA) == 16 ? 1 : -1];
+typedef char v9x_dd_assert_d3dhaltexturedestroy[
+    sizeof(V9X_D3DHAL_TEXTUREDESTROYDATA) == 12 ? 1 : -1];
+typedef char v9x_dd_assert_d3dhaltextureswap[
+    sizeof(V9X_D3DHAL_TEXTURESWAPDATA) == 16 ? 1 : -1];
+typedef char v9x_dd_assert_d3dhaltexturegetsurf[
+    sizeof(V9X_D3DHAL_TEXTUREGETSURFDATA) == 16 ? 1 : -1];
 #endif
 typedef char v9x_dd_assert_dcicmd[sizeof(V9X_DCICMD) == 20 ? 1 : -1];
 typedef char v9x_dd_assert_dd32data[
@@ -914,7 +1040,7 @@ typedef char v9x_dd_assert_bltdata[
 typedef char v9x_dd_assert_trace_entry[
     sizeof(V9X_DD_TRACE_ENTRY) == 8 ? 1 : -1];
 typedef char v9x_dd_assert_trace[
-    sizeof(V9X_DD_TRACE) == 362 ? 1 : -1];
+    sizeof(V9X_DD_TRACE) == 380 ? 1 : -1];
 typedef char v9x_dd_assert_shared_fits_dpmi_block[
     sizeof(V9X_DD_SHARED) <= 2048 ? 1 : -1];
 

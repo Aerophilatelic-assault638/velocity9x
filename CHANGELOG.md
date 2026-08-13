@@ -1,8 +1,13 @@
 # Changelog
 
-- Add a legacy Direct3D execute-buffer parser and diagnostics groundwork for
-  early DirectX games; it remains unadvertised until the required DirectDraw
-  execute-buffer surface callbacks are implemented.
+- Program ViRGE 8.7 color gradients for Gouraud-shaded triangles and expose
+  the hardware's perspective-correction raster capability required by
+  Hellbender's Direct3D device filter.
+- Publish a coherent RGB565 Direct3D texture format and bounded legacy
+  texture-handle lifecycle callbacks, with per-operation trace diagnostics.
+- Add dormant legacy Direct3D execute-buffer parsing and DirectDraw
+  pseudo-surface lifecycle tracing. Win98 rejects a HAL that publishes the
+  obsolete `Execute` entry, so the valid DX5 callback path remains advertised.
 - Guard the Win16 `SetCursor` and `MoveCursor` DIBENG extension thunks while
   the display PDEVICE is unavailable during mode teardown, preventing a null
   PDEVICE fault in `DIB_MOVECURSOREXT` observed when Hellbender exits a failed
