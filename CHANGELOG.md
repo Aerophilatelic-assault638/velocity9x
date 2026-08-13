@@ -1,5 +1,18 @@
 # Changelog
 
+- Add a legacy Direct3D execute-buffer parser and diagnostics groundwork for
+  early DirectX games; it remains unadvertised until the required DirectDraw
+  execute-buffer surface callbacks are implemented.
+- Guard the Win16 `SetCursor` and `MoveCursor` DIBENG extension thunks while
+  the display PDEVICE is unavailable during mode teardown, preventing a null
+  PDEVICE fault in `DIB_MOVECURSOREXT` observed when Hellbender exits a failed
+  full-screen initialization; guarded Pascal returns discard their four bytes
+  of original cursor arguments before returning to USER.
+- Follow the Windows 98 DIBENGINE mini-driver ReEnable ordering by rebuilding
+  the PDEVICE directly, without carrying a BeginAccess cursor exclusion across
+  `CreateDIBPDevice`; the old exclusion state is invalid after the in-place
+  PDEVICE rebuild and caused striped framebuffer writes plus a cursor fault.
+
 All notable Velocity9x changes are recorded here. The project uses semantic
 version numbers for product milestones; diagnostic builds retain a separate
 build identifier so exact guest-tested binaries remain traceable.

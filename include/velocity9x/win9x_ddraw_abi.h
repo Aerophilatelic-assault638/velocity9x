@@ -347,6 +347,7 @@ typedef struct v9x_ddhalinfo {
 #define V9X_D3DCOLOR_RGB                         2ul
 #define V9X_DDBD_16                      0x00000400ul
 #define V9X_D3DDEVCAPS_FLOATTLVERTEX      0x00000001ul
+#define V9X_D3DDEVCAPS_EXECUTESYSTEMMEMORY 0x00000010ul
 #define V9X_D3DDEVCAPS_TLVERTEXSYSTEMMEMORY 0x00000040ul
 #define V9X_D3DDEVCAPS_DRAWPRIMTLVERTEX  0x00000400ul
 #define V9X_D3DPMISCCAPS_CULLNONE         0x00000010ul
@@ -598,6 +599,48 @@ typedef struct v9x_d3dinstruction {
     WORD wCount;
 } V9X_D3DINSTRUCTION;
 
+typedef struct v9x_d3dstatus {
+    DWORD dwFlags;
+    DWORD dwStatus;
+    LONG drExtent[4];
+} V9X_D3DSTATUS;
+
+typedef struct v9x_d3di_executedata {
+    DWORD dwSize;
+    DWORD dwHandle;
+    DWORD dwVertexOffset;
+    DWORD dwVertexCount;
+    DWORD dwInstructionOffset;
+    DWORD dwInstructionLength;
+    DWORD dwHVertexOffset;
+    V9X_D3DSTATUS dsStatus;
+} V9X_D3DI_EXECUTEDATA;
+
+typedef struct v9x_d3dhal_executedata {
+    DWORD dwhContext;
+    DWORD dwOffset;
+    DWORD dwFlags;
+    DWORD dwStatus;
+    V9X_D3DI_EXECUTEDATA deExData;
+    void *lpExeBuf;
+    void *lpTLBuf;
+    V9X_D3DINSTRUCTION diInstruction;
+    DWORD ddrval;
+} V9X_D3DHAL_EXECUTEDATA;
+
+typedef struct v9x_d3dhal_executeclippeddata {
+    DWORD dwhContext;
+    DWORD dwOffset;
+    DWORD dwFlags;
+    DWORD dwStatus;
+    V9X_D3DI_EXECUTEDATA deExData;
+    void *lpExeBuf;
+    void *lpTLBuf;
+    void *lpHBuf;
+    V9X_D3DINSTRUCTION diInstruction;
+    DWORD ddrval;
+} V9X_D3DHAL_EXECUTECLIPPEDDATA;
+
 typedef struct v9x_d3dhal_renderprimitivedata {
     DWORD dwhContext;
     DWORD dwOffset;
@@ -688,7 +731,7 @@ typedef struct v9x_ddhal_destroydriverdata {
  * V9XHAL.DLL's DriverInit. The 32-bit side owns all content except the
  * framebuffer descriptor, which the 16-bit side refreshes on every enable.
  */
-#define V9X_DD_SHARED_ABI   2026081201ul
+#define V9X_DD_SHARED_ABI   2026081301ul
 #define V9X_DD_MODE_COUNT            6u
 
 /* fb.flags */
@@ -738,6 +781,7 @@ typedef struct v9x_d3d_diagnostics {
     DWORD context_rejects;
     DWORD render_state_calls;
     DWORD render_primitive_calls;
+    DWORD execute_calls;
 } V9X_D3D_DIAGNOSTICS;
 
 /*
@@ -747,7 +791,7 @@ typedef struct v9x_d3d_diagnostics {
  * back with the V9X_DDGETTRACE escape. All writers are allocation-free.
  */
 #define V9X_DD_TRACE_RING_COUNT     32u
-#define V9X_DD_TRACE_ID_COUNT       40u
+#define V9X_DD_TRACE_ID_COUNT       41u
 #define V9X_DD_TRACE_EXIT_FLAG   0x8000u
 
 /* Trace event ids. Gaps group the sources: 16-bit escapes, DirectDraw
@@ -777,6 +821,7 @@ typedef struct v9x_d3d_diagnostics {
 #define V9X_TRACE_D3D_DRAWPRIMS       37u
 #define V9X_TRACE_D3D_DRAWONEINDEXED  38u
 #define V9X_TRACE_D3D_TARGET_LAYOUT   39u
+#define V9X_TRACE_D3D_EXECUTE         40u
 
 typedef struct v9x_dd_trace_entry {
     WORD id;            /* trace id, V9X_DD_TRACE_EXIT_FLAG on exit    */
@@ -849,6 +894,16 @@ typedef char v9x_dd_assert_d3dglobal[
     sizeof(V9X_D3DHAL_GLOBALDRIVERDATA) == 192 ? 1 : -1];
 typedef char v9x_dd_assert_d3dcallbacks[
     sizeof(V9X_D3DHAL_CALLBACKS) == 140 ? 1 : -1];
+#ifdef __386__
+typedef char v9x_dd_assert_d3dstatus[
+    sizeof(V9X_D3DSTATUS) == 24 ? 1 : -1];
+typedef char v9x_dd_assert_d3dexecutedata[
+    sizeof(V9X_D3DI_EXECUTEDATA) == 52 ? 1 : -1];
+typedef char v9x_dd_assert_d3dhalexecute[
+    sizeof(V9X_D3DHAL_EXECUTEDATA) == 84 ? 1 : -1];
+typedef char v9x_dd_assert_d3dhalexecuteclipped[
+    sizeof(V9X_D3DHAL_EXECUTECLIPPEDDATA) == 88 ? 1 : -1];
+#endif
 typedef char v9x_dd_assert_dcicmd[sizeof(V9X_DCICMD) == 20 ? 1 : -1];
 typedef char v9x_dd_assert_dd32data[
     sizeof(V9X_DD32BITDRIVERDATA) == 328 ? 1 : -1];
@@ -859,7 +914,7 @@ typedef char v9x_dd_assert_bltdata[
 typedef char v9x_dd_assert_trace_entry[
     sizeof(V9X_DD_TRACE_ENTRY) == 8 ? 1 : -1];
 typedef char v9x_dd_assert_trace[
-    sizeof(V9X_DD_TRACE) == 360 ? 1 : -1];
+    sizeof(V9X_DD_TRACE) == 362 ? 1 : -1];
 typedef char v9x_dd_assert_shared_fits_dpmi_block[
     sizeof(V9X_DD_SHARED) <= 2048 ? 1 : -1];
 

@@ -29,9 +29,6 @@
 #define V9X_COLOR_NONSTATIC        0x80u
 #define V9X_COLOR_MAP_TO_WHITE     0x40u
 
-/* DIBENG.H CURSOREXCLUDE: exclude the software cursor during direct access. */
-#define V9X_CURSOREXCLUDE        0x0008u
-
 #ifndef V9X_FORCE_MODE_INDEX
 #define V9X_FORCE_MODE_INDEX         -1
 #endif
@@ -41,9 +38,6 @@ extern DWORD FAR PASCAL V9xCreateDibPDeviceCall(LPBITMAPINFO, LPVOID,
                                                 LPVOID, WORD);
 extern void FAR PASCAL V9xDibBeginAccess(void);
 extern void FAR PASCAL V9xDibEndAccess(void);
-extern void FAR PASCAL V9xDibBeginAccessRect(LPVOID, WORD, WORD, WORD,
-                                             WORD, WORD);
-extern void FAR PASCAL V9xDibEndAccessRect(LPVOID, WORD);
 extern DWORD FAR PASCAL V9xDibSetPaletteCall(WORD, WORD, LPVOID, LPVOID);
 extern DWORD FAR PASCAL V9xDibSetPaletteTranslateCall(LPVOID, LPVOID);
 extern WORD FAR PASCAL V9xHardwarePresent(void);
@@ -799,22 +793,20 @@ WORD __loadds FAR PASCAL ReEnable(LPVOID destination_device,
         return 1u;
     }
 
-    /* Live same-depth mode switch: rebuild the PDEVICE in place. */
+    /* Live same-depth mode switch: rebuild the PDEVICE in place. DIBENGINE's
+     * reference mini-driver does not wrap this operation in BeginAccess /
+     * EndAccess: CreateDIBPDevice replaces cursor bookkeeping inside the same
+     * PDEVICE, so an exclusion begun against the old contents cannot safely
+     * be ended against the rebuilt contents. */
     v9x_reenabling = 1u;
-    V9xDibBeginAccessRect(device, 0u, 0u,
-                          (WORD)(v9x_selected_mode->width - 1u),
-                          (WORD)(v9x_selected_mode->height - 1u),
-                          V9X_CURSOREXCLUDE);
     if (v9x_build_pdevice(device, 0, 0, 0) == 0u) {
         /* Bring the previous mode back before reporting failure. */
         v9x_apply_mode(previous_mode);
         (void)v9x_build_pdevice(device, 0, 0, 0);
-        V9xDibEndAccessRect(device, V9X_CURSOREXCLUDE);
         v9x_reenabling = 0u;
         v9x_serial_write("V9X-DRV switch-fail\r\n");
         return 0u;
     }
-    V9xDibEndAccessRect(device, V9X_CURSOREXCLUDE);
     v9x_reenabling = 0u;
     if (v9x_fill_gdi_info((V9X_GDI_INFO FAR *)gdi_info, 0, 0, 0) == 0u) {
         v9x_serial_write("V9X-DRV switch-fail stage=gdi-info\r\n");
@@ -822,8 +814,8 @@ WORD __loadds FAR PASCAL ReEnable(LPVOID destination_device,
     }
     device->deFlags &= (WORD)~V9X_DE_BUSY;
 #ifndef V9X_TARGET_MATROX_MILLENNIUM2
-    /* DIBENGINE access exclusion and PDEVICE reconstruction are complete;
-     * it is now safe to call the runtime's SetInfo reset callback. */
+    /* PDEVICE reconstruction is complete; it is now safe to call the
+     * runtime's SetInfo reset callback. */
     (void)V9xDdCreateDriverObject(1u);
 #endif
     v9x_serial_write_mode("V9X-DRV switch-ok mode=");

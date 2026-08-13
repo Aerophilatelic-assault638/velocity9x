@@ -191,6 +191,7 @@ static const char *v9x_trace_name(WORD id)
     case V9X_TRACE_D3D_DRAWPRIMS:        return "D3dDrawPrimitives";
     case V9X_TRACE_D3D_DRAWONEINDEXED:   return "D3dDrawOneIndexed";
     case V9X_TRACE_D3D_TARGET_LAYOUT:    return "D3dTargetLayout";
+    case V9X_TRACE_D3D_EXECUTE:          return "D3dExecute";
     default:                             return "Unknown";
     }
 }
@@ -820,6 +821,8 @@ static V9X_D3D_CONTEXT *v9x_d3d_context_from_handle(DWORD handle)
 
 static int v9x_d3d_triangle(V9X_D3D_CONTEXT *context,
                             const V9X_D3DTLVERTEX *first);
+DWORD __stdcall V9xD3dRenderPrimitive(
+    V9X_D3DHAL_RENDERPRIMITIVEDATA *data);
 
 static V9X_DD_SURFACE_LCL *v9x_d3d_surface_lcl(void *surface)
 {
@@ -1022,6 +1025,127 @@ DWORD __stdcall V9xD3dRenderState(V9X_D3DHAL_RENDERSTATEDATA *data)
     }
     v9x_trace_exit(V9X_TRACE_D3D_RENDERSTATE, V9X_DD_OK);
     return V9X_DDHAL_DRIVER_NOTHANDLED;
+}
+
+#define V9X_D3DOP_TRIANGLE             3u
+#define V9X_D3DOP_EXIT                11u
+#define V9X_D3DHAL_EXECUTE_OVERRIDE    1ul
+#define V9X_D3DHAL_EXECUTE_UNHANDLED   0x00000211ul
+
+DWORD __stdcall V9xD3dExecute(V9X_D3DHAL_EXECUTEDATA *data)
+{
+    V9X_DD_SURFACE_LCL *exe;
+    V9X_D3DINSTRUCTION *instruction;
+    BYTE *base;
+    DWORD offset;
+    DWORD end;
+    int one_instruction;
+
+    v9x_trace_enter(V9X_TRACE_D3D_EXECUTE,
+                    data != 0 ? data->dwFlags : 0ul);
+    if (v9x_hal != 0) {
+        ++v9x_hal->d3d_diagnostics.execute_calls;
+    }
+    exe = data != 0 ? v9x_d3d_surface_lcl(data->lpExeBuf) : 0;
+    if (data == 0 || v9x_d3d_context_from_handle(data->dwhContext) == 0 ||
+        exe == 0 || exe->lpGbl == 0 || exe->lpGbl->fpVidMem == 0ul ||
+        data->deExData.dwInstructionLength > 0x00100000ul) {
+        if (data != 0) {
+            data->ddrval = 0x80070057ul;
+        }
+        v9x_trace_exit(V9X_TRACE_D3D_EXECUTE, 0x80070057ul);
+        return V9X_DDHAL_DRIVER_HANDLED;
+    }
+    base = (BYTE *)exe->lpGbl->fpVidMem;
+    one_instruction = (data->dwFlags & V9X_D3DHAL_EXECUTE_OVERRIDE) != 0ul;
+    offset = one_instruction ? data->dwOffset
+                             : data->deExData.dwInstructionOffset +
+                               data->dwOffset;
+    end = data->deExData.dwInstructionOffset +
+          data->deExData.dwInstructionLength;
+    for (;;) {
+        DWORD bytes;
+
+        if (!one_instruction && (offset > end ||
+            end - offset < sizeof(V9X_D3DINSTRUCTION))) {
+            data->ddrval = 0x80070057ul;
+            v9x_trace_exit(V9X_TRACE_D3D_EXECUTE, data->ddrval);
+            return V9X_DDHAL_DRIVER_HANDLED;
+        }
+        instruction = one_instruction ? &data->diInstruction
+                                      : (V9X_D3DINSTRUCTION *)(base + offset);
+        bytes = (DWORD)instruction->bSize * (DWORD)instruction->wCount;
+        if (!one_instruction && bytes > end - offset -
+            sizeof(V9X_D3DINSTRUCTION)) {
+            data->ddrval = 0x80070057ul;
+            v9x_trace_exit(V9X_TRACE_D3D_EXECUTE, data->ddrval);
+            return V9X_DDHAL_DRIVER_HANDLED;
+        }
+        if (instruction->bOpcode == V9X_D3DOP_EXIT) {
+            data->ddrval = V9X_DD_OK;
+            v9x_trace_exit(V9X_TRACE_D3D_EXECUTE, data->ddrval);
+            return V9X_DDHAL_DRIVER_HANDLED;
+        }
+        if (instruction->bOpcode == V9X_D3DOP_TRIANGLE) {
+            V9X_D3DHAL_RENDERPRIMITIVEDATA primitive;
+
+            primitive.dwhContext = data->dwhContext;
+            primitive.dwOffset = one_instruction ? data->dwOffset
+                : offset + sizeof(V9X_D3DINSTRUCTION);
+            primitive.dwStatus = data->dwStatus;
+            primitive.lpExeBuf = data->lpExeBuf;
+            primitive.dwTLOffset = data->lpTLBuf != 0
+                ? 0ul : data->deExData.dwVertexOffset;
+            primitive.lpTLBuf = data->lpTLBuf != 0
+                ? data->lpTLBuf : data->lpExeBuf;
+            primitive.diInstruction = *instruction;
+            primitive.ddrval = V9X_DD_OK;
+            (void)V9xD3dRenderPrimitive(&primitive);
+            if (primitive.ddrval != V9X_DD_OK) {
+                data->ddrval = primitive.ddrval;
+                v9x_trace_exit(V9X_TRACE_D3D_EXECUTE, data->ddrval);
+                return V9X_DDHAL_DRIVER_HANDLED;
+            }
+        } else {
+            data->dwOffset = one_instruction ? data->dwOffset
+                : offset - data->deExData.dwInstructionOffset;
+            data->ddrval = V9X_D3DHAL_EXECUTE_UNHANDLED;
+            v9x_trace_exit(V9X_TRACE_D3D_EXECUTE, data->ddrval);
+            return one_instruction ? V9X_DDHAL_DRIVER_NOTHANDLED
+                                   : V9X_DDHAL_DRIVER_HANDLED;
+        }
+        if (one_instruction) {
+            data->ddrval = V9X_DD_OK;
+            v9x_trace_exit(V9X_TRACE_D3D_EXECUTE, data->ddrval);
+            return V9X_DDHAL_DRIVER_HANDLED;
+        }
+        offset += sizeof(V9X_D3DINSTRUCTION) + bytes;
+    }
+}
+
+DWORD __stdcall V9xD3dExecuteClipped(
+    V9X_D3DHAL_EXECUTECLIPPEDDATA *data)
+{
+    V9X_D3DHAL_EXECUTEDATA execute;
+    DWORD handled;
+
+    if (data == 0) {
+        return V9X_DDHAL_DRIVER_HANDLED;
+    }
+    execute.dwhContext = data->dwhContext;
+    execute.dwOffset = data->dwOffset;
+    execute.dwFlags = data->dwFlags;
+    execute.dwStatus = data->dwStatus;
+    execute.deExData = data->deExData;
+    execute.lpExeBuf = data->lpExeBuf;
+    execute.lpTLBuf = data->lpTLBuf;
+    execute.diInstruction = data->diInstruction;
+    execute.ddrval = data->ddrval;
+    handled = V9xD3dExecute(&execute);
+    data->dwOffset = execute.dwOffset;
+    data->dwStatus = execute.dwStatus;
+    data->ddrval = execute.ddrval;
+    return handled;
 }
 
 DWORD __stdcall V9xD3dRenderPrimitive(

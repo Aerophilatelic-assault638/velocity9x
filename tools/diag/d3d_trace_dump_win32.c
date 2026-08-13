@@ -94,6 +94,7 @@ static const char *v9x_trace_name(WORD id)
     case V9X_TRACE_D3D_CTXDESTROYALL:    return "D3dContextDestroyAll";
     case V9X_TRACE_D3D_RENDERSTATE:      return "D3dRenderState";
     case V9X_TRACE_D3D_RENDERPRIM:       return "D3dRenderPrimitive";
+    case V9X_TRACE_D3D_EXECUTE:          return "D3dExecute";
     case V9X_TRACE_D3D_SETRENDERTARGET:  return "D3dSetRenderTarget";
     case V9X_TRACE_D3D_DRAWONEPRIM:      return "D3dDrawOnePrimitive";
     case V9X_TRACE_D3D_DRAWPRIMS:        return "D3dDrawPrimitives";
@@ -239,6 +240,7 @@ void __stdcall V9xTraceDumpEntry(void)
     v9x_write_uint("D3dRenderStateCalls", snapshot.d3d.render_state_calls);
     v9x_write_uint("D3dRenderPrimitiveCalls",
                    snapshot.d3d.render_primitive_calls);
+    v9x_write_uint("D3dExecuteCalls", snapshot.d3d.execute_calls);
     v9x_write_uint("TraceEvents", snapshot.trace.seq);
     v9x_write_text("LastEnter", v9x_trace_name(
         (WORD)snapshot.trace.last_enter_id));

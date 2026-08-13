@@ -30,6 +30,30 @@ public_name PROC FAR
 public_name ENDP
 ENDM
 
+; Cursor entry points can be called while the display is disabled, after
+; Disable has intentionally cleared _v9x_driver_pdevice. DIBENG's extended
+; cursor routines dereference the appended PDevice unconditionally, so ignore
+; those calls until Enable/ReEnable publishes a live screen PDevice again.
+V9X_FORWARD_PDEVICE_GUARDED MACRO public_name, target_name
+    LOCAL V9xCursorDone
+    PUBLIC public_name
+    EXTRN target_name:FAR
+public_name PROC FAR
+    mov ax,DGROUP
+    mov es,ax
+    cmp dword ptr es:_v9x_driver_pdevice,0
+    je short V9xCursorDone
+    pop ecx
+    push dword ptr es:_v9x_driver_pdevice
+    push ecx
+    jmp target_name
+V9xCursorDone:
+    ; SetCursor takes one far pointer and MoveCursor takes two WORDs: both
+    ; public Pascal entry points therefore own four bytes of caller args.
+    retf 4
+public_name ENDP
+ENDM
+
 ; DIB_DibBltExt takes the current palettized-state word as its extra argument.
 V9X_FORWARD_PALETTIZED MACRO public_name, target_name
     PUBLIC public_name
@@ -76,8 +100,8 @@ V9X_FORWARD StretchDIBits,             DIB_StretchDIBits
 V9X_FORWARD SelectBitmap,              DIB_SelectBitmap
 V9X_FORWARD BitmapBits,                DIB_BitmapBits
 V9X_FORWARD Inquire,                   DIB_Inquire
-V9X_FORWARD_PDEVICE SetCursor,         DIB_SetCursorExt
-V9X_FORWARD_PDEVICE MoveCursor,        DIB_MoveCursorExt
+V9X_FORWARD_PDEVICE_GUARDED SetCursor,  DIB_SetCursorExt
+V9X_FORWARD_PDEVICE_GUARDED MoveCursor, DIB_MoveCursorExt
 
 ; DIBENG may poll CheckCursor while the display is disabled. Match the sample
 ; minidriver's guarded behavior instead of injecting a null PDevice.
