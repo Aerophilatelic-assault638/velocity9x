@@ -80,6 +80,19 @@ build identifier so exact guest-tested binaries remain traceable.
   and source copies through the mapped aperture backstop them. This matters
   because a declined blit is reported to the application as
   `DDERR_UNSUPPORTED` rather than being emulated.
+- DirectDraw source copies now run on the hardware blitter: the ViRGE S3D
+  screen-to-screen BitBLT and the Trio32/64 8514/A-compatible equivalent,
+  with the CPU copy left as the fallback for shapes neither engine can
+  express. Overlapping copies are handled by scan direction rather than row
+  order. Ironfield RTS's `BltFast` presentation path went from 3 FPS to 18
+  (ViRGE) and 16 (Trio64), level with the direct-backbuffer path instead of
+  six times slower, with every frame's blit engine-executed and no engine
+  timeout or reset.
+- V9XDDP repeats its overlap check on a display-pitch surface. The offscreen
+  surface it used has its own pitch, which only an engine with per-surface
+  base and stride registers can address, so the Trio64 engine copy had no
+  pixel-verified coverage and silently fell back to the CPU for every probe
+  blit.
 - The CPU fill and source-copy fallbacks move a dword per iteration instead of
   a byte. A byte loop over a 640x480x16 frame cost roughly 700 ms, which
   Ironfield RTS's `BltFast` presentation path turned into 1 FPS; widening it

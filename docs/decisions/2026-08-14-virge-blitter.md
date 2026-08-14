@@ -121,14 +121,60 @@ Findings:
 The conclusion is that the ViRGE screen-to-screen BitBLT is no longer an
 optimisation but the missing piece: `BltFast` presentation is the standard
 way DirectDraw games present, and it cannot be served acceptably by the CPU.
+That engine path was implemented next, below.
+
+## Screen-to-screen BitBLT (build `trio64-bitblt-001`)
+
+Both engines now execute source copies, with the CPU copy left as the
+fallback for shapes they cannot express.
+
+- **ViRGE.** Command 0 of the S3D 2D unit with ROP3 `SRCCOPY`, neither the
+  mono-source nor image-data-source bit set so the source is read from
+  display memory. It has per-surface base and stride registers
+  (`0xa4d4`/`0xa4d8`, and `0xa4e4` carrying destination stride in the high
+  word and source stride in the low word), so it can copy between surfaces of
+  different pitches. Writing the command register with autoexecute clear is
+  what starts the blit.
+- **Trio64.** Opcode 6 of the 8514/A-compatible enhanced command set, with
+  `FRGD_MIX` `0x0067` selecting a display-memory source and the SRC mix. This
+  engine has no per-surface base or stride: it walks display memory as one
+  surface at the display pitch from a common bank base, so a surface's
+  position is folded into its y coordinate and both rectangles must sit on
+  display-pitch scan lines. Anything else is declined to the CPU copy.
+- Overlap is handled by scan direction rather than row order on both engines.
+  The direction bits are derived from the rectangles, starting from the
+  bottom row for a downward shift and the right column for a rightward one.
+
+Ironfield `BltFast` at 640x480, same 15 s run:
+
+| | byte copy | dword copy | engine BitBLT |
+|---|---|---|---|
+| ViRGE | 1 FPS | 3 FPS | **18 FPS** |
+| Trio64 | - | 3 FPS | **16 FPS** |
+
+Every frame's blit was engine-executed (`CountBltEngine` equal to `CountBlt`,
+304 and 275 respectively) with no FIFO or idle timeout and no engine reset.
+`BltFast` presentation is now level with the direct-backbuffer path (19 FPS
+ViRGE, 16 FPS Trio64) rather than six times slower than it.
+
+The probe gained a second overlap check on a display-pitch surface. The
+original check used an offscreen surface with its own pitch, which only the
+ViRGE engine can address, so the Trio64 engine copy had no pixel-verified
+coverage at all — it silently fell back to the CPU for every probe blit.
+Both checks now pass on both targets, and the Trio64 run shows the expected
+split: display-pitch copies on the engine, small-pitch copies declined to the
+CPU.
 
 ## Deliberate scope limits
 
 - No stretching, colour keying, mirroring, or ROPs other than `SRCCOPY` and
   `PATCOPY`. Those caps must stay unadvertised until implemented, because
   advertising a capability makes the driver responsible for completing it.
-- Source copies are CPU copies through the linear aperture on both targets.
-  The Ironfield measurements above make the ViRGE BitBLT engine and the
-  Trio32/64 screen-to-screen BitBLT the next work, not a nice-to-have.
+- The Trio64 engine copy only serves display-pitch surfaces on scan-line
+  boundaries, which is what its engine can address. Offscreen surfaces with
+  their own pitch still take the CPU copy on that target.
 - Not yet exercised against Hellbender, so the Direct3D milestone has only
   probe-level coverage of the blitter change.
+- Colour fills still go through the mono-pattern path rather than the
+  engine's rectangle-fill source, and stretching, colour keying and other
+  ROPs remain unadvertised and therefore HEL work.

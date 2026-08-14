@@ -47,6 +47,18 @@
 #define V9X_TRIO_PIXEL_CNTL_FRGD_MIX   0xa000u
 #define V9X_TRIO_FRGD_MIX_NEW          0x0027u
 #define V9X_TRIO_CMD_RECT_SOLID        0x40b1u
+/* Screen-to-screen BitBLT on the 8514/A-compatible enhanced command set:
+ * opcode 6 in bits 15:13, plus write-enable and the two direction bits.
+ * FRGD_MIX 0x0067 selects a display-memory source with the SRC mix, which is
+ * what makes it a copy rather than a pattern fill. The engine addresses both
+ * rectangles through the display pitch from a common bank base, so source and
+ * destination must both be display-pitch surfaces on a scan-line boundary. */
+#define V9X_TRIO_DESTX_DIASTP          0x8ee8u
+#define V9X_TRIO_DESTY_AXSTP           0x8ae8u
+#define V9X_TRIO_FRGD_MIX_COPY         0x0067u
+#define V9X_TRIO_CMD_BITBLT            0xc011u
+#define V9X_TRIO_CMD_INC_X             0x0020u
+#define V9X_TRIO_CMD_INC_Y             0x0080u
 #define V9X_TRIO_STATUS_BUSY           0x0200u
 #define V9X_TRIO_IDLE_SPIN_LIMIT       0x00400000ul
 
@@ -124,8 +136,18 @@
 #define V9X_VIRGE_CMD_DRAW_ENABLE        0x00000020ul
 #define V9X_VIRGE_CMD_MONO_PATTERN       0x00000100ul
 #define V9X_VIRGE_CMD_ROP_PATCOPY        (0x000000f0ul << 17)
+#define V9X_VIRGE_CMD_ROP_SRCCOPY        (0x000000ccul << 17)
 #define V9X_VIRGE_CMD_X_POSITIVE         0x02000000ul
 #define V9X_VIRGE_CMD_Y_POSITIVE         0x04000000ul
+/* Screen-to-screen BitBLT is command 0 in bits 31:27, so the source is read
+ * from display memory when neither the mono-source nor image-data-source bit
+ * is set. The stride register carries the destination stride in its high word
+ * and the source stride in its low word; both are masked to 0xff8 by the
+ * hardware, and the surface bases to an 8-byte boundary. */
+#define V9X_VIRGE_SRC_BASE            0x0000a4d4ul
+#define V9X_VIRGE_RECT_SRC_XY         0x0000a508ul
+#define V9X_VIRGE_STRIDE_MASK            0x00000ff8ul
+#define V9X_VIRGE_COORD_MAX                    2047ul
 
 static const char v9x_hal_build_id[] = "V9XHAL build=" V9X_BUILD_ID;
 
@@ -942,6 +964,11 @@ static int v9x_fill_rect_valid(const V9X_DDHAL_BLTDATA *data,
     return 1;
 }
 
+/* Outcome of an attempt to express a blit on a particular engine. */
+#define V9X_BLT_DONE      0   /* the engine has been programmed          */
+#define V9X_BLT_BUSY      1   /* engine busy and the caller asked not to wait */
+#define V9X_BLT_DECLINED  2   /* this engine cannot express the request  */
+
 /*
  * Bounded video-memory source copy.
  *
@@ -1064,7 +1091,152 @@ static void v9x_copy_row(BYTE *destination, const BYTE *source, DWORD bytes)
     }
 }
 
-static DWORD v9x_srccopy_body(V9X_DDHAL_BLTDATA *data)
+/*
+ * Screen-to-screen BitBLT on the ViRGE 2D engine.
+ *
+ * This is what makes a video-memory source copy affordable. The CPU fallback
+ * has to read every byte back out of the aperture, which measured about
+ * 300 ms for a 640x480x16 frame - 3 FPS under Ironfield's BltFast
+ * presentation path. The engine moves the same rectangle without the data
+ * crossing the bus at all.
+ *
+ * Overlap is handled by direction rather than by row order: the engine walks
+ * from whichever corner keeps a same-surface copy correct, which is why the
+ * scan direction is derived from the rectangles rather than fixed.
+ */
+static int v9x_virge_copy(V9X_DDHAL_BLTDATA *data, DWORD source_offset,
+                          DWORD destination_offset, DWORD bytes_per_pixel,
+                          int wait)
+{
+    DWORD source_pitch = (DWORD)data->lpDDSrcSurface->lpGbl->lPitch;
+    DWORD destination_pitch = (DWORD)data->lpDDDestSurface->lpGbl->lPitch;
+    DWORD width = (DWORD)(data->rSrc[2] - data->rSrc[0]);
+    DWORD height = (DWORD)(data->rSrc[3] - data->rSrc[1]);
+    DWORD source_x = (DWORD)data->rSrc[0];
+    DWORD source_y = (DWORD)data->rSrc[1];
+    DWORD destination_x = (DWORD)data->rDest[0];
+    DWORD destination_y = (DWORD)data->rDest[1];
+    DWORD command;
+    int x_positive = 1;
+    int y_positive = 1;
+
+    if ((source_pitch & ~V9X_VIRGE_STRIDE_MASK) != 0ul ||
+        (destination_pitch & ~V9X_VIRGE_STRIDE_MASK) != 0ul ||
+        (source_offset & 7ul) != 0ul || (destination_offset & 7ul) != 0ul ||
+        width == 0ul || height == 0ul ||
+        width > V9X_VIRGE_COORD_MAX || height > V9X_VIRGE_COORD_MAX ||
+        data->rSrc[2] > (LONG)V9X_VIRGE_COORD_MAX ||
+        data->rSrc[3] > (LONG)V9X_VIRGE_COORD_MAX ||
+        data->rDest[2] > (LONG)V9X_VIRGE_COORD_MAX ||
+        data->rDest[3] > (LONG)V9X_VIRGE_COORD_MAX) {
+        return V9X_BLT_DECLINED;
+    }
+
+    /* Only a copy within one surface can overlap; DirectDraw's linear heap
+     * hands out disjoint blocks, so distinct bases cannot alias. */
+    if (source_offset == destination_offset) {
+        if (destination_y > source_y) {
+            y_positive = 0;
+            source_y += height - 1ul;
+            destination_y += height - 1ul;
+        } else if (destination_y == source_y && destination_x > source_x) {
+            x_positive = 0;
+            source_x += width - 1ul;
+            destination_x += width - 1ul;
+        }
+    }
+
+    if (!v9x_wait_fifo(8ul, wait)) {
+        return V9X_BLT_BUSY;
+    }
+    command = V9X_VIRGE_CMD_ROP_SRCCOPY | V9X_VIRGE_CMD_DRAW_ENABLE |
+              ((bytes_per_pixel - 1ul) << 2) |
+              (x_positive ? V9X_VIRGE_CMD_X_POSITIVE : 0ul) |
+              (y_positive ? V9X_VIRGE_CMD_Y_POSITIVE : 0ul);
+
+    v9x_mmio_write(V9X_VIRGE_SRC_BASE, source_offset);
+    v9x_mmio_write(V9X_VIRGE_DEST_BASE, destination_offset);
+    v9x_mmio_write(V9X_VIRGE_DEST_SRC_STRIDE,
+                   (destination_pitch << 16) | source_pitch);
+    v9x_mmio_write(V9X_VIRGE_RECT_WH, ((width - 1ul) << 16) | height);
+    v9x_mmio_write(V9X_VIRGE_RECT_SRC_XY, (source_x << 16) | source_y);
+    v9x_mmio_write(V9X_VIRGE_RECT_DEST_XY,
+                   (destination_x << 16) | destination_y);
+    /* Autoexecute is left clear, so this write is what starts the blit. */
+    v9x_mmio_write(V9X_VIRGE_COMMAND, command);
+    return V9X_BLT_DONE;
+}
+
+/*
+ * Screen-to-screen BitBLT on the Trio32/64 enhanced engine.
+ *
+ * Unlike the ViRGE, this engine has no per-surface base or stride: it walks
+ * display memory as one surface at the display pitch from a common bank
+ * base, so a surface's position has to be folded into its y coordinate and
+ * both rectangles must sit on display-pitch scan lines. Anything else is
+ * declined and served by the CPU copy.
+ */
+static int v9x_trio_copy(V9X_DDHAL_BLTDATA *data, DWORD source_offset,
+                         DWORD destination_offset, DWORD bytes_per_pixel,
+                         int wait)
+{
+    DWORD pitch = v9x_hal->fb.pitch;
+    DWORD width = (DWORD)(data->rSrc[2] - data->rSrc[0]);
+    DWORD height = (DWORD)(data->rSrc[3] - data->rSrc[1]);
+    DWORD source_x = (DWORD)data->rSrc[0];
+    DWORD source_y;
+    DWORD destination_x = (DWORD)data->rDest[0];
+    DWORD destination_y;
+    unsigned short command;
+
+    (void)bytes_per_pixel;
+    if (pitch == 0ul ||
+        (DWORD)data->lpDDSrcSurface->lpGbl->lPitch != pitch ||
+        (DWORD)data->lpDDDestSurface->lpGbl->lPitch != pitch ||
+        (source_offset % pitch) != 0ul ||
+        (destination_offset % pitch) != 0ul ||
+        width == 0ul || height == 0ul) {
+        return V9X_BLT_DECLINED;
+    }
+    source_y = source_offset / pitch + (DWORD)data->rSrc[1];
+    destination_y = destination_offset / pitch + (DWORD)data->rDest[1];
+    if (source_y >= 2048ul || destination_y >= 2048ul ||
+        height > 2048ul - source_y || height > 2048ul - destination_y) {
+        return V9X_BLT_DECLINED;
+    }
+
+    command = (unsigned short)(V9X_TRIO_CMD_BITBLT | V9X_TRIO_CMD_INC_X |
+                               V9X_TRIO_CMD_INC_Y);
+    /* Only a copy within one surface can overlap. */
+    if (source_offset == destination_offset) {
+        if (destination_y > source_y) {
+            command = (unsigned short)(command & ~V9X_TRIO_CMD_INC_Y);
+            source_y += height - 1ul;
+            destination_y += height - 1ul;
+        } else if (destination_y == source_y &&
+                   destination_x > source_x) {
+            command = (unsigned short)(command & ~V9X_TRIO_CMD_INC_X);
+            source_x += width - 1ul;
+            destination_x += width - 1ul;
+        }
+    }
+
+    if (!v9x_trio_wait_idle(wait)) {
+        return V9X_BLT_BUSY;
+    }
+    v9x_outpw(V9X_TRIO_FRGD_MIX, V9X_TRIO_FRGD_MIX_COPY);
+    v9x_outpw(V9X_TRIO_MULTIFUNC_CNTL, V9X_TRIO_PIXEL_CNTL_FRGD_MIX);
+    v9x_outpw(V9X_TRIO_CUR_X, (unsigned short)source_x);
+    v9x_outpw(V9X_TRIO_CUR_Y, (unsigned short)source_y);
+    v9x_outpw(V9X_TRIO_DESTX_DIASTP, (unsigned short)destination_x);
+    v9x_outpw(V9X_TRIO_DESTY_AXSTP, (unsigned short)destination_y);
+    v9x_outpw(V9X_TRIO_MAJ_AXIS_PCNT, (unsigned short)(width - 1ul));
+    v9x_outpw(V9X_TRIO_MULTIFUNC_CNTL, (unsigned short)(height - 1ul));
+    v9x_outpw(V9X_TRIO_CMD_STATUS, command);
+    return V9X_BLT_DONE;
+}
+
+static DWORD v9x_srccopy_body(V9X_DDHAL_BLTDATA *data, int *engine_used)
 {
     const DWORD allowed = V9X_DDBLT_ROP | V9X_DDBLT_WAIT |
                           V9X_DDBLT_DONOTWAIT | V9X_DDBLT_ASYNC;
@@ -1077,6 +1249,7 @@ static DWORD v9x_srccopy_body(V9X_DDHAL_BLTDATA *data)
     DWORD height;
     DWORD row;
     BYTE *base;
+    int wait;
 
     data->ddRVal = V9X_DD_OK;
     if ((data->dwFlags & ~allowed) != 0ul ||
@@ -1099,8 +1272,26 @@ static DWORD v9x_srccopy_body(V9X_DDHAL_BLTDATA *data)
                              bytes_per_pixel, &destination_offset)) {
         return V9X_DDHAL_DRIVER_NOTHANDLED;
     }
-    if (!v9x_blt_drain((data->dwFlags &
-                        (V9X_DDBLT_ASYNC | V9X_DDBLT_DONOTWAIT)) == 0ul)) {
+    wait = (data->dwFlags &
+            (V9X_DDBLT_ASYNC | V9X_DDBLT_DONOTWAIT)) == 0ul;
+    if (v9x_trio_engine_ready() || v9x_engine_validate_status()) {
+        int outcome = v9x_trio_engine_ready()
+            ? v9x_trio_copy(data, source_offset, destination_offset,
+                            bytes_per_pixel, wait)
+            : v9x_virge_copy(data, source_offset, destination_offset,
+                             bytes_per_pixel, wait);
+
+        if (outcome == V9X_BLT_BUSY) {
+            data->ddRVal = V9X_DDERR_WASSTILLDRAWING;
+            return V9X_DDHAL_DRIVER_HANDLED;
+        }
+        if (outcome == V9X_BLT_DONE) {
+            *engine_used = 1;
+            return V9X_DDHAL_DRIVER_HANDLED;
+        }
+    }
+
+    if (!v9x_blt_drain(wait)) {
         data->ddRVal = V9X_DDERR_WASSTILLDRAWING;
         return V9X_DDHAL_DRIVER_HANDLED;
     }
@@ -1142,10 +1333,6 @@ static DWORD v9x_srccopy_body(V9X_DDHAL_BLTDATA *data)
  * each decline a shape they cannot express, so a CPU fill through the mapped
  * aperture backstops them and the callback always succeeds.
  */
-#define V9X_BLT_DONE      0   /* the engine has been programmed          */
-#define V9X_BLT_BUSY      1   /* engine busy and the caller asked not to wait */
-#define V9X_BLT_DECLINED  2   /* this engine cannot express the request  */
-
 static int v9x_trio_fill(V9X_DDHAL_BLTDATA *data, DWORD offset,
                          DWORD bytes_per_pixel, int wait)
 {
@@ -1323,7 +1510,7 @@ static DWORD v9x_blt_body(V9X_DDHAL_BLTDATA *data, int *engine_used)
     }
     data->ddRVal = V9X_DD_OK;
     if (data->lpDDSrcSurface != 0) {
-        return v9x_srccopy_body(data);
+        return v9x_srccopy_body(data, engine_used);
     }
     return v9x_colorfill_body(data, engine_used);
 }

@@ -1022,26 +1022,12 @@ static int v9x_paint_ramp(struct v9x_dds *surface, DWORD extent,
  * handling exists for - a window scroll or a sprite moved a short distance -
  * and it cannot be reached by copying between two distinct surfaces.
  */
-static void v9x_test_overlap(struct v9x_dd *ddraw)
+static void v9x_check_overlap(struct v9x_dds *surface, const char *prefix)
 {
-    V9X_DDSURFACEDESC desc;
-    struct v9x_dds *surface = 0;
     RECT source_rect;
     RECT destination_rect;
+    char key[40];
     HRESULT hr;
-
-    v9x_zero(&desc, sizeof(desc));
-    desc.dwSize = sizeof(desc);
-    desc.dwFlags = V9X_DDSD_CAPS | V9X_DDSD_WIDTH | V9X_DDSD_HEIGHT;
-    desc.dwWidth = 128ul;
-    desc.dwHeight = 128ul;
-    desc.ddsCaps.dwCaps = V9X_DDSCAPS_OFFSCREENPLAIN |
-                          V9X_DDSCAPS_VIDEOMEMORY;
-    hr = ddraw->vtbl->CreateSurface(ddraw, &desc, &surface, 0);
-    v9x_write_hresult("OverlapSurfaceHr", hr);
-    if (hr != 0 || surface == 0) {
-        return;
-    }
 
     /* Shift a 64x64 block down by 16 rows. Copying top-down would re-read
      * rows it had already overwritten and repeat the first 16 values. */
@@ -1056,14 +1042,17 @@ static void v9x_test_overlap(struct v9x_dd *ddraw)
     if (v9x_paint_ramp(surface, 128ul, 1)) {
         hr = surface->vtbl->Blt(surface, &destination_rect, surface,
                                 &source_rect, V9X_DDBLT_WAIT, 0);
-        v9x_write_hresult("OverlapDownHr", hr);
-        v9x_write_uint("OverlapDownPixelOk",
+        wsprintfA(key, "%sDownHr", prefix);
+        v9x_write_hresult(key, hr);
+        wsprintfA(key, "%sDownPixelOk", prefix);
+        v9x_write_uint(key,
                        hr == 0 &&
                        v9x_surface_pixel16_equals(surface, 10ul, 16ul, 1u) &&
                        v9x_surface_pixel16_equals(surface, 10ul, 47ul, 32u) &&
                        v9x_surface_pixel16_equals(surface, 10ul, 79ul, 64u)
                            ? 1ul : 0ul);
-        v9x_write_uint("OverlapDownSeen",
+        wsprintfA(key, "%sDownSeen", prefix);
+        v9x_write_uint(key,
                        v9x_surface_pixel16(surface, 10ul, 79ul));
     }
 
@@ -1076,18 +1065,51 @@ static void v9x_test_overlap(struct v9x_dd *ddraw)
     if (v9x_paint_ramp(surface, 128ul, 0)) {
         hr = surface->vtbl->Blt(surface, &destination_rect, surface,
                                 &source_rect, V9X_DDBLT_WAIT, 0);
-        v9x_write_hresult("OverlapRightHr", hr);
-        v9x_write_uint("OverlapRightPixelOk",
+        wsprintfA(key, "%sRightHr", prefix);
+        v9x_write_hresult(key, hr);
+        wsprintfA(key, "%sRightPixelOk", prefix);
+        v9x_write_uint(key,
                        hr == 0 &&
                        v9x_surface_pixel16_equals(surface, 16ul, 10ul, 1u) &&
                        v9x_surface_pixel16_equals(surface, 47ul, 10ul, 32u) &&
                        v9x_surface_pixel16_equals(surface, 79ul, 10ul, 64u)
                            ? 1ul : 0ul);
-        v9x_write_uint("OverlapRightSeen",
+        wsprintfA(key, "%sRightSeen", prefix);
+        v9x_write_uint(key,
                        v9x_surface_pixel16(surface, 79ul, 10ul));
     }
 
-    surface->vtbl->Release(surface);
+}
+
+/*
+ * Run the overlap checks twice. An offscreen surface has its own pitch, which
+ * only an engine with per-surface base and stride registers can address; a
+ * display-pitch surface is additionally reachable by an engine that walks
+ * display memory as one surface, so both engine paths get pixel-verified
+ * coverage of the copy-direction handling.
+ */
+static void v9x_test_overlap(struct v9x_dd *ddraw, struct v9x_dds *display)
+{
+    V9X_DDSURFACEDESC desc;
+    struct v9x_dds *surface = 0;
+    HRESULT hr;
+
+    v9x_zero(&desc, sizeof(desc));
+    desc.dwSize = sizeof(desc);
+    desc.dwFlags = V9X_DDSD_CAPS | V9X_DDSD_WIDTH | V9X_DDSD_HEIGHT;
+    desc.dwWidth = 128ul;
+    desc.dwHeight = 128ul;
+    desc.ddsCaps.dwCaps = V9X_DDSCAPS_OFFSCREENPLAIN |
+                          V9X_DDSCAPS_VIDEOMEMORY;
+    hr = ddraw->vtbl->CreateSurface(ddraw, &desc, &surface, 0);
+    v9x_write_hresult("OverlapSurfaceHr", hr);
+    if (hr == 0 && surface != 0) {
+        v9x_check_overlap(surface, "Overlap");
+        surface->vtbl->Release(surface);
+    }
+    if (display != 0) {
+        v9x_check_overlap(display, "OverlapPitch");
+    }
 }
 
 static LRESULT CALLBACK v9x_window_proc(HWND window, UINT message,
@@ -1956,7 +1978,7 @@ void __stdcall V9xDdrawProbeEntry(void)
         }
     }
 
-    v9x_test_overlap(ddraw);
+    v9x_test_overlap(ddraw, backbuffer);
 
     /* Diagnostic hold keeps the DirectDraw object and HAL instance alive so
      * V9XTRACE can snapshot callback dispatch from a second process. */
