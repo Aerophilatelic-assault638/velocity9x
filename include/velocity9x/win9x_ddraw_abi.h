@@ -406,6 +406,7 @@ typedef struct v9x_ddhalinfo {
 #define V9X_D3DPMISCCAPS_CULLNONE         0x00000010ul
 #define V9X_D3DPRASTERCAPS_ZTEST          0x00000010ul
 #define V9X_D3DPRASTERCAPS_SUBPIXEL       0x00000020ul
+#define V9X_D3DPRASTERCAPS_FOGVERTEX      0x00000080ul
 #define V9X_D3DPCMPCAPS_NEVER             0x00000001ul
 #define V9X_D3DPCMPCAPS_LESS              0x00000002ul
 #define V9X_D3DPCMPCAPS_EQUAL             0x00000004ul
@@ -416,6 +417,11 @@ typedef struct v9x_ddhalinfo {
 #define V9X_D3DPCMPCAPS_ALWAYS            0x00000080ul
 #define V9X_D3DPSHADECAPS_COLORFLATRGB    0x00000002ul
 #define V9X_D3DPSHADECAPS_COLORGOURAUDRGB 0x00000008ul
+#define V9X_D3DPSHADECAPS_SPECULARGOURAUDRGB 0x00000200ul
+#define V9X_D3DPSHADECAPS_FOGGOURAUD      0x00080000ul
+#define V9X_D3DRENDERSTATE_FOGENABLE              28ul
+#define V9X_D3DRENDERSTATE_SPECULARENABLE         29ul
+#define V9X_D3DRENDERSTATE_FOGCOLOR               34ul
 #define V9X_D3DPTEXTURECAPS_PERSPECTIVE   0x00000001ul
 #define V9X_D3DPTEXTURECAPS_POW2          0x00000002ul
 #define V9X_D3DPTEXTURECAPS_SQUAREONLY    0x00000020ul
@@ -725,6 +731,11 @@ typedef struct v9x_d3dhal_renderstatedata {
     void *lpExeBuf;
     DWORD ddrval;
 } V9X_D3DHAL_RENDERSTATEDATA;
+
+typedef struct v9x_d3dstate {
+    DWORD type;
+    DWORD argument;
+} V9X_D3DSTATE;
 
 typedef struct v9x_d3dinstruction {
     BYTE bOpcode;

@@ -204,7 +204,8 @@ typedef struct v9x_d3d_device2_vtbl {
     void *Index;
     void *End;
     void *GetRenderState;
-    void *SetRenderState;
+    HRESULT (__stdcall *SetRenderState)(struct v9x_d3d_device2 *, DWORD,
+                                        DWORD);
     void *GetLightState;
     void *SetLightState;
     void *SetTransform;
@@ -279,6 +280,10 @@ typedef struct v9x_d3dtlvertex {
     float tu;
     float tv;
 } V9X_D3DTLVERTEX;
+
+#define V9X_D3DRENDERSTATE_FOGENABLE       28ul
+#define V9X_D3DRENDERSTATE_SPECULARENABLE  29ul
+#define V9X_D3DRENDERSTATE_FOGCOLOR        34ul
 
 struct v9x_d3d2 {
     const V9X_D3D2_VTBL *vtbl;
@@ -946,6 +951,7 @@ void __stdcall V9xDdrawProbeEntry(void)
                 HRESULT texture_hr;
                 HRESULT texture2_hr;
                 HRESULT swap_hr;
+                HRESULT state_hr;
                 DWORD texture_handle = 0ul;
                 DWORD texture_handle2 = 0ul;
                 V9X_D3D_VIEWPORT_DESC2 viewport_desc;
@@ -1080,6 +1086,73 @@ void __stdcall V9xDdrawProbeEntry(void)
                     draw_hr == 0 && end_hr == 0 &&
                     v9x_surface_pixel16_equals(d3d_target, 16ul, 16ul,
                                                0x7c00u) ? 1ul : 0ul);
+
+                v9x_fill_surface(d3d_target, 0ul);
+                state_hr = d3d_device->vtbl->SetRenderState(
+                    d3d_device, V9X_D3DRENDERSTATE_FOGENABLE, 0ul);
+                if (state_hr == 0) {
+                    state_hr = d3d_device->vtbl->SetRenderState(
+                        d3d_device, V9X_D3DRENDERSTATE_SPECULARENABLE, 1ul);
+                }
+                v9x_write_hresult("D3DSpecularStateHr", state_hr);
+                triangle[0].color = 0xff000000ul;
+                triangle[0].specular = 0xff00ff00ul;
+                triangle[1].color = triangle[0].color;
+                triangle[1].specular = triangle[0].specular;
+                triangle[2].color = triangle[0].color;
+                triangle[2].specular = triangle[0].specular;
+                begin_hr = state_hr == 0
+                    ? d3d_device->vtbl->BeginScene(d3d_device) : state_hr;
+                if (begin_hr == 0) {
+                    draw_hr = d3d_device->vtbl->DrawPrimitive(
+                        d3d_device, V9X_D3DPT_TRIANGLELIST,
+                        V9X_D3DVT_TLVERTEX, triangle, 3ul, 0ul);
+                    end_hr = d3d_device->vtbl->EndScene(d3d_device);
+                } else {
+                    draw_hr = begin_hr;
+                    end_hr = begin_hr;
+                }
+                v9x_write_uint("D3DSpecularGouraudOk",
+                    draw_hr == 0 && end_hr == 0 &&
+                    v9x_surface_pixel16_equals(d3d_target, 16ul, 16ul,
+                                               0x03e0u) ? 1ul : 0ul);
+
+                v9x_fill_surface(d3d_target, 0ul);
+                state_hr = d3d_device->vtbl->SetRenderState(
+                    d3d_device, V9X_D3DRENDERSTATE_SPECULARENABLE, 0ul);
+                if (state_hr == 0) {
+                    state_hr = d3d_device->vtbl->SetRenderState(
+                        d3d_device, V9X_D3DRENDERSTATE_FOGCOLOR,
+                        0x000000fful);
+                }
+                if (state_hr == 0) {
+                    state_hr = d3d_device->vtbl->SetRenderState(
+                        d3d_device, V9X_D3DRENDERSTATE_FOGENABLE, 1ul);
+                }
+                v9x_write_hresult("D3DFogStateHr", state_hr);
+                triangle[0].color = 0xffff0000ul;
+                triangle[0].specular = 0x00000000ul;
+                triangle[1].color = triangle[0].color;
+                triangle[1].specular = triangle[0].specular;
+                triangle[2].color = triangle[0].color;
+                triangle[2].specular = triangle[0].specular;
+                begin_hr = state_hr == 0
+                    ? d3d_device->vtbl->BeginScene(d3d_device) : state_hr;
+                if (begin_hr == 0) {
+                    draw_hr = d3d_device->vtbl->DrawPrimitive(
+                        d3d_device, V9X_D3DPT_TRIANGLELIST,
+                        V9X_D3DVT_TLVERTEX, triangle, 3ul, 0ul);
+                    end_hr = d3d_device->vtbl->EndScene(d3d_device);
+                } else {
+                    draw_hr = begin_hr;
+                    end_hr = begin_hr;
+                }
+                v9x_write_uint("D3DDepthFogOk",
+                    draw_hr == 0 && end_hr == 0 &&
+                    v9x_surface_pixel16_equals(d3d_target, 16ul, 16ul,
+                                               0x001fu) ? 1ul : 0ul);
+                (void)d3d_device->vtbl->SetRenderState(
+                    d3d_device, V9X_D3DRENDERSTATE_FOGENABLE, 0ul);
                 if (d3d_viewport != 0) {
                     d3d_device->vtbl->DeleteViewport(d3d_device,
                                                      d3d_viewport);

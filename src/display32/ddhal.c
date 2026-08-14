@@ -108,6 +108,9 @@ typedef struct v9x_d3d_context {
     DWORD pitch;
     DWORD width;
     DWORD height;
+    DWORD specular_enable;
+    DWORD fog_enable;
+    DWORD fog_color;
 } V9X_D3D_CONTEXT;
 
 typedef struct v9x_d3d_texture {
@@ -1242,6 +1245,9 @@ DWORD __stdcall V9xD3dContextCreate(V9X_D3DHAL_CONTEXTCREATEDATA *data)
                 return V9X_DDHAL_DRIVER_HANDLED;
             }
             context->pid = data->dwPID;
+            context->specular_enable = 0ul;
+            context->fog_enable = 0ul;
+            context->fog_color = 0ul;
             context->active = 1ul;
             data->dwhContext = (DWORD)context;
             data->ddrval = V9X_DD_OK;
@@ -1282,6 +1288,9 @@ DWORD __stdcall V9xD3dContextDestroy(V9X_D3DHAL_CONTEXTDESTROYDATA *data)
     context->pitch = 0ul;
     context->width = 0ul;
     context->height = 0ul;
+    context->specular_enable = 0ul;
+    context->fog_enable = 0ul;
+    context->fog_color = 0ul;
     data->ddrval = V9X_DD_OK;
     ++v9x_hal->d3d_diagnostics.context_destroys;
     v9x_trace_exit(V9X_TRACE_D3D_CTXDESTROY, data->ddrval);
@@ -1311,6 +1320,9 @@ DWORD __stdcall V9xD3dContextDestroyAll(
             v9x_d3d_contexts[index].pitch = 0ul;
             v9x_d3d_contexts[index].width = 0ul;
             v9x_d3d_contexts[index].height = 0ul;
+            v9x_d3d_contexts[index].specular_enable = 0ul;
+            v9x_d3d_contexts[index].fog_enable = 0ul;
+            v9x_d3d_contexts[index].fog_color = 0ul;
         }
     }
     data->ddrval = V9X_DD_OK;
@@ -1426,16 +1438,85 @@ DWORD __stdcall V9xD3dTextureGetSurf(V9X_D3DHAL_TEXTUREGETSURFDATA *data)
 
 DWORD __stdcall V9xD3dRenderState(V9X_D3DHAL_RENDERSTATEDATA *data)
 {
+    V9X_D3D_CONTEXT *context;
+    V9X_DD_SURFACE_LCL *exe;
+    V9X_D3DSTATE *states;
+    DWORD index;
+
     v9x_trace_enter(V9X_TRACE_D3D_RENDERSTATE,
                     data != 0 ? data->dwCount : 0ul);
     if (v9x_hal != 0) {
         ++v9x_hal->d3d_diagnostics.render_state_calls;
+    }
+    context = data != 0
+        ? v9x_d3d_context_from_handle(data->dwhContext) : 0;
+    exe = data != 0 ? v9x_d3d_surface_lcl(data->lpExeBuf) : 0;
+    if (context != 0 && exe != 0 && exe->lpGbl != 0 &&
+        exe->lpGbl->fpVidMem != 0ul && data->dwCount <= 64ul) {
+        states = (V9X_D3DSTATE *)(exe->lpGbl->fpVidMem + data->dwOffset);
+        for (index = 0ul; index < data->dwCount; ++index) {
+            switch (states[index].type) {
+            case V9X_D3DRENDERSTATE_FOGENABLE:
+                context->fog_enable = states[index].argument != 0ul;
+                break;
+            case V9X_D3DRENDERSTATE_SPECULARENABLE:
+                context->specular_enable = states[index].argument != 0ul;
+                break;
+            case V9X_D3DRENDERSTATE_FOGCOLOR:
+                context->fog_color = states[index].argument;
+                break;
+            default:
+                break;
+            }
+        }
     }
     if (data != 0) {
         data->ddrval = V9X_DD_OK;
     }
     v9x_trace_exit(V9X_TRACE_D3D_RENDERSTATE, V9X_DD_OK);
     return V9X_DDHAL_DRIVER_NOTHANDLED;
+}
+
+static BYTE v9x_d3d_saturating_add_byte(BYTE first, BYTE second)
+{
+    WORD sum = (WORD)first + (WORD)second;
+
+    return sum > 255u ? 255u : (BYTE)sum;
+}
+
+static BYTE v9x_d3d_fog_byte(BYTE color, BYTE fog, BYTE factor)
+{
+    return (BYTE)(((DWORD)color * factor +
+                   (DWORD)fog * (255u - factor) + 127ul) / 255ul);
+}
+
+static void v9x_d3d_apply_vertex_color(const V9X_D3D_CONTEXT *context,
+                                       V9X_D3DTLVERTEX *vertex)
+{
+    DWORD color = vertex->color;
+    BYTE alpha = (BYTE)(color >> 24);
+    BYTE red = (BYTE)(color >> 16);
+    BYTE green = (BYTE)(color >> 8);
+    BYTE blue = (BYTE)color;
+
+    if (context->specular_enable != 0ul) {
+        red = v9x_d3d_saturating_add_byte(
+            red, (BYTE)(vertex->specular >> 16));
+        green = v9x_d3d_saturating_add_byte(
+            green, (BYTE)(vertex->specular >> 8));
+        blue = v9x_d3d_saturating_add_byte(blue, (BYTE)vertex->specular);
+    }
+    if (context->fog_enable != 0ul) {
+        BYTE factor = (BYTE)(vertex->specular >> 24);
+
+        red = v9x_d3d_fog_byte(red, (BYTE)(context->fog_color >> 16),
+                               factor);
+        green = v9x_d3d_fog_byte(green, (BYTE)(context->fog_color >> 8),
+                                 factor);
+        blue = v9x_d3d_fog_byte(blue, (BYTE)context->fog_color, factor);
+    }
+    vertex->color = ((DWORD)alpha << 24) | ((DWORD)red << 16) |
+                    ((DWORD)green << 8) | (DWORD)blue;
 }
 
 #define V9X_D3DOP_TRIANGLE             3u
@@ -1612,6 +1693,9 @@ DWORD __stdcall V9xD3dRenderPrimitive(
             source[0] = vertices[triangle->v1];
             source[1] = vertices[triangle->v2];
             source[2] = vertices[triangle->v3];
+            v9x_d3d_apply_vertex_color(context, &source[0]);
+            v9x_d3d_apply_vertex_color(context, &source[1]);
+            v9x_d3d_apply_vertex_color(context, &source[2]);
             clipped_count = v9x_d3d_clip_triangle(context, source, clipped);
             if (clipped_count < 0) {
                 v9x_trace_push(V9X_TRACE_D3D_PRIMREJECT,
@@ -2154,7 +2238,8 @@ DWORD __stdcall DriverInit(DWORD context)
         V9X_D3DPMISCCAPS_CULLNONE;
     shared->d3d_global.hwCaps.dpcTriCaps.dwRasterCaps =
         V9X_D3DPRASTERCAPS_ZTEST |
-        V9X_D3DPRASTERCAPS_SUBPIXEL;
+        V9X_D3DPRASTERCAPS_SUBPIXEL |
+        V9X_D3DPRASTERCAPS_FOGVERTEX;
     shared->d3d_global.hwCaps.dpcTriCaps.dwZCmpCaps =
         V9X_D3DPCMPCAPS_NEVER | V9X_D3DPCMPCAPS_LESS |
         V9X_D3DPCMPCAPS_EQUAL | V9X_D3DPCMPCAPS_LESSEQUAL |
@@ -2162,7 +2247,9 @@ DWORD __stdcall DriverInit(DWORD context)
         V9X_D3DPCMPCAPS_GREATEREQUAL | V9X_D3DPCMPCAPS_ALWAYS;
     shared->d3d_global.hwCaps.dpcTriCaps.dwShadeCaps =
         V9X_D3DPSHADECAPS_COLORFLATRGB |
-        V9X_D3DPSHADECAPS_COLORGOURAUDRGB;
+        V9X_D3DPSHADECAPS_COLORGOURAUDRGB |
+        V9X_D3DPSHADECAPS_SPECULARGOURAUDRGB |
+        V9X_D3DPSHADECAPS_FOGGOURAUD;
     shared->d3d_global.hwCaps.dpcTriCaps.dwTextureCaps =
 #if V9X_C4_CAPS_VARIANT == 1
         0ul;
