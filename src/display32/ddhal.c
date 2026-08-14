@@ -2153,7 +2153,8 @@ DWORD __stdcall DriverInit(DWORD context)
     shared->d3d_global.hwCaps.dpcTriCaps.dwMiscCaps =
         V9X_D3DPMISCCAPS_CULLNONE;
     shared->d3d_global.hwCaps.dpcTriCaps.dwRasterCaps =
-        V9X_D3DPRASTERCAPS_ZTEST;
+        V9X_D3DPRASTERCAPS_ZTEST |
+        V9X_D3DPRASTERCAPS_SUBPIXEL;
     shared->d3d_global.hwCaps.dpcTriCaps.dwZCmpCaps =
         V9X_D3DPCMPCAPS_NEVER | V9X_D3DPCMPCAPS_LESS |
         V9X_D3DPCMPCAPS_EQUAL | V9X_D3DPCMPCAPS_LESSEQUAL |

@@ -1041,8 +1041,10 @@ void __stdcall V9xDdrawProbeEntry(void)
                 v9x_write_hresult("D3DCurrentViewportHr", viewport_hr);
 
                 v9x_fill_surface(d3d_target, 0ul);
-                triangle[0].sx = 8.0f;
-                triangle[0].sy = 8.0f;
+                /* Exercise the fractional S11.20 setup path advertised by
+                 * D3DPRASTERCAPS_SUBPIXEL, not only integer coordinates. */
+                triangle[0].sx = 8.25f;
+                triangle[0].sy = 8.25f;
                 triangle[0].sz = 0.0f;
                 triangle[0].rhw = 1.0f;
                 triangle[0].color = 0xffff0000ul;
@@ -1050,9 +1052,9 @@ void __stdcall V9xDdrawProbeEntry(void)
                 triangle[0].tu = 0.0f;
                 triangle[0].tv = 0.0f;
                 triangle[1] = triangle[0];
-                triangle[1].sx = 56.0f;
+                triangle[1].sx = 55.75f;
                 triangle[2] = triangle[0];
-                triangle[2].sy = 56.0f;
+                triangle[2].sy = 55.75f;
 
                 begin_hr = viewport_hr == 0
                     ? d3d_device->vtbl->BeginScene(d3d_device) : viewport_hr;
@@ -1071,6 +1073,10 @@ void __stdcall V9xDdrawProbeEntry(void)
                 v9x_write_uint("D3DTrianglePixelRaw",
                                v9x_surface_pixel16(d3d_target, 16ul, 16ul));
                 v9x_write_uint("D3DTrianglePixelOk",
+                    draw_hr == 0 && end_hr == 0 &&
+                    v9x_surface_pixel16_equals(d3d_target, 16ul, 16ul,
+                                               0x7c00u) ? 1ul : 0ul);
+                v9x_write_uint("D3DSubpixelTriangleOk",
                     draw_hr == 0 && end_hr == 0 &&
                     v9x_surface_pixel16_equals(d3d_target, 16ul, 16ul,
                                                0x7c00u) ? 1ul : 0ul);

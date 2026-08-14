@@ -34,6 +34,8 @@ documented 32-bpp rejection case.
   the ViRGE's unsigned S11.20 X-start setup register.
 - Add `D3dPrimitiveReject` trace events to distinguish index, input-coordinate,
   and post-clip hardware-submission failures.
+- Advertise subpixel rasterization and exercise the fractional S11.20 triangle
+  setup path in V9XDDP (`D3DSubpixelTriangleOk`).
 
 ## Verified result
 
@@ -68,4 +70,3 @@ coordinates, comparison mode, or updates. The next implementation slice is:
 4. program Z_BASE/Z_STRIDE and Z gradients/comparison/update state;
 5. add a pixel-verified textured-plus-Z probe before enabling further FR
    options such as mipmapping, alpha blending, fog, or specular colour.
-
