@@ -536,6 +536,49 @@ static DWORD v9x_fifo_free(DWORD status)
            V9X_VIRGE_STATUS_FIFO_SHIFT;
 }
 
+/*
+ * Confirm once that the engine status register reads sensibly before any
+ * MMIO command is issued to it.
+ *
+ * This used to be latched only by GetBltStatus(DDGBS_CANBLT) and by the
+ * Direct3D draw callbacks, which meant a DirectDraw application that blits
+ * without polling first could never reach the engine. That was invisible
+ * while the driver did not advertise DDCAPS_BLT; once it does, an unreached
+ * blit is reported to the application as DDERR_UNSUPPORTED rather than being
+ * emulated, so the check has to be able to run on the blit path itself.
+ *
+ * The validated bit is cleared on every Enable and ReEnable, so this runs
+ * again after each mode change. Sampling the status register once was enough
+ * for the polling callers but not here: the engine is not necessarily idle
+ * in the instant after a mode set, and a single unlucky sample sent the
+ * first fill of a mode down the CPU fallback. A short bounded re-sample
+ * makes acceleration deterministic without invoking engine recovery, which
+ * would be far too aggressive for a liveness check.
+ */
+#define V9X_ENGINE_VALIDATE_SPINS 64ul
+
+static int v9x_engine_validate_status(void)
+{
+    DWORD status;
+    DWORD spins = V9X_ENGINE_VALIDATE_SPINS;
+
+    if (!v9x_engine_ready()) {
+        return 0;
+    }
+    if ((v9x_hal->engine.flags & V9X_DD_ENGINE_STATUS_VALIDATED) != 0ul) {
+        return 1;
+    }
+    while (spins-- != 0ul) {
+        status = v9x_engine_status();
+        if (v9x_fifo_free(status) >= 8ul &&
+            (status & V9X_VIRGE_STATUS_IDLE) != 0ul) {
+            v9x_hal->engine.flags |= V9X_DD_ENGINE_STATUS_VALIDATED;
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* CR66 bit 1 is the ViRGE/DX graphics-engine reset used by the Windows 98
  * S3 sample. It is touched only after a bounded wait has expired. */
 static void v9x_engine_recover(void)
@@ -956,6 +999,19 @@ static int v9x_copy_rect_valid(const V9X_DD_SURFACE_LCL *surface,
     return 1;
 }
 
+/* Drain whichever engine owns this chipset before touching the same memory
+ * from the CPU. With no engine enabled there is nothing in flight. */
+static int v9x_blt_drain(int wait)
+{
+    if (v9x_trio_engine_ready()) {
+        return v9x_trio_wait_idle(wait);
+    }
+    if (v9x_engine_status_validated()) {
+        return v9x_wait_idle(wait);
+    }
+    return 1;
+}
+
 static void v9x_copy_row(BYTE *destination, const BYTE *source, DWORD bytes)
 {
     if (destination == source || bytes == 0ul) {
@@ -1009,20 +1065,10 @@ static DWORD v9x_srccopy_body(V9X_DDHAL_BLTDATA *data)
                              bytes_per_pixel, &destination_offset)) {
         return V9X_DDHAL_DRIVER_NOTHANDLED;
     }
-    /* Drain whichever engine owns this chipset before touching the same
-     * memory from the CPU. With no engine enabled there is nothing in
-     * flight, so the copy can start immediately. */
-    {
-        int wait = (data->dwFlags &
-                    (V9X_DDBLT_ASYNC | V9X_DDBLT_DONOTWAIT)) == 0ul;
-        int idle = v9x_trio_engine_ready() ? v9x_trio_wait_idle(wait)
-                 : v9x_engine_status_validated() ? v9x_wait_idle(wait)
-                 : 1;
-
-        if (!idle) {
-            data->ddRVal = V9X_DDERR_WASSTILLDRAWING;
-            return V9X_DDHAL_DRIVER_HANDLED;
-        }
+    if (!v9x_blt_drain((data->dwFlags &
+                        (V9X_DDBLT_ASYNC | V9X_DDBLT_DONOTWAIT)) == 0ul)) {
+        data->ddRVal = V9X_DDERR_WASSTILLDRAWING;
+        return V9X_DDHAL_DRIVER_HANDLED;
     }
 
     source_pitch = (DWORD)data->lpDDSrcSurface->lpGbl->lPitch;
@@ -1053,102 +1099,68 @@ static DWORD v9x_srccopy_body(V9X_DDHAL_BLTDATA *data)
     return V9X_DDHAL_DRIVER_HANDLED;
 }
 
-static DWORD v9x_blt_body(V9X_DDHAL_BLTDATA *data)
+/*
+ * Colour fill.
+ *
+ * Advertising DDCAPS_BLT makes the driver responsible for completing every
+ * blit it admits: DDHAL_DRIVER_NOTHANDLED is reported to the application as
+ * DDERR_UNSUPPORTED instead of being emulated. The engine paths below can
+ * each decline a shape they cannot express, so a CPU fill through the mapped
+ * aperture backstops them and the callback always succeeds.
+ */
+#define V9X_BLT_DONE      0   /* the engine has been programmed          */
+#define V9X_BLT_BUSY      1   /* engine busy and the caller asked not to wait */
+#define V9X_BLT_DECLINED  2   /* this engine cannot express the request  */
+
+static int v9x_trio_fill(V9X_DDHAL_BLTDATA *data, DWORD offset,
+                         DWORD bytes_per_pixel, int wait)
 {
-    DWORD allowed = V9X_DDBLT_COLORFILL | V9X_DDBLT_WAIT |
-                    V9X_DDBLT_DONOTWAIT | V9X_DDBLT_ASYNC;
-    DWORD bytes_per_pixel;
-    DWORD offset;
+    DWORD pitch = v9x_hal->fb.pitch;
+    DWORD y;
     DWORD width;
     DWORD height;
-    DWORD command;
-    int wait;
 
-    if (data != 0 && data->lpDDSrcSurface != 0) {
-        return v9x_srccopy_body(data);
+    (void)bytes_per_pixel;
+    /* The engine addresses display memory as one surface at the display
+     * pitch, so only display-pitch surfaces starting on a scan line can be
+     * expressed as an (x, y) rectangle. */
+    if ((DWORD)data->lpDDDestSurface->lpGbl->lPitch != pitch ||
+        pitch == 0ul || (offset % pitch) != 0ul) {
+        return V9X_BLT_DECLINED;
     }
-    if (v9x_trio_engine_ready()) {
-        DWORD trio_allowed = V9X_DDBLT_COLORFILL | V9X_DDBLT_WAIT |
-                             V9X_DDBLT_DONOTWAIT | V9X_DDBLT_ASYNC;
-        DWORD trio_offset;
-        DWORD trio_pitch;
-        DWORD trio_y;
-
-        if (data == 0 ||
-            (data->dwFlags & V9X_DDBLT_COLORFILL) == 0ul ||
-            (data->dwFlags & ~trio_allowed) != 0ul ||
-            data->lpDDSrcSurface != 0 || data->lpDDDestSurface == 0 ||
-            data->lpDDDestSurface->lpGbl == 0 ||
-            (v9x_hal->fb.bits_per_pixel != 8ul &&
-             v9x_hal->fb.bits_per_pixel != 16ul)) {
-            if (data != 0) {
-                data->ddRVal = V9X_DD_OK;
-            }
-            return V9X_DDHAL_DRIVER_NOTHANDLED;
-        }
-        bytes_per_pixel = v9x_hal->fb.bits_per_pixel >> 3;
-        if (!v9x_fill_rect_valid(data, bytes_per_pixel, &trio_offset)) {
-            data->ddRVal = V9X_DD_OK;
-            return V9X_DDHAL_DRIVER_NOTHANDLED;
-        }
-        trio_pitch = v9x_hal->fb.pitch;
-        if ((DWORD)data->lpDDDestSurface->lpGbl->lPitch != trio_pitch ||
-            trio_pitch == 0ul || (trio_offset % trio_pitch) != 0ul) {
-            data->ddRVal = V9X_DD_OK;
-            return V9X_DDHAL_DRIVER_NOTHANDLED;
-        }
-        trio_y = trio_offset / trio_pitch + (DWORD)data->rDest[1];
-        width = (DWORD)(data->rDest[2] - data->rDest[0]);
-        height = (DWORD)(data->rDest[3] - data->rDest[1]);
-        if (trio_y >= 2048ul || height > 2048ul - trio_y) {
-            data->ddRVal = V9X_DD_OK;
-            return V9X_DDHAL_DRIVER_NOTHANDLED;
-        }
-        wait = (data->dwFlags &
-                (V9X_DDBLT_ASYNC | V9X_DDBLT_DONOTWAIT)) == 0ul;
-        if (!v9x_trio_wait_idle(wait)) {
-            data->ddRVal = V9X_DDERR_WASSTILLDRAWING;
-            return V9X_DDHAL_DRIVER_HANDLED;
-        }
-
-        /* S3 Trio32/64 databook section 13.3.3: solid rectangle fill. */
-        v9x_outpw(V9X_TRIO_FRGD_MIX, V9X_TRIO_FRGD_MIX_NEW);
-        v9x_outpw(V9X_TRIO_FRGD_COLOR,
-                  (unsigned short)data->bltFX.dwFillColor);
-        v9x_outpw(V9X_TRIO_MULTIFUNC_CNTL,
-                  V9X_TRIO_PIXEL_CNTL_FRGD_MIX);
-        v9x_outpw(V9X_TRIO_CUR_X, (unsigned short)data->rDest[0]);
-        v9x_outpw(V9X_TRIO_CUR_Y, (unsigned short)trio_y);
-        v9x_outpw(V9X_TRIO_MAJ_AXIS_PCNT, (unsigned short)(width - 1ul));
-        v9x_outpw(V9X_TRIO_MULTIFUNC_CNTL,
-                  (unsigned short)(height - 1ul));
-        v9x_outpw(V9X_TRIO_CMD_STATUS, V9X_TRIO_CMD_RECT_SOLID);
-        data->ddRVal = V9X_DD_OK;
-        return V9X_DDHAL_DRIVER_HANDLED;
-    }
-
-    if (!v9x_engine_status_validated() || data == 0 ||
-        (data->dwFlags & V9X_DDBLT_COLORFILL) == 0ul ||
-        (data->dwFlags & ~allowed) != 0ul || data->lpDDSrcSurface != 0) {
-        if (data != 0) {
-            data->ddRVal = V9X_DD_OK;
-        }
-        return V9X_DDHAL_DRIVER_NOTHANDLED;
-    }
-    bytes_per_pixel = v9x_hal->fb.bits_per_pixel >> 3;
-    if (!v9x_fill_rect_valid(data, bytes_per_pixel, &offset)) {
-        data->ddRVal = V9X_DD_OK;
-        return V9X_DDHAL_DRIVER_NOTHANDLED;
-    }
-    wait = (data->dwFlags &
-            (V9X_DDBLT_ASYNC | V9X_DDBLT_DONOTWAIT)) == 0ul;
-    if (!v9x_wait_fifo(8ul, wait)) {
-        data->ddRVal = V9X_DDERR_WASSTILLDRAWING;
-        return V9X_DDHAL_DRIVER_HANDLED;
-    }
-
+    y = offset / pitch + (DWORD)data->rDest[1];
     width = (DWORD)(data->rDest[2] - data->rDest[0]);
     height = (DWORD)(data->rDest[3] - data->rDest[1]);
+    if (y >= 2048ul || height > 2048ul - y) {
+        return V9X_BLT_DECLINED;
+    }
+    if (!v9x_trio_wait_idle(wait)) {
+        return V9X_BLT_BUSY;
+    }
+
+    /* S3 Trio32/64 databook section 13.3.3: solid rectangle fill. */
+    v9x_outpw(V9X_TRIO_FRGD_MIX, V9X_TRIO_FRGD_MIX_NEW);
+    v9x_outpw(V9X_TRIO_FRGD_COLOR,
+              (unsigned short)data->bltFX.dwFillColor);
+    v9x_outpw(V9X_TRIO_MULTIFUNC_CNTL, V9X_TRIO_PIXEL_CNTL_FRGD_MIX);
+    v9x_outpw(V9X_TRIO_CUR_X, (unsigned short)data->rDest[0]);
+    v9x_outpw(V9X_TRIO_CUR_Y, (unsigned short)y);
+    v9x_outpw(V9X_TRIO_MAJ_AXIS_PCNT, (unsigned short)(width - 1ul));
+    v9x_outpw(V9X_TRIO_MULTIFUNC_CNTL, (unsigned short)(height - 1ul));
+    v9x_outpw(V9X_TRIO_CMD_STATUS, V9X_TRIO_CMD_RECT_SOLID);
+    return V9X_BLT_DONE;
+}
+
+static int v9x_virge_fill(V9X_DDHAL_BLTDATA *data, DWORD offset,
+                          DWORD bytes_per_pixel, int wait)
+{
+    DWORD width = (DWORD)(data->rDest[2] - data->rDest[0]);
+    DWORD height = (DWORD)(data->rDest[3] - data->rDest[1]);
+    DWORD command;
+
+    if (!v9x_wait_fifo(8ul, wait)) {
+        return V9X_BLT_BUSY;
+    }
     command = V9X_VIRGE_CMD_ROP_PATCOPY |
               V9X_VIRGE_CMD_X_POSITIVE | V9X_VIRGE_CMD_Y_POSITIVE |
               V9X_VIRGE_CMD_MONO_PATTERN | V9X_VIRGE_CMD_DRAW_ENABLE |
@@ -1162,25 +1174,115 @@ static DWORD v9x_blt_body(V9X_DDHAL_BLTDATA *data)
     v9x_mmio_write(V9X_VIRGE_MONO_PAT_1, 0xfffffffful);
     v9x_mmio_write(V9X_VIRGE_RECT_WH, ((width - 1ul) << 16) | height);
     v9x_mmio_write(V9X_VIRGE_RECT_DEST_XY,
-                   ((DWORD)data->rDest[0] << 16) |
-                   (DWORD)data->rDest[1]);
+                   ((DWORD)data->rDest[0] << 16) | (DWORD)data->rDest[1]);
     v9x_mmio_write(V9X_VIRGE_COMMAND, command);
+    return V9X_BLT_DONE;
+}
 
-    data->ddRVal = V9X_DD_OK;
+static void v9x_cpu_fill(V9X_DDHAL_BLTDATA *data, DWORD offset,
+                         DWORD bytes_per_pixel)
+{
+    DWORD pitch = (DWORD)data->lpDDDestSurface->lpGbl->lPitch;
+    DWORD width = (DWORD)(data->rDest[2] - data->rDest[0]);
+    DWORD height = (DWORD)(data->rDest[3] - data->rDest[1]);
+    WORD value = (WORD)data->bltFX.dwFillColor;
+    BYTE *row = (BYTE *)v9x_hal->fb.linear_base + offset +
+                (DWORD)data->rDest[1] * pitch +
+                (DWORD)data->rDest[0] * bytes_per_pixel;
+
+    while (height-- != 0ul) {
+        DWORD count = width;
+
+        if (bytes_per_pixel == 1ul) {
+            BYTE *pixel = row;
+
+            while (count-- != 0ul) {
+                *pixel++ = (BYTE)value;
+            }
+        } else {
+            WORD *pixel = (WORD *)row;
+
+            while (count-- != 0ul) {
+                *pixel++ = value;
+            }
+        }
+        row += pitch;
+    }
+}
+
+static DWORD v9x_colorfill_body(V9X_DDHAL_BLTDATA *data, int *engine_used)
+{
+    const DWORD allowed = V9X_DDBLT_COLORFILL | V9X_DDBLT_WAIT |
+                          V9X_DDBLT_DONOTWAIT | V9X_DDBLT_ASYNC;
+    DWORD bytes_per_pixel;
+    DWORD offset;
+    int wait;
+    int outcome = V9X_BLT_DECLINED;
+
+    if ((data->dwFlags & V9X_DDBLT_COLORFILL) == 0ul ||
+        (data->dwFlags & ~allowed) != 0ul ||
+        v9x_hal == 0 || (v9x_hal->fb.flags & V9X_DD_FB_VALID) == 0ul ||
+        (v9x_hal->fb.bits_per_pixel != 8ul &&
+         v9x_hal->fb.bits_per_pixel != 16ul)) {
+        return V9X_DDHAL_DRIVER_NOTHANDLED;
+    }
+    bytes_per_pixel = v9x_hal->fb.bits_per_pixel >> 3;
+    if (!v9x_fill_rect_valid(data, bytes_per_pixel, &offset) ||
+        (DWORD)data->rDest[2] * bytes_per_pixel >
+            (DWORD)data->lpDDDestSurface->lpGbl->lPitch) {
+        return V9X_DDHAL_DRIVER_NOTHANDLED;
+    }
+    wait = (data->dwFlags &
+            (V9X_DDBLT_ASYNC | V9X_DDBLT_DONOTWAIT)) == 0ul;
+
+    if (v9x_trio_engine_ready()) {
+        outcome = v9x_trio_fill(data, offset, bytes_per_pixel, wait);
+    } else if (v9x_engine_validate_status()) {
+        outcome = v9x_virge_fill(data, offset, bytes_per_pixel, wait);
+    }
+    if (outcome == V9X_BLT_BUSY) {
+        data->ddRVal = V9X_DDERR_WASSTILLDRAWING;
+        return V9X_DDHAL_DRIVER_HANDLED;
+    }
+    if (outcome == V9X_BLT_DONE) {
+        *engine_used = 1;
+        return V9X_DDHAL_DRIVER_HANDLED;
+    }
+    if (!v9x_blt_drain(wait)) {
+        data->ddRVal = V9X_DDERR_WASSTILLDRAWING;
+        return V9X_DDHAL_DRIVER_HANDLED;
+    }
+    v9x_cpu_fill(data, offset, bytes_per_pixel);
     return V9X_DDHAL_DRIVER_HANDLED;
+}
+
+static DWORD v9x_blt_body(V9X_DDHAL_BLTDATA *data, int *engine_used)
+{
+    if (data == 0) {
+        return V9X_DDHAL_DRIVER_NOTHANDLED;
+    }
+    data->ddRVal = V9X_DD_OK;
+    if (data->lpDDSrcSurface != 0) {
+        return v9x_srccopy_body(data);
+    }
+    return v9x_colorfill_body(data, engine_used);
 }
 
 DWORD __stdcall V9xHalBlt(V9X_DDHAL_BLTDATA *data)
 {
     DWORD result;
 
+    int engine_used = 0;
+
     v9x_trace_enter(V9X_TRACE_BLT, data != 0 ? data->dwFlags : 0ul);
-    result = v9x_blt_body(data);
-    /* Record the driver return, not ddRVal: DDHAL_DRIVER_HANDLED is the only
-     * evidence that the engine - rather than the HEL - executed the blit,
-     * and ddRVal is DD_OK in both cases. The separate counter survives a
-     * ring wrap; GetBltStatus polling floods the ring after every blit. */
-    if (result == V9X_DDHAL_DRIVER_HANDLED) {
+    result = v9x_blt_body(data, &engine_used);
+    /* Three outcomes have to stay distinguishable, and ddRVal is DD_OK for
+     * all of them: the engine executed the blit (BltEngine), the HAL
+     * completed it on the CPU (Blt handled, no BltEngine), or the driver
+     * declined it (Blt exit NOTHANDLED). The exit detail therefore records
+     * the driver return, and the engine count is a separate counter because
+     * GetBltStatus polling floods the trace ring after every blit. */
+    if (engine_used) {
         v9x_trace_count(V9X_TRACE_BLT_ENGINE,
                         data != 0 ? data->bltFX.dwFillColor : 0ul);
     }
@@ -1191,7 +1293,6 @@ DWORD __stdcall V9xHalBlt(V9X_DDHAL_BLTDATA *data)
 DWORD __stdcall V9xHalGetBltStatus(V9X_DDHAL_GETBLTSTATUSDATA *data)
 {
     int ready;
-    DWORD status;
 
     v9x_trace_count(V9X_TRACE_GETBLTSTATUS, data->dwFlags);
     if (v9x_trio_engine_ready()) {
@@ -1209,12 +1310,7 @@ DWORD __stdcall V9xHalGetBltStatus(V9X_DDHAL_GETBLTSTATUSDATA *data)
         return V9X_DDHAL_DRIVER_NOTHANDLED;
     }
     if (data->dwFlags == V9X_DDGBS_CANBLT) {
-        status = v9x_engine_status();
-        ready = v9x_fifo_free(status) >= 8ul &&
-                (status & V9X_VIRGE_STATUS_IDLE) != 0ul;
-        if (ready) {
-            v9x_hal->engine.flags |= V9X_DD_ENGINE_STATUS_VALIDATED;
-        }
+        ready = v9x_engine_validate_status();
     } else if (data->dwFlags == V9X_DDGBS_ISBLTDONE) {
         if (!v9x_engine_status_validated()) {
             data->ddRVal = V9X_DD_OK;
@@ -2082,7 +2178,6 @@ DWORD __stdcall V9xD3dRenderPrimitive(
     V9X_DD_SURFACE_LCL *tl;
     const V9X_D3DTRIANGLE *triangles;
     const V9X_D3DTLVERTEX *vertices;
-    DWORD status;
     DWORD index;
     int ok = 0;
 
@@ -2096,13 +2191,7 @@ DWORD __stdcall V9xD3dRenderPrimitive(
     context = data != 0 ? v9x_d3d_context_from_handle(data->dwhContext) : 0;
     exe = data != 0 ? v9x_d3d_surface_lcl(data->lpExeBuf) : 0;
     tl = data != 0 ? v9x_d3d_surface_lcl(data->lpTLBuf) : 0;
-    if (!v9x_engine_status_validated() && v9x_engine_ready()) {
-        status = v9x_engine_status();
-        if (v9x_fifo_free(status) >= 8ul &&
-            (status & V9X_VIRGE_STATUS_IDLE) != 0ul) {
-            v9x_hal->engine.flags |= V9X_DD_ENGINE_STATUS_VALIDATED;
-        }
-    }
+    (void)v9x_engine_validate_status();
     if (context != 0 && exe != 0 && exe->lpGbl != 0 && tl != 0 &&
         tl->lpGbl != 0 && v9x_engine_status_validated() &&
         data->diInstruction.bOpcode == 3u &&
@@ -2545,7 +2634,6 @@ DWORD __stdcall V9xD3dDrawOnePrimitive(
 {
     V9X_FPU_AREA fpu;
     V9X_D3D_CONTEXT *context;
-    DWORD status;
     int ok = 0;
 
     v9x_trace_enter(V9X_TRACE_D3D_DRAWONEPRIM,
@@ -2555,13 +2643,7 @@ DWORD __stdcall V9xD3dDrawOnePrimitive(
                         : 0ul);
     v9x_fpu_save(&fpu);
     context = data != 0 ? v9x_d3d_context_from_handle(data->dwhContext) : 0;
-    if (!v9x_engine_status_validated() && v9x_engine_ready()) {
-        status = v9x_engine_status();
-        if (v9x_fifo_free(status) >= 8ul &&
-            (status & V9X_VIRGE_STATUS_IDLE) != 0ul) {
-            v9x_hal->engine.flags |= V9X_DD_ENGINE_STATUS_VALIDATED;
-        }
-    }
+    (void)v9x_engine_validate_status();
     if (context != 0 && v9x_engine_status_validated() &&
         data->PrimitiveType == V9X_D3DPT_TRIANGLELIST &&
         data->VertexType == V9X_D3DVT_TLVERTEX &&
@@ -2587,7 +2669,6 @@ DWORD __stdcall V9xD3dDrawPrimitives(V9X_D3DHAL_DRAWPRIMITIVESDATA *data)
     V9X_D3D_CONTEXT *context;
     V9X_D3DHAL_DRAWPRIMCOUNTS *counts;
     BYTE *cursor;
-    DWORD status;
     DWORD record;
     DWORD vertex;
     int ok = 0;
@@ -2596,13 +2677,7 @@ DWORD __stdcall V9xD3dDrawPrimitives(V9X_D3DHAL_DRAWPRIMITIVESDATA *data)
                     data != 0 ? (DWORD)data->lpvData : 0ul);
     v9x_fpu_save(&fpu);
     context = data != 0 ? v9x_d3d_context_from_handle(data->dwhContext) : 0;
-    if (!v9x_engine_status_validated() && v9x_engine_ready()) {
-        status = v9x_engine_status();
-        if (v9x_fifo_free(status) >= 8ul &&
-            (status & V9X_VIRGE_STATUS_IDLE) != 0ul) {
-            v9x_hal->engine.flags |= V9X_DD_ENGINE_STATUS_VALIDATED;
-        }
-    }
+    (void)v9x_engine_validate_status();
     if (context != 0 && v9x_engine_status_validated() &&
         data->lpvData != 0) {
         cursor = (BYTE *)data->lpvData;
@@ -2783,7 +2858,19 @@ DWORD __stdcall DriverInit(DWORD context)
 
     shared->info.ddCaps.dwSize = sizeof(V9X_DDCORECAPS);
     shared->info.ddCaps.dwCaps = V9X_DDCAPS_3D | V9X_DDCAPS_GDI |
-                                 V9X_DDCAPS_BLTCOLORFILL;
+                                 V9X_DDCAPS_BLT | V9X_DDCAPS_BLTCOLORFILL;
+    /*
+     * DDCAPS_BLTCOLORFILL on its own is inert: without DDCAPS_BLT the runtime
+     * never dispatches the Blt callback at all, which is why the bounded
+     * colour fill added in 2026-08-11-virge-engine-foundation.md had never
+     * executed. Claiming DDCAPS_BLT additionally requires ROP3 SRCCOPY
+     * (0xcc) in dwRops or the runtime discards the whole HAL - see
+     * docs/issues/2026-08-14-directdraw-hal-nohardware.md. dwRops[6] bit 12
+     * is SRCCOPY (0xcc = 6 * 32 + 12); dwRops[7] bit 16 is PATCOPY (0xf0),
+     * the ROP the colour fill implements.
+     */
+    shared->info.ddCaps.dwRops[6] = 0x00001000ul;
+    shared->info.ddCaps.dwRops[7] = 0x00010000ul;
     shared->info.ddCaps.ddsCaps = V9X_DDSCAPS_3DDEVICE |
                                   V9X_DDSCAPS_OFFSCREENPLAIN |
                                   V9X_DDSCAPS_FLIP |

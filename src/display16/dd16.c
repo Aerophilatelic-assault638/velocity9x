@@ -300,26 +300,11 @@ WORD FAR PASCAL V9xDdCreateDriverObject(WORD reset)
     v9x_dd_info16.lpD3DGlobalDriverData = 0ul;
     v9x_dd_info16.lpD3DHALCallbacks = 0ul;
     v9x_dd_info16.lpDDExeBufCallbacks = 0;
+    /* Only the Direct3D bit differs from the shared description; the blitter
+     * caps and the dwRops table it depends on are set once in DriverInit and
+     * carried through by the copy above. */
     v9x_dd_info16.ddCaps.dwCaps = V9X_DDCAPS_GDI | V9X_DDCAPS_BLT |
         V9X_DDCAPS_BLTCOLORFILL;
-    /*
-     * Windows 98 DirectDraw discards the entire HAL - GetCaps then reports
-     * DDCAPS_NOHARDWARE and no callback is ever dispatched - when a driver
-     * sets DDCAPS_BLT without also advertising ROP3 SRCCOPY (0xcc) in
-     * dwRops. Measured on this guest: SRCCOPY alone is accepted, every other
-     * ROP3 combined without it is rejected, and dropping DDCAPS_BLT is
-     * accepted but never dispatches Blt. SRCCOPY lives in dwRops[6] bit 12
-     * (0xcc = 6 * 32 + 12); PATCOPY (0xf0) is the ROP the solid fill
-     * implements and lives in dwRops[7] bit 16.
-     *
-     * The claim is not free: once DDCAPS_BLT is set, answering a blit with
-     * DDHAL_DRIVER_NOTHANDLED does not fall back to the HEL - the runtime
-     * returns DDERR_UNSUPPORTED to the application. The source copies this
-     * bit admits are therefore implemented by the HAL (v9x_srccopy_body in
-     * ddhal.c). See docs/issues/2026-08-14-directdraw-hal-nohardware.md.
-     */
-    v9x_dd_info16.ddCaps.dwRops[6] = 0x00001000ul;
-    v9x_dd_info16.ddCaps.dwRops[7] = 0x00010000ul;
     v9x_dd_info16.ddCaps.ddsCaps =
         V9X_DDSCAPS_OFFSCREENPLAIN | V9X_DDSCAPS_FLIP |
         V9X_DDSCAPS_PRIMARYSURFACE | V9X_DDSCAPS_COMPLEX;

@@ -151,8 +151,9 @@ EngineFifoTimeouts = EngineIdleTimeouts = EngineResets = 0
 Against the acceptance criteria:
 
 - `GetCaps` no longer reports `DDCAPS_NOHARDWARE`.
-- Both blits in the run incremented `CountBltEngine`, so the driver — not the
-  HEL — executed them; `Flip`, `WaitForVerticalBlank`, `Lock`, `Unlock`,
+- `CountBlt = 2` with `CountBltEngine = 1`: the colour fill was executed by
+  the Trio64 engine and the source copy by the HAL's own CPU path, so neither
+  reached the HEL. `Flip`, `WaitForVerticalBlank`, `Lock`, `Unlock`,
   `CreateSurface`, `DestroySurface`, `GetBltStatus`, `SetExclusiveMode` and
   `FlipToGDISurface` all dispatch.
 - `BltFillPixelOk` and `SrcCopyPixelOk` confirm the pixels those operations
@@ -181,16 +182,15 @@ Evidence (ignored build artifacts):
   and the `DDCAPS_BLT` on/off comparison `V9XDD-S-A-BLT.INI` /
   `V9XDD-S-B-NOBLT.INI`
 
+## ViRGE
+
+The same defect was confirmed on the ViRGE target and fixed in the same way;
+see `docs/decisions/2026-08-14-virge-blitter.md`. Its baseline run measured
+`CountBlt = 0` — the bounded solid fill added in
+`2026-08-11-virge-engine-foundation.md` had never executed once.
+
 ## Follow-up
 
-- **The ViRGE target has the same latent defect.** It publishes
-  `DDCAPS_BLTCOLORFILL` without `DDCAPS_BLT`, and a run with that combination
-  showed the HAL `Blt` callback is never dispatched — so the bounded ViRGE
-  solid-fill path added in `2026-08-11-virge-engine-foundation.md` has never
-  executed. Applying the same `DDCAPS_BLT` + `SRCCOPY` change there would
-  route blits to a HAL path that has not been exercised, so it is deliberately
-  left for a separate change with its own guest validation, alongside the
-  Hellbender Direct3D work.
 - The Trio64 source copy is a CPU copy through the linear aperture, matching
   what the HEL would have done. Replacing it with the Trio32/64
   screen-to-screen BitBLT (`CMD` opcode 6, `FRGD_MIX` source = display memory)

@@ -935,7 +935,11 @@ typedef struct v9x_dd_framebuffer {
 #define V9X_DD_ENGINE_VALID          0x00000001ul
 #define V9X_DD_ENGINE_S3_VIRGE_DX    0x00000002ul
 #define V9X_DD_ENGINE_S3_TRIO64      0x00000004ul
-#define V9X_DD_ENGINE_STATUS_VALIDATED 0x00000004ul
+/* Distinct from the chipset identity bits. This previously aliased
+ * V9X_DD_ENGINE_S3_TRIO64, so validating the ViRGE engine status made
+ * v9x_trio_engine_ready() true on a ViRGE and would have routed its blits
+ * through the Trio64 port-I/O command sequence. */
+#define V9X_DD_ENGINE_STATUS_VALIDATED 0x00000008ul
 
 typedef struct v9x_dd_engine {
     DWORD control_linear_base;

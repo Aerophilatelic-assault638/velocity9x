@@ -58,6 +58,28 @@ build identifier so exact guest-tested binaries remain traceable.
 
 ### Fixed
 
+- The ViRGE DirectDraw blitter is now reachable at all. The HAL published
+  `DDCAPS_BLTCOLORFILL` without `DDCAPS_BLT`, which the runtime treats as no
+  blitter, so the bounded solid fill added in the ViRGE engine foundation had
+  never executed once — the guest baseline measured zero `Blt` dispatches.
+  Colour fills now run on the ViRGE engine (16 ms to 1 ms) with Direct3D and
+  its callback counts unchanged.
+  See [docs/decisions/2026-08-14-virge-blitter.md](docs/decisions/2026-08-14-virge-blitter.md).
+- `V9X_DD_ENGINE_STATUS_VALIDATED` aliased `V9X_DD_ENGINE_S3_TRIO64` — both
+  were `0x4` — so validating the ViRGE engine status set the Trio64 identity
+  bit and would have routed ViRGE blits through the Trio64 port-I/O command
+  sequence once the blitter was advertised.
+- Engine-status validation is no longer latched only by
+  `GetBltStatus(DDGBS_CANBLT)` and the Direct3D draw callbacks, which left the
+  blit path unable to reach the engine for an application that does not poll
+  first. It is one helper shared by all call sites, it runs on the blit path,
+  and it re-samples the status register briefly so the first fill after a mode
+  change is accelerated rather than falling to the CPU path.
+- Every blit the driver admits now completes in the driver: the engine paths
+  report declined/busy/done instead of refusing the callback, and CPU fills
+  and source copies through the mapped aperture backstop them. This matters
+  because a declined blit is reported to the application as
+  `DDERR_UNSUPPORTED` rather than being emulated.
 - Windows 98 DirectDraw no longer reports `DDCAPS_NOHARDWARE` for the Trio64
   target. The runtime discards a driver's entire `DDHALINFO` — not just its
   blitter — when `DDCAPS_BLT` is set without ROP3 `SRCCOPY` in `dwRops`, so

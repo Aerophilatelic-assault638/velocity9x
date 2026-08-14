@@ -39,6 +39,8 @@
 #define V9X_DDSCL_EXCLUSIVE         0x00000010ul
 #define V9X_DDFLIP_WAIT             0x00000001ul
 #define V9X_DDBLT_COLORFILL          0x00000400ul
+#define V9X_DDBLT_KEYSRC             0x00008000ul
+#define V9X_DDCKEY_SRCBLT            0x00000008ul
 #define V9X_DDBLT_WAIT               0x01000000ul
 #define V9X_DDGBS_CANBLT              0x00000001ul
 #define V9X_DDGBS_ISBLTDONE          0x00000002ul
@@ -1797,6 +1799,7 @@ void __stdcall V9xDdrawProbeEntry(void)
         if (hr == 0 && stage != 0) {
             RECT source_rect;
             RECT destination_rect;
+            V9X_DDCOLORKEY source_key;
 
             v9x_fill_surface(stage, 0x001f001ful);
             v9x_fill_surface(backbuffer, 0xf800f800ul);
@@ -1817,6 +1820,28 @@ void __stdcall V9xDdrawProbeEntry(void)
                                                       0x001fu) &&
                            v9x_surface_pixel16_equals(backbuffer, 16ul, 16ul,
                                                       0xf800u) ? 1ul : 0ul);
+
+            /* Operations the driver deliberately does not advertise. The
+             * runtime owns the refusal - DDCAPS_BLTSTRETCH and
+             * DDCAPS_COLORKEY are absent - so these must fail without ever
+             * reaching the HAL, which could not complete them. */
+            destination_rect.right = 160;
+            destination_rect.bottom = 160;
+            hr = backbuffer->vtbl->Blt(backbuffer, &destination_rect, stage,
+                                       &source_rect, V9X_DDBLT_WAIT, 0);
+            v9x_write_hresult("StretchBltHr", hr);
+            destination_rect.right = 96;
+            destination_rect.bottom = 96;
+            source_key.dwColorSpaceLowValue = 0x001ful;
+            source_key.dwColorSpaceHighValue = 0x001ful;
+            hr = stage->vtbl->SetColorKey(stage, V9X_DDCKEY_SRCBLT,
+                                          &source_key);
+            v9x_write_hresult("KeySrcSetHr", hr);
+            hr = backbuffer->vtbl->Blt(backbuffer, &destination_rect, stage,
+                                       &source_rect,
+                                       V9X_DDBLT_WAIT | V9X_DDBLT_KEYSRC, 0);
+            v9x_write_hresult("KeySrcBltHr", hr);
+
             stage->vtbl->Release(stage);
             stage = 0;
         }
