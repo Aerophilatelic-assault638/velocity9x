@@ -33,6 +33,14 @@ build identifier so exact guest-tested binaries remain traceable.
 
 ### Added
 
+- Add a conservative S3 Trio32/64 86C764 (`5333:8811`) build target with
+  strict INF matching, Trio-aware PCI discovery and hardware reporting, and
+  no ViRGE-only DirectDraw/MMIO/S3D exposure. The 86Box target passes live
+  640x480, 800x600, and 1024x768 switching plus GDI validation at both 8 and
+  16 bpp, with palette validation at 8 bpp.
+- Register and verify the Velocity9x native Display Properties page and
+  standalone settings utility on the Trio64 target, including adapter, mode,
+  framebuffer, clock, build, and last-test reporting.
 - The DirectDraw HAL now writes its callback ring directly to
   `C:\V9XTRACE.INI` on an unhandled process fault or bounded ViRGE engine
   timeout, before recovery can discard the last useful callback history. The

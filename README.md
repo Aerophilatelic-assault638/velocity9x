@@ -1,7 +1,9 @@
 # Velocity9x
 
-Velocity9x is a ground-up Windows 9x display-driver project. The first target is
-Windows 98 Second Edition on the S3 ViRGE/DX 86C375 (`5333:8A01`).
+Velocity9x is a ground-up Windows 9x display-driver project. The primary target
+is Windows 98 Second Edition on the S3 ViRGE/DX 86C375 (`5333:8A01`). A
+conservative software-GDI target also supports the S3 Trio32/64 86C764
+(`5333:8811`).
 
 Current development version: **0.2**. See [CHANGELOG.md](CHANGELOG.md) for the
 version history.
@@ -33,6 +35,8 @@ matrix repetitions. It is not a release driver.
 - a strict S3-only INF, recovery documentation, and read-only settings panel;
 - a read-only "Velocity9x" page inside native Display Properties, installed as
   a shell property-sheet extension by the INF;
+- a guest-proven Trio64 framebuffer target with hardware diagnostics and the
+  complete 640/800/1024 x 8/16-bpp software-GDI matrix;
 - host tests and an Open Watcom build entry point.
 
 The active candidate uses firmware mode entry and DPMI framebuffer mapping.
@@ -117,6 +121,17 @@ The output is `build/win98se-active`, also staged as `build/vm-probe/ACTIVE`.
 Read `FIRSTBOOT.TXT`, `INSTALL.TXT`, and `RECOVER.TXT`. Do not install it until
 86Box is completely stopped and the cold profile backup has completed.
 
+For the conservative S3 Trio32/64 PCI target, use:
+
+```powershell
+./scripts/build-active-package.ps1 -S3Trio64 -BootTrace
+```
+
+This produces `build/win98se-trio64`. It matches only PCI `5333:8811`, uses
+the shared S3 VBE/linear-framebuffer path, and deliberately does not expose the
+ViRGE DirectDraw, MMIO, or S3D engine. The verified bring-up and current limits
+are recorded in [docs/decisions/2026-08-14-trio64-bringup.md](docs/decisions/2026-08-14-trio64-bringup.md).
+
 To check the repository structure without a compiler:
 
 ```powershell
@@ -140,9 +155,9 @@ screenshot and JSON summary per mode. Use `-Repeat 2` (or higher) for repeated
 reliability passes.
 
 The settings panel reads the versioned `C:\V9XHW.INI` hardware-diagnostics
-contract. The current ViRGE/DX backend decodes MCLK from its PLL registers and
-reports the engine clock as shared with memory; unsupported backends display
-`Unavailable` instead of guessing.
+contract. The S3 ViRGE/DX and Trio64 targets decode MCLK from their shared S3
+PLL registers and report the engine clock as shared with memory; unsupported
+backends display `Unavailable` instead of guessing.
 
 For a device already associated with Velocity9x, update a locked DRV/VXD pair
 without SetupX media prompts using:
