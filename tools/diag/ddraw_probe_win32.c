@@ -981,6 +981,115 @@ static WORD v9x_surface_pixel16(struct v9x_dds *surface, DWORD x, DWORD y)
     return value;
 }
 
+/*
+ * Paint a ramp so every row (or every column) of a surface carries a distinct
+ * 16-bit value. An overlapping copy that runs in the wrong direction repeats
+ * a band of the ramp instead of shifting it, which a flat fill could not
+ * reveal.
+ */
+static int v9x_paint_ramp(struct v9x_dds *surface, DWORD extent,
+                          int by_row)
+{
+    V9X_DDSURFACEDESC desc;
+    BYTE FAR *base;
+    DWORD x;
+    DWORD y;
+
+    v9x_zero(&desc, sizeof(desc));
+    desc.dwSize = sizeof(desc);
+    if (surface->vtbl->Lock(surface, 0, &desc, V9X_DDLOCK_WAIT, 0) != 0) {
+        return 0;
+    }
+    if (desc.lpSurface == 0 || desc.ddpfPixelFormat.dwRGBBitCount != 16ul ||
+        desc.dwWidth < extent || desc.dwHeight < extent) {
+        surface->vtbl->Unlock(surface, 0);
+        return 0;
+    }
+    base = (BYTE FAR *)desc.lpSurface;
+    for (y = 0ul; y < desc.dwHeight; ++y) {
+        WORD FAR *row = (WORD FAR *)(base + y * (DWORD)desc.lPitch);
+
+        for (x = 0ul; x < desc.dwWidth; ++x) {
+            row[x] = (WORD)((by_row ? y : x) + 1ul);
+        }
+    }
+    surface->vtbl->Unlock(surface, 0);
+    return 1;
+}
+
+/*
+ * Overlapping same-surface copy. This is the case the driver's copy-direction
+ * handling exists for - a window scroll or a sprite moved a short distance -
+ * and it cannot be reached by copying between two distinct surfaces.
+ */
+static void v9x_test_overlap(struct v9x_dd *ddraw)
+{
+    V9X_DDSURFACEDESC desc;
+    struct v9x_dds *surface = 0;
+    RECT source_rect;
+    RECT destination_rect;
+    HRESULT hr;
+
+    v9x_zero(&desc, sizeof(desc));
+    desc.dwSize = sizeof(desc);
+    desc.dwFlags = V9X_DDSD_CAPS | V9X_DDSD_WIDTH | V9X_DDSD_HEIGHT;
+    desc.dwWidth = 128ul;
+    desc.dwHeight = 128ul;
+    desc.ddsCaps.dwCaps = V9X_DDSCAPS_OFFSCREENPLAIN |
+                          V9X_DDSCAPS_VIDEOMEMORY;
+    hr = ddraw->vtbl->CreateSurface(ddraw, &desc, &surface, 0);
+    v9x_write_hresult("OverlapSurfaceHr", hr);
+    if (hr != 0 || surface == 0) {
+        return;
+    }
+
+    /* Shift a 64x64 block down by 16 rows. Copying top-down would re-read
+     * rows it had already overwritten and repeat the first 16 values. */
+    source_rect.left = 0;
+    source_rect.top = 0;
+    source_rect.right = 64;
+    source_rect.bottom = 64;
+    destination_rect.left = 0;
+    destination_rect.top = 16;
+    destination_rect.right = 64;
+    destination_rect.bottom = 80;
+    if (v9x_paint_ramp(surface, 128ul, 1)) {
+        hr = surface->vtbl->Blt(surface, &destination_rect, surface,
+                                &source_rect, V9X_DDBLT_WAIT, 0);
+        v9x_write_hresult("OverlapDownHr", hr);
+        v9x_write_uint("OverlapDownPixelOk",
+                       hr == 0 &&
+                       v9x_surface_pixel16_equals(surface, 10ul, 16ul, 1u) &&
+                       v9x_surface_pixel16_equals(surface, 10ul, 47ul, 32u) &&
+                       v9x_surface_pixel16_equals(surface, 10ul, 79ul, 64u)
+                           ? 1ul : 0ul);
+        v9x_write_uint("OverlapDownSeen",
+                       v9x_surface_pixel16(surface, 10ul, 79ul));
+    }
+
+    /* Shift a 64x64 block right by 16 columns, which exercises the
+     * within-row reverse copy rather than the row order. */
+    destination_rect.left = 16;
+    destination_rect.top = 0;
+    destination_rect.right = 80;
+    destination_rect.bottom = 64;
+    if (v9x_paint_ramp(surface, 128ul, 0)) {
+        hr = surface->vtbl->Blt(surface, &destination_rect, surface,
+                                &source_rect, V9X_DDBLT_WAIT, 0);
+        v9x_write_hresult("OverlapRightHr", hr);
+        v9x_write_uint("OverlapRightPixelOk",
+                       hr == 0 &&
+                       v9x_surface_pixel16_equals(surface, 16ul, 10ul, 1u) &&
+                       v9x_surface_pixel16_equals(surface, 47ul, 10ul, 32u) &&
+                       v9x_surface_pixel16_equals(surface, 79ul, 10ul, 64u)
+                           ? 1ul : 0ul);
+        v9x_write_uint("OverlapRightSeen",
+                       v9x_surface_pixel16(surface, 79ul, 10ul));
+    }
+
+    surface->vtbl->Release(surface);
+}
+
 static LRESULT CALLBACK v9x_window_proc(HWND window, UINT message,
                                         WPARAM wparam, LPARAM lparam)
 {
@@ -1846,6 +1955,8 @@ void __stdcall V9xDdrawProbeEntry(void)
             stage = 0;
         }
     }
+
+    v9x_test_overlap(ddraw);
 
     /* Diagnostic hold keeps the DirectDraw object and HAL instance alive so
      * V9XTRACE can snapshot callback dispatch from a second process. */

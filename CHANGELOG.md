@@ -80,6 +80,15 @@ build identifier so exact guest-tested binaries remain traceable.
   and source copies through the mapped aperture backstop them. This matters
   because a declined blit is reported to the application as
   `DDERR_UNSUPPORTED` rather than being emulated.
+- The CPU fill and source-copy fallbacks move a dword per iteration instead of
+  a byte. A byte loop over a 640x480x16 frame cost roughly 700 ms, which
+  Ironfield RTS's `BltFast` presentation path turned into 1 FPS; widening it
+  trebled the frame rate. The remaining cost is the video-to-video aperture
+  round trip, which needs the screen-to-screen BitBLT engine.
+- V9XDDP covers an overlapping same-surface copy in both directions over a
+  per-row and per-column ramp, so a wrong copy direction shows up as a
+  repeated band. The previous distinct-surface copy could not reach that code
+  at all.
 - Windows 98 DirectDraw no longer reports `DDCAPS_NOHARDWARE` for the Trio64
   target. The runtime discards a driver's entire `DDHALINFO` — not just its
   blitter — when `DDCAPS_BLT` is set without ROP3 `SRCCOPY` in `dwRops`, so

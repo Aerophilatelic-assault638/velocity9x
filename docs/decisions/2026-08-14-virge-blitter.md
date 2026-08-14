@@ -84,13 +84,51 @@ The Trio64 target was rebuilt and re-verified against the same shared
 `V9XHAL.DLL` changes: `CountBlt = 2` with `CountBltEngine = 1` (engine fill
 plus CPU source copy), correct pixels, GDI PASS, 10/10 mode cycles.
 
+## Ironfield RTS, both targets
+
+The first real DirectDraw workload to reach the blitter. Fullscreen
+`-benchmark` runs at 640x480x16, 15 s each, three presentation paths:
+
+| renderer | what it does | ViRGE | Trio64 | HAL `Blt` |
+|---|---|---|---|---|
+| Direct backbuffer | renders straight into the VRAM backbuffer | 19 FPS | 16 FPS | not used |
+| System RAM | renders to system memory, HEL copies system to VRAM | 27 FPS | 23 FPS | not used |
+| Video + BltFast | renders to a VRAM stage, `BltFast` copies VRAM to VRAM | 3 FPS | 3 FPS | one per frame |
+
+Findings:
+
+- `BltFast` is dispatched to the driver's `Blt` callback, one per frame. This
+  path previously failed outright — the game's cached auto-renderer score for
+  it was `4294967295` — so it is newly functional rather than newly slow.
+- The other two paths never reach the driver's blitter, which is correct:
+  `dwSVBCaps` is zero, so system-to-video blits stay with the HEL, and the
+  direct path does not blit at all. Neither regressed.
+- 3 FPS is the CPU source copy, not the game. A 640x480x16 frame is 614400
+  bytes and the copy is VRAM to VRAM, so every byte crosses the aperture
+  twice. The HEL's system-to-video copy in the System RAM path costs about
+  10 ms per frame; ours costs about 300 ms. Reading back out of video memory
+  is the expensive half, and it is exactly what a screen-to-screen BitBLT
+  exists to avoid.
+- Widening the CPU copy from bytes to dwords took it from 1 FPS to 3 FPS
+  (25 to 53 frames), which confirms the loop itself was also part of the
+  cost, but the aperture round trip dominates.
+- A host-side capture of a live fullscreen frame shows correct rendering:
+  HUD, sector map, command panel, terrain and water all clean, no smearing or
+  tearing.
+- Six fullscreen runs across both guests completed without a hang, GPF,
+  engine FIFO or idle timeout, or engine reset.
+
+The conclusion is that the ViRGE screen-to-screen BitBLT is no longer an
+optimisation but the missing piece: `BltFast` presentation is the standard
+way DirectDraw games present, and it cannot be served acceptably by the CPU.
+
 ## Deliberate scope limits
 
 - No stretching, colour keying, mirroring, or ROPs other than `SRCCOPY` and
   `PATCOPY`. Those caps must stay unadvertised until implemented, because
   advertising a capability makes the driver responsible for completing it.
 - Source copies are CPU copies through the linear aperture on both targets.
-  The ViRGE BitBLT engine and the Trio32/64 screen-to-screen BitBLT are the
-  natural next primitives.
-- Not yet exercised against Hellbender or Ironfield RTS; the automated probe
-  is the only blit coverage so far.
+  The Ironfield measurements above make the ViRGE BitBLT engine and the
+  Trio32/64 screen-to-screen BitBLT the next work, not a nice-to-have.
+- Not yet exercised against Hellbender, so the Direct3D milestone has only
+  probe-level coverage of the blitter change.

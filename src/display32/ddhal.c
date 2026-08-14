@@ -1012,18 +1012,52 @@ static int v9x_blt_drain(int wait)
     return 1;
 }
 
+/*
+ * Copy one row, in the direction that keeps an overlapping copy correct.
+ *
+ * The width matters: a full-screen 640x480x16 frame is 614400 bytes, and a
+ * byte-at-a-time loop over the mapped aperture cost ~700 ms per frame -
+ * about 1 FPS under Ironfield's BltFast presentation path, far worse than
+ * the HEL this callback displaced. Moving a dword per iteration where the
+ * ends allow it is what keeps the CPU fallback competitive with the
+ * emulation it replaced.
+ */
 static void v9x_copy_row(BYTE *destination, const BYTE *source, DWORD bytes)
 {
+    DWORD blocks;
+
     if (destination == source || bytes == 0ul) {
         return;
     }
     if (destination < source) {
+        if ((((DWORD)destination | (DWORD)source) & 3ul) == 0ul) {
+            DWORD *wide_destination = (DWORD *)destination;
+            const DWORD *wide_source = (const DWORD *)source;
+
+            for (blocks = bytes >> 2; blocks != 0ul; --blocks) {
+                *wide_destination++ = *wide_source++;
+            }
+            destination = (BYTE *)wide_destination;
+            source = (const BYTE *)wide_source;
+            bytes &= 3ul;
+        }
         while (bytes-- != 0ul) {
             *destination++ = *source++;
         }
     } else {
         destination += bytes;
         source += bytes;
+        if ((((DWORD)destination | (DWORD)source) & 3ul) == 0ul) {
+            DWORD *wide_destination = (DWORD *)destination;
+            const DWORD *wide_source = (const DWORD *)source;
+
+            for (blocks = bytes >> 2; blocks != 0ul; --blocks) {
+                *--wide_destination = *--wide_source;
+            }
+            destination = (BYTE *)wide_destination;
+            source = (const BYTE *)wide_source;
+            bytes &= 3ul;
+        }
         while (bytes-- != 0ul) {
             *--destination = *--source;
         }
@@ -1190,20 +1224,46 @@ static void v9x_cpu_fill(V9X_DDHAL_BLTDATA *data, DWORD offset,
                 (DWORD)data->rDest[1] * pitch +
                 (DWORD)data->rDest[0] * bytes_per_pixel;
 
+    DWORD pair;
+    DWORD blocks;
+
+    if (bytes_per_pixel == 1ul) {
+        value = (WORD)((value & 0x00ffu) | ((value & 0x00ffu) << 8));
+    }
+    pair = ((DWORD)value << 16) | (DWORD)value;
+
+    /* Same reasoning as v9x_copy_row: a full-screen fill is hundreds of
+     * thousands of pixels, so write a dword of two pixels once aligned. */
     while (height-- != 0ul) {
         DWORD count = width;
 
         if (bytes_per_pixel == 1ul) {
             BYTE *pixel = row;
 
-            while (count-- != 0ul) {
+            while (count != 0ul && (((DWORD)pixel) & 3ul) != 0ul) {
+                *pixel++ = (BYTE)value;
+                --count;
+            }
+            for (blocks = count >> 2; blocks != 0ul; --blocks) {
+                *(DWORD *)pixel = pair;
+                pixel += 4;
+            }
+            for (count &= 3ul; count != 0ul; --count) {
                 *pixel++ = (BYTE)value;
             }
         } else {
             WORD *pixel = (WORD *)row;
 
-            while (count-- != 0ul) {
+            if (count != 0ul && (((DWORD)pixel) & 3ul) != 0ul) {
                 *pixel++ = value;
+                --count;
+            }
+            for (blocks = count >> 1; blocks != 0ul; --blocks) {
+                *(DWORD *)pixel = pair;
+                pixel += 2;
+            }
+            if ((count & 1ul) != 0ul) {
+                *pixel = value;
             }
         }
         row += pitch;
