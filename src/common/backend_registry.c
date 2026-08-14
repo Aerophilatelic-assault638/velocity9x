@@ -9,7 +9,8 @@ const struct v9x_backend_ops *v9x_backend_for_pci(
         return 0;
     }
     if (pci->vendor_id == V9X_PCI_VENDOR_S3 &&
-        pci->device_id == V9X_PCI_DEVICE_VIRGE_DX) {
+        (pci->device_id == V9X_PCI_DEVICE_VIRGE_DX ||
+         pci->device_id == V9X_PCI_DEVICE_TRIO64)) {
         return v9x_s3_virge_backend();
     }
     if (pci->vendor_id == V9X_PCI_VENDOR_MATROX &&

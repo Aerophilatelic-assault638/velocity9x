@@ -6,6 +6,7 @@ param(
     [int]$ForceModeIndex = -1,
     [switch]$BootTrace,
     [switch]$MatroxMillennium2,
+    [switch]$S3Trio64,
     [ValidateSet(8, 16)]
     [int]$MatroxBitsPerPixel = 8
 )
@@ -14,10 +15,15 @@ $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $outputDir = Join-Path $repoRoot $(if ($MatroxMillennium2) {
     "build\win16-ddi-mga2"
+} elseif ($S3Trio64) {
+    "build\win16-ddi-trio64"
 } else {
     "build\win16-ddi"
 })
 
+if ($MatroxMillennium2 -and $S3Trio64) {
+    throw "MatroxMillennium2 and S3Trio64 are mutually exclusive."
+}
 if ($MatroxMillennium2 -and $ForceModeIndex -gt 0 -and $MatroxBitsPerPixel -ne 16) {
     throw "The guarded Millennium II 8-bpp build supports only mode index 0."
 }
@@ -98,6 +104,9 @@ foreach ($source in $sources) {
             $arguments = @("-dV9X_MATROX_16BPP=1") + $arguments
         }
     }
+    if ($S3Trio64) {
+        $arguments = @("-dV9X_TARGET_S3_TRIO64=1") + $arguments
+    }
     & $compiler @arguments
     if ($LASTEXITCODE -ne 0) {
         throw "Open Watcom 16-bit compilation failed for $($source.Path)."
@@ -119,6 +128,9 @@ if ($MatroxMillennium2) {
     if ($MatroxBitsPerPixel -eq 16) {
         $runtimeAssemblerArguments += "-dV9X_MATROX_16BPP=1"
     }
+}
+if ($S3Trio64) {
+    $runtimeAssemblerArguments += "-dV9X_TARGET_S3_TRIO64=1"
 }
 $runtimeAssemblerArguments += $runtimeSource
 & $assembler @runtimeAssemblerArguments

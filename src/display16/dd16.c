@@ -18,7 +18,7 @@ extern void v9x_serial_write(const char FAR *message);
 extern LONG FAR PASCAL V9xDibControlCall(LPVOID device, WORD function,
                                          LPVOID input, LPVOID output);
 
-#ifndef V9X_TARGET_MATROX_MILLENNIUM2
+#if !defined(V9X_TARGET_MATROX_MILLENNIUM2) && !defined(V9X_TARGET_S3_TRIO64)
 
 extern WORD FAR PASCAL V9xDdSharedAlloc(void);
 extern DWORD FAR PASCAL V9xDdSharedLinear(void);
@@ -350,14 +350,14 @@ static LONG v9x_dd_command(V9X_DCICMD FAR *command, LPVOID output)
     }
 }
 
-#endif /* !V9X_TARGET_MATROX_MILLENNIUM2 */
+#endif /* ViRGE DirectDraw target only */
 
 LONG __loadds FAR PASCAL Control(LPVOID device,
                                  WORD function,
                                  LPVOID input,
                                  LPVOID output)
 {
-#ifndef V9X_TARGET_MATROX_MILLENNIUM2
+#if !defined(V9X_TARGET_MATROX_MILLENNIUM2) && !defined(V9X_TARGET_S3_TRIO64)
     if (function == V9X_QUERYESCSUPPORT && input != 0) {
         if (*(WORD FAR *)input == V9X_DCICOMMAND) {
             return (LONG)V9X_DD_HAL_VERSION;

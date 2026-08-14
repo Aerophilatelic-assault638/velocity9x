@@ -5,6 +5,7 @@
 
 #define V9X_PCI_VENDOR_S3        ((v9x_u16)0x5333u)
 #define V9X_PCI_DEVICE_VIRGE_DX  ((v9x_u16)0x8a01u)
+#define V9X_PCI_DEVICE_TRIO64    ((v9x_u16)0x8811u)
 
 v9x_status v9x_s3_virge_probe(struct v9x_backend_state *state,
                               const struct v9x_pci_identity *pci);

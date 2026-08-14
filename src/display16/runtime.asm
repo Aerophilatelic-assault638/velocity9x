@@ -470,8 +470,13 @@ IFDEF V9X_TARGET_MATROX_MILLENNIUM2
     mov     cx, 0051bh
     mov     dx, 0102bh
 ELSE
+IFDEF V9X_TARGET_S3_TRIO64
+    mov     cx, 08811h
+    mov     dx, 05333h
+ELSE
     mov     cx, 08a01h
     mov     dx, 05333h
+ENDIF
 ENDIF
     xor     si, si
     int     1ah
@@ -601,6 +606,7 @@ V9xEnableS3LinearAperture PROC NEAR
     test    al, 01h
     jz      short V9xEnableS3LinearApertureFailed
 
+IFNDEF V9X_TARGET_S3_TRIO64
     dec     dx
     mov     al, 53h
     out     dx, al
@@ -611,6 +617,7 @@ V9xEnableS3LinearAperture PROC NEAR
     in      al, dx
     test    al, 08h
     jz      short V9xEnableS3LinearApertureFailed
+ENDIF
     mov     ax, 1
     ret
 V9xEnableS3LinearApertureFailed:

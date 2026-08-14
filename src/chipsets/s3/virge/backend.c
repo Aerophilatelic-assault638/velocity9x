@@ -56,7 +56,8 @@ v9x_status v9x_s3_virge_probe(struct v9x_backend_state *state,
     state->pci.revision = 0u;
 
     if (pci->vendor_id != V9X_PCI_VENDOR_S3 ||
-        pci->device_id != V9X_PCI_DEVICE_VIRGE_DX) {
+        (pci->device_id != V9X_PCI_DEVICE_VIRGE_DX &&
+         pci->device_id != V9X_PCI_DEVICE_TRIO64)) {
         return V9X_STATUS_UNSUPPORTED;
     }
 

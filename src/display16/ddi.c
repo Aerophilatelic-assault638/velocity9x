@@ -210,13 +210,24 @@ static void v9x_publish_hardware_diagnostics(void)
                               V9X_HARDWARE_INFO_PATH);
     WritePrivateProfileString("Velocity9xHardware", "SchemaVersion", "1",
                               V9X_HARDWARE_INFO_PATH);
+#ifdef V9X_TARGET_S3_TRIO64
+    WritePrivateProfileString("Velocity9xHardware", "Adapter",
+                              "S3 Trio32/64 86C764",
+                              V9X_HARDWARE_INFO_PATH);
+#else
     WritePrivateProfileString("Velocity9xHardware", "Adapter",
                               "S3 ViRGE/DX 86C375",
                               V9X_HARDWARE_INFO_PATH);
+#endif
     WritePrivateProfileString("Velocity9xHardware", "VendorId", "5333",
                               V9X_HARDWARE_INFO_PATH);
+#ifdef V9X_TARGET_S3_TRIO64
+    WritePrivateProfileString("Velocity9xHardware", "DeviceId", "8811",
+                              V9X_HARDWARE_INFO_PATH);
+#else
     WritePrivateProfileString("Velocity9xHardware", "DeviceId", "8A01",
                               V9X_HARDWARE_INFO_PATH);
+#endif
     WritePrivateProfileString("Velocity9xHardware", "ClockDetector",
                               "s3-virge-pll-v1",
                               V9X_HARDWARE_INFO_PATH);
@@ -367,7 +378,7 @@ static void v9x_select_requested_mode(void)
     v9x_apply_mode(requested);
 }
 
-#ifndef V9X_TARGET_MATROX_MILLENNIUM2
+#if !defined(V9X_TARGET_MATROX_MILLENNIUM2) && !defined(V9X_TARGET_S3_TRIO64)
 /* DirectDraw glue accessors (dd16.c). */
 extern WORD FAR PASCAL V9xDdCreateDriverObject(WORD reset);
 extern void FAR PASCAL V9xDdInvalidate(void);
@@ -699,7 +710,7 @@ static WORD v9x_build_pdevice(LPVOID device_info,
     v9x_serial_write_mode("V9X-DRV enable-ok mode=");
     v9x_serial_write(" lfb-mapped\r\n");
     v9x_publish_hardware_diagnostics();
-#ifndef V9X_TARGET_MATROX_MILLENNIUM2
+#if !defined(V9X_TARGET_MATROX_MILLENNIUM2) && !defined(V9X_TARGET_S3_TRIO64)
     /* A live ReEnable owns a DIBENGINE BeginAccessRect exclusion until the
      * rebuilt PDEVICE has been finalized below. Calling DIBENGINE's SetInfo
      * from inside that exclusion re-enters DIBENG and can fault. The
@@ -738,7 +749,7 @@ WORD __loadds FAR PASCAL Disable(LPVOID destination_device)
     v9x_active_mode = 0;
     v9x_driver_pdevice = 0;
     v9x_color_table = 0;
-#ifndef V9X_TARGET_MATROX_MILLENNIUM2
+#if !defined(V9X_TARGET_MATROX_MILLENNIUM2) && !defined(V9X_TARGET_S3_TRIO64)
     V9xDdInvalidate();
 #endif
     V9xVddUnregister();
@@ -813,7 +824,7 @@ WORD __loadds FAR PASCAL ReEnable(LPVOID destination_device,
         return 0u;
     }
     device->deFlags &= (WORD)~V9X_DE_BUSY;
-#ifndef V9X_TARGET_MATROX_MILLENNIUM2
+#if !defined(V9X_TARGET_MATROX_MILLENNIUM2) && !defined(V9X_TARGET_S3_TRIO64)
     /* PDEVICE reconstruction is complete; it is now safe to call the
      * runtime's SetInfo reset callback. */
     (void)V9xDdCreateDriverObject(1u);

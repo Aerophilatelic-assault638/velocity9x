@@ -4,12 +4,13 @@ param(
     [string]$DdkRoot = "C:\98DDK",
     [ValidateRange(-1, 5)]
     [int]$ForceModeIndex = -1,
-    [switch]$BootTrace
+    [switch]$BootTrace,
+    [switch]$S3Trio64
 )
 
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$outputDir = Join-Path $repoRoot "build\win98se-active"
+$outputDir = Join-Path $repoRoot $(if ($S3Trio64) { "build\win98se-trio64" } else { "build\win98se-active" })
 
 . (Join-Path $PSScriptRoot "common.ps1")
 $ProductVersion = Get-V9xProductVersion -RepoRoot $repoRoot
@@ -22,7 +23,7 @@ if ($BuildId -notmatch '^[A-Za-z0-9._+-]+$') {
 
 & (Join-Path $PSScriptRoot "build-win16-ddi-skeleton.ps1") `
     -BuildId $BuildId -DdkRoot $DdkRoot -ForceModeIndex $ForceModeIndex `
-    -BootTrace:$BootTrace
+    -BootTrace:$BootTrace -S3Trio64:$S3Trio64
 & (Join-Path $PSScriptRoot "build-minivdd-skeleton.ps1") `
     -BuildId $BuildId -DdkRoot $DdkRoot
 & (Join-Path $PSScriptRoot "build-settings.ps1") -BuildId $BuildId
@@ -65,6 +66,11 @@ $infText = $infText.Replace('%Manufacturer%=Velocity9x.Models',
                             'Velocity9x=Velocity9x.Models')
 $infText = $infText.Replace('%DeviceDesc%=Velocity9x.Install',
                             '"Velocity9x S3 ViRGE/DX 86C375 (Phase 3 mode matrix)"=Velocity9x.Install')
+if ($S3Trio64) {
+    $infText = $infText.Replace('PCI\VEN_5333&DEV_8A01', 'PCI\VEN_5333&DEV_8811')
+    $infText = $infText.Replace('Velocity9x S3 ViRGE/DX 86C375 (Phase 3 mode matrix)',
+                                'Velocity9x S3 Trio32/64 86C764 (software GDI)')
+}
 if ($infText -match '%[A-Za-z][A-Za-z0-9_]*%') {
     throw "The generated active INF contains an unresolved string token."
 }
@@ -72,9 +78,9 @@ if ($infText -match '%[A-Za-z][A-Za-z0-9_]*%') {
 $hardwareIds = @([regex]::Matches(
     $infText, 'PCI\\VEN_[0-9A-Fa-f]{4}&DEV_[0-9A-Fa-f]{4}') |
     ForEach-Object { $_.Value.ToUpperInvariant() } | Sort-Object -Unique)
-if ($hardwareIds.Count -ne 1 -or
-    $hardwareIds[0] -ne 'PCI\VEN_5333&DEV_8A01') {
-    throw "The active INF must match only PCI\VEN_5333&DEV_8A01."
+$expectedHardwareId = if ($S3Trio64) { 'PCI\VEN_5333&DEV_8811' } else { 'PCI\VEN_5333&DEV_8A01' }
+if ($hardwareIds.Count -ne 1 -or $hardwareIds[0] -ne $expectedHardwareId) {
+    throw "The active INF must match only $expectedHardwareId."
 }
 foreach ($forbidden in @('MODES\24',
                           'MODES\32', 'DDC', 'carddvdd')) {
@@ -103,7 +109,7 @@ if ($infText -match '(?im)^HKR,CURRENT,') {
 New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
 Remove-Item -LiteralPath (Join-Path $outputDir "V9XFIX.INF") -Force `
     -ErrorAction SilentlyContinue
-Copy-Item -LiteralPath (Join-Path $repoRoot "build\win16-ddi\v9xdisp.drv") `
+Copy-Item -LiteralPath (Join-Path $repoRoot $(if ($S3Trio64) { "build\win16-ddi-trio64\v9xdisp.drv" } else { "build\win16-ddi\v9xdisp.drv" })) `
     -Destination (Join-Path $outputDir "V9XDISP.DRV") -Force
 Copy-Item -LiteralPath (Join-Path $repoRoot "build\minivdd32\v9xmini.vxd") `
     -Destination (Join-Path $outputDir "V9XMINI.VXD") -Force
@@ -150,7 +156,7 @@ $manifest = @(
     "Velocity9x active display bring-up package",
     "Version: $ProductVersion",
     "Build: $BuildId",
-    "Target: Windows 98SE, PCI 5333:8A01 only",
+    "Target: Windows 98SE, $expectedHardwareId only",
     "Modes: 640x480, 800x600, 1024x768 at 8/16 bpp and 60 Hz",
     "Forced diagnostic mode index: $ForceModeIndex (-1 means registry-selected)",
     "Boot trace: $BootTrace (writes C:\\V9XBOOT.INI)",
@@ -161,7 +167,7 @@ $manifest = @(
     "GDI test: on-screen primitives, blits, and tolerant pixel readback",
     "Palette test: 8-bit reserved-entry animation and screen readback",
     "Mode switching: live same-depth via ReEnable; depth change needs restart",
-    "DirectDraw HAL: V9XHAL.DLL (vidmem + flip + bounded solid fill)",
+    $(if ($S3Trio64) { "DirectDraw HAL: disabled for conservative Trio64 bring-up" } else { "DirectDraw HAL: V9XHAL.DLL (vidmem + flip + bounded solid fill)" }),
     "Mode-switch test: V9XMSW.EXE (/set:WxHxB, /cycle:N, /depth)",
     "Monitor-power test: V9XPWR.EXE (D3 off, then D0 wake)",
     "DirectDraw probe: V9XDDP.EXE (flip timing and mode honesty)",
