@@ -1,117 +1,205 @@
 # DirectDraw accepts `SetInfo` but reports `DDCAPS_NOHARDWARE`
 
-Status: Open — investigation
+Status: Resolved — 2026-08-14, build `trio64-hal-srccopy-003`
 
 Date: 2026-08-14
 
 ## Summary
 
-The Velocity9x display driver registers a DirectDraw HAL through `DDHAL_SetInfo`, and DirectDraw creates the driver object, but Win98 subsequently reports `DDCAPS_NOHARDWARE` (`0x02000000`). DirectDraw operations that appeared to prove acceleration were actually completed by the software HEL fallback: live tracing shows no entries into the driver's `Blt`, `Flip`, or `WaitForVerticalBlank` callbacks.
+The Velocity9x display driver registered a DirectDraw HAL through
+`DDHAL_SetInfo`, `SetInfo` returned TRUE, and DirectDraw created the driver
+object — but Win98 then reported `DDCAPS_NOHARDWARE` (`0x02000000`) and never
+entered a single HAL callback. Every DirectDraw operation that appeared to
+prove acceleration was completed by the software HEL.
 
-This corrects the earlier conclusion that successful fill and flip pixel tests demonstrated HAL execution. Pixel correctness alone is insufficient because DirectDraw's HEL can produce the same result.
+The cause is a Win98 DirectDraw admission rule that is not documented in the
+DDK: **a driver that sets `DDCAPS_BLT` must also advertise ROP3 `SRCCOPY`
+(`0xcc`) in `DDCORECAPS.dwRops`. If it does not, the runtime discards the
+entire `DDHALINFO` — not just the blitter — and falls back to a GDI-only
+emulation path.** The Trio64 driver claimed `DDCAPS_BLT` with only `PATCOPY`
+in `dwRops[7]`, so the whole HAL was thrown away.
 
-The Trio64 engine implementation is present but remains unproven until both callback-dispatch counters and pixel validation pass.
+A second rule follows from the first: once `DDCAPS_BLT` is claimed, declining
+a blit with `DDHAL_DRIVER_NOTHANDLED` does **not** fall back to the HEL. The
+runtime returns `DDERR_UNSUPPORTED` to the application. Advertising `SRCCOPY`
+therefore obliges the driver to implement source copies.
 
 ## Environment
 
 - Guest: Windows 98 SE
-- Emulator: 86Box
+- Emulator: 86Box 6.0
 - VM: `C:\Users\michael\86Box VMs\Win98SE-Trio64`
 - Display adapter: `[PCI] S3 Trio64`, PCI ID `5333:8811`, 4 MB VRAM
-- Current mode: 1024 x 768 x 16 bpp
-- Velocity9x guest build: `trio64-hal-pending-001`
+- Mode under test: 1024 x 768 x 16 bpp
 - Remote agent: v0.5.2, host port 9871 forwarded to guest port 9869
-- Last stable observation: boot counter 28, desktop and GDI test working
 
-## Expected behavior
+## How the cause was isolated
 
-After the 16-bit driver publishes a valid `DDHALINFO` and callback tables:
+`DDHAL_SetInfo` returns TRUE whether or not the runtime keeps the
+description, so the rejection is invisible from the driver side. Two tools
+made it visible:
 
-- `IDirectDraw::GetCaps` should report hardware capabilities without `DDCAPS_NOHARDWARE`.
-- `WaitForVerticalBlank`, `Blt`, and supported surface operations should enter the Velocity9x HAL callbacks.
-- Supported solid fills should be executed by the S3 Trio64 engine.
-- Unsupported operations should safely return the documented fallback result and remain available through HEL.
-- The display settings publisher should advertise hardware acceleration only after dispatch and output are verified.
+1. **A DirectDraw runtime-internals dump** in `tools/diag/ddraw_probe_win32.c`
+   (`v9x_write_ddraw_globals`). An `IDirectDraw` interface pointer is a
+   `DDRAWI_DIRECTDRAW_INT`; its `lpLcl->lpGbl` is the shared
+   `DDRAWI_DIRECTDRAW_GBL` whose byte offsets are published in the DDK's
+   `DDRAWI.H`. Reading it back distinguishes "the runtime never recorded the
+   HAL" from "the runtime recorded it and then disabled it".
 
-## Actual behavior
+   In the failing state the dump showed `dwFlags = 0x01804120`
+   (`DDRAWI_NOHARDWARE | DDRAWI_GDIDRV | DDRAWI_EMULATIONINITIALIZED | ...`),
+   `ddCaps.dwCaps = 0x02000000`, `vmiData.fpPrimary = 0`, `dwNumHeaps = 0`,
+   `dwPDevice = 0`, `hInstance = 0`, and `lpDDCBtmp->HALDD.dwFlags = 0` — the
+   published `DDHALINFO` had been discarded wholesale, and the runtime had
+   substituted its own nine-mode GDI mode list and its own alignment defaults.
 
-- Driver initialization and `Dd16CreateObject` occur.
-- The HAL callback tables have nonzero flags and plausible flat callback addresses before `DDHAL_SetInfo`.
-- A correctly sized 316-byte `DDCAPS_DX3` call succeeds but returns `dwCaps = 0x02000000` (`DDCAPS_NOHARDWARE`).
-- `WaitForVerticalBlank` returns `0x80004001` (`E_NOTIMPL`) in normal and exclusive modes.
-- `GetVerticalBlankStatus` can succeed, but that is runtime/HEL behavior and does not demonstrate HAL dispatch.
-- Live trace counters remain at zero for `WaitForVerticalBlank`, `Blt`, `Flip`, and the other tested callbacks while the DirectDraw object is alive.
-- Fill/flip pixel tests can still succeed through HEL.
+2. **An INI-driven override of the published `DDHALINFO`** in the 16-bit
+   driver, applied immediately before `DDHAL_SetInfo`. Rebuilding the display
+   driver costs a guest reboot per attempt; reading the field from an INI made
+   the whole description bisectable from the host with no reboots. This
+   scaffold was removed once the field was identified.
 
-## Evidence
+## Measurements
 
-The diagnostic probe has a `/hold` mode that keeps the DirectDraw object and HAL alive for 15 seconds. Taking a trace snapshot during that interval showed driver creation but no callback entries.
+Each row is one probe run on the same guest, varying only `ddCaps`:
 
-Key results:
+| `dwCaps` | `dwRops` | Result |
+|---|---|---|
+| `0x04000401` (`3D`, `GDI`, `BLTCOLORFILL`) | none | HAL accepted |
+| `0x04000400` (`GDI`, `BLTCOLORFILL`) | none | HAL accepted |
+| `0x04080401` (adds `VBI`) | none | HAL accepted |
+| `0x04000441` (adds `BLT`) | none | **`NOHARDWARE`** |
+| `0x04000440` (`GDI`, `BLT`, `BLTCOLORFILL`) | `PATCOPY` only | **`NOHARDWARE`** |
+| `0x04000440` | ROP3 `0xc0` only | **`NOHARDWARE`** |
+| `0x04000440` | every ROP3 **except** `SRCCOPY` | **`NOHARDWARE`** |
+| `0x04000440` | `SRCCOPY` only | HAL accepted, `Blt` dispatched |
+
+`ddCaps.ddsCaps` was ruled out independently: restoring the full ViRGE
+surface caps while leaving `dwCaps` clamped still produced `NOHARDWARE`, and
+clamping `ddsCaps` while restoring `dwCaps` did not.
+
+`DDCAPS_VBI` was accepted but is unrelated to `WaitForVerticalBlank`, which
+is driven by the `DDHAL_CB32_WAITFORVERTICALBLANK` callback flag. It was
+dropped as an inaccurate claim.
+
+## Fix
+
+`src/display16/dd16.c`
+
+- Advertise `dwRops[6] = 0x00001000` (ROP3 `SRCCOPY`, `0xcc = 6 * 32 + 12`)
+  alongside the existing `dwRops[7] = 0x00010000` (`PATCOPY`). This is what
+  the runtime requires in order to keep a `DDCAPS_BLT` HAL.
+- Drop the inaccurate `DDCAPS_VBI` claim.
+- Apply the Trio64 clamp to the DGROUP copy of `DDHALINFO` that is handed to
+  `DDHAL_SetInfo` rather than to the shared block, so the 32-bit side keeps
+  its full description. The duplicate clamp in `DriverInit` was removed:
+  `DriverInit` runs from the `DDGET32BITDRIVERNAME` escape, before the 16-bit
+  side has published the engine descriptor, so it could never see the
+  chipset identity it was branching on.
+- Refresh `ddCaps.dwVidMemTotal` / `dwVidMemFree` from the framebuffer
+  descriptor. `DriverInit` computed them before the descriptor was valid and
+  had been publishing zero.
+
+`src/display32/ddhal.c`
+
+- Implement `v9x_srccopy_body`: a bounded video-memory source copy through
+  the mapped linear aperture, honouring the `SRCCOPY` claim. It accepts only
+  unstretched, unmirrored, uncolour-keyed copies between validated in-aperture
+  rectangles at 8/16 bpp, drains whichever engine owns the chipset first, and
+  selects a row order that keeps an overlapping same-surface copy correct.
+  Everything else still returns `DDHAL_DRIVER_NOTHANDLED`.
+- Count `V9X_TRACE_BLT_ENGINE` only when `Blt` returns
+  `DDHAL_DRIVER_HANDLED`, and record the driver return rather than `ddRVal`
+  in the `Blt` exit trace. `ddRVal` is `DD_OK` for both an executed blit and a
+  declined one, so it cannot distinguish engine execution from a HEL
+  fallback, and `GetBltStatus` polling floods the trace ring after every blit.
+
+`src/display16/ddi.c`
+
+- Restore `C1_DIBENGINE`. It had been dropped on the theory that it caused
+  `DDCAPS_NOHARDWARE`; that theory is disproven above, and the driver does
+  build its PDEVICE with `CreateDIBPDevice` and forward output to the DIB
+  Engine, so the declaration is simply accurate. `C1_SLOW_CARD` stays off.
+- Publish `Acceleration=directdraw-solid-fill` now that fills are executed by
+  the Trio64 engine.
+
+`tools/diag/ddraw_probe_win32.c`
+
+- Add the `DDRAWI_DIRECTDRAW_GBL` dump described above, and a source-copy
+  blit test that verifies both the HRESULT and the resulting pixels.
+
+## Verification
+
+Build `trio64-hal-srccopy-003`, 1024 x 768 x 16 bpp. The figures below are
+from `V9XDD-RELEASE-001.INI`; `FINAL-A`/`FINAL-B` are the same measurements
+repeated twice after a reboot on the functionally identical `-002` build.
 
 ```text
-GetCapsHr=0
-ReportedCaps=33554432
-ReportedCapsHex=0x02000000
-WaitForVerticalBlankHr=0x80004001
-HAL callback entry counters=0
+ReportedCaps            = 67109952 (0x04000440, no DDCAPS_NOHARDWARE)
+GblNoHardware           = 0
+MonitorFreqHr / VBlankHr / ExclusiveVBlankHr = 0
+SetModeHr / PrimaryHr / RestoreHr            = 0
+VideoStageHr / SystemStageHr                 = 0
+BltFillHr = 0, BltFillPixelOk = 1, BltFillMs = 3..6
+SrcCopyBltHr = 0, SrcCopyPixelOk = 1
+Flip20Ms = 0..1  (twenty flips; the HEL needed ~683 ms)
+CountBlt = 2, CountBltEngine = 2, CountFlip = 23,
+CountWaitForVerticalBlank = 13, CountCreateSurface = 3
+EngineFifoTimeouts = EngineIdleTimeouts = EngineResets = 0
 ```
 
-Ignored build artifacts containing the current evidence:
+Against the acceptance criteria:
 
-- `build/trio64-bringup/V9XDD-HAL-DGROUP-001.INI`
-- `build/trio64-bringup/V9XSNAP-HAL-DGROUP-001.INI`
-- `build/trio64-bringup/V9XDD-HAL-VERSION-001.INI`
-- `build/trio64-bringup/V9XSNAP-HAL-VERSION-001.INI`
-- `build/trio64-bringup/V9XDD-CAPS-DX3.INI`
-- `build/trio64-bringup/V9XSNAP-HAL-TABLE-001.INI`
-- `build/trio64-bringup/V9XDISPLAY.REG`
-- `build/trio64-bringup/V9XCC.REG`
-- `build/trio64-bringup/SETTINGS-HAL-PENDING-001.BMP`
+- `GetCaps` no longer reports `DDCAPS_NOHARDWARE`.
+- Both blits in the run incremented `CountBltEngine`, so the driver — not the
+  HEL — executed them; `Flip`, `WaitForVerticalBlank`, `Lock`, `Unlock`,
+  `CreateSurface`, `DestroySurface`, `GetBltStatus`, `SetExclusiveMode` and
+  `FlipToGDISurface` all dispatch.
+- `BltFillPixelOk` and `SrcCopyPixelOk` confirm the pixels those operations
+  produced. `FlipPixelOk` remains 0 by design: GDI always reads the fixed GDI
+  page, so a host-window capture is the authoritative check for flipping
+  (recorded in `docs/decisions/2026-08-11-directdraw-hal.md`).
+- Unsupported operations fall back safely: stretched, mirrored, colour-keyed
+  and non-`SRCCOPY` ROP blits, and any rectangle failing aperture validation,
+  return `DDHAL_DRIVER_NOTHANDLED`; system-memory and Direct3D surface
+  requests behave as before.
+- Stability: GDI test PASS, 10/10 live mode-switch cycles PASS, two reboots,
+  and repeated probe runs with identical results and no engine timeouts or
+  resets.
+- The Velocity9x settings page now shows Hardware acceleration, Windows DIB
+  Engine rendering, and Live mode switching all checked.
 
-The settings screenshot shows the framebuffer and GDI path working, with hardware acceleration deliberately left unchecked while HAL dispatch is unresolved.
+Evidence (ignored build artifacts):
 
-## Reproduction
+- `build/trio64-bringup/V9XDD-RELEASE-001.INI`, `V9XSNAP-RELEASE-001.INI`
+- `build/trio64-bringup/V9XGDI-RELEASE-001.INI`, `V9XMSW-RELEASE-001.INI`
+- `build/trio64-bringup/SETTINGS-HAL-SRCCOPY-003.BMP`
+- Reboot repeats: `V9XDD-FINAL-A.INI`, `V9XDD-FINAL-B.INI` and their snapshots
+- Failing baseline with the runtime dump: `V9XDD-GBL-001.INI`,
+  `V9XDD-BASE-002.INI`
+- Caps bisect series: `V9XDD-T1-VIRGECAPS.INI` … `V9XDD-T10-BLT-ALLBUTSRC.INI`,
+  and the `DDCAPS_BLT` on/off comparison `V9XDD-S-A-BLT.INI` /
+  `V9XDD-S-B-NOBLT.INI`
 
-1. Build and deploy the current Velocity9x Trio64 driver to the Win98 VM.
-2. Boot to the stable desktop at 1024 x 768 x 16 bpp.
-3. Run the DirectDraw probe with `/auto /hold`.
-4. During the 15-second hold, run `V9XTRACE.EXE` and capture the callback counters.
-5. Inspect the probe's DX3 caps result and the trace snapshot.
-6. Confirm that `dwCaps` contains `0x02000000` and that the HAL callback counters remain zero.
+## Follow-up
 
-The probe result may be marked incomplete when snapshotted during `/hold`; that is intentional because the process has not yet left the hold interval.
-
-## Changes and hypotheses already tested
-
-The following changes did not remove `DDCAPS_NOHARDWARE` or cause callback dispatch:
-
-- Added a bounded Trio64 solid-rectangle fill path for 8/16-bpp display-pitch surfaces.
-- Added the vertical-blank capability.
-- Added the PATCOPY ROP capability bit (`dwRops[7] = 0x00010000`).
-- Corrected `DD_HAL_VERSION` from `0x0100` to the Win98 DDK value `0x00FF`.
-- Changed `hInstance` from an incorrect flat DLL base to the 16-bit DGROUP selector using `SELECTOROF(&v9x_dd_shared)`.
-- Removed `C1_SLOW_CARD` after introducing acceleration.
-- Removed `C1_DIBENGINE` to match the accelerated S3 DDK sample.
-- Mirrored `DDHALINFO`, callback tables, heap data, and the mode list into the 16-bit driver's DGROUP before `DDHAL_SetInfo`.
-- Checked exported display-class and current-config registry data; no `Acceleration.Level` or `NoHardware` setting explains the result.
-
-Pre-`SetInfo` trace records confirm:
-
-```text
-dd_callbacks.dwFlags = 0x00000332
-WaitForVerticalBlank = 0xB0402309
-surface_callbacks.dwFlags = 0x000003BB
-Blt = 0xB04021F8
-```
-
-The map file associates those addresses with the expected functions, so the immediate problem is not an obviously null callback table.
-
-## Current implementation safety state
-
-The Trio64 solid-fill code uses the documented enhanced-command ports, bounded idle polling, and a narrow support gate. It attempts only 8/16-bpp display-pitch surfaces and falls back for unsupported cases. Because DirectDraw does not dispatch the callback, this code has not yet been proven against the emulated hardware.
-
-The user-facing settings publisher currently reports `Acceleration=directdraw-hal-pending` and does not claim hardware acceleration.
+- **The ViRGE target has the same latent defect.** It publishes
+  `DDCAPS_BLTCOLORFILL` without `DDCAPS_BLT`, and a run with that combination
+  showed the HAL `Blt` callback is never dispatched — so the bounded ViRGE
+  solid-fill path added in `2026-08-11-virge-engine-foundation.md` has never
+  executed. Applying the same `DDCAPS_BLT` + `SRCCOPY` change there would
+  route blits to a HAL path that has not been exercised, so it is deliberately
+  left for a separate change with its own guest validation, alongside the
+  Hellbender Direct3D work.
+- The Trio64 source copy is a CPU copy through the linear aperture, matching
+  what the HEL would have done. Replacing it with the Trio32/64
+  screen-to-screen BitBLT (`CMD` opcode 6, `FRGD_MIX` source = display memory)
+  is the next bounded 2D primitive. The surface validation it needs is
+  already in place, because the engine works on display memory at the display
+  pitch — the same constraint `v9x_copy_rect_valid` enforces.
+- `dwCaps` still omits `DDCAPS_BLTSTRETCH`, colour keying and overlays; those
+  remain HEL responsibilities and must not be advertised until implemented,
+  for exactly the reason documented above.
 
 ## Relevant source references
 
@@ -120,32 +208,10 @@ The user-facing settings publisher currently reports `Acceleration=directdraw-ha
 - `src/display16/ddi.c`
 - `src/display32/ddhal.c`
 - `tools/diag/ddraw_probe_win32.c`
-- Windows 98 DDK: `C:\98DDK\src\display\inc\DDRAWI.H`
-- Windows 98 DDK: `C:\98DDK\src\display\inc\DDRAW.H`
-- Windows 98 DDK S3 sample: `C:\98DDK\src\display\mini\s3v\DDDRV.C`
-- Windows 98 DDK S3 sample: `C:\98DDK\src\display\mini\s3v\CONTROL.ASM`
-- Windows 98 DDK S3 sample: `C:\98DDK\src\display\mini\s3v\ENABLE.ASM`
+- Windows 98 DDK: `C:\98DDK\src\display\inc\DDRAWI.H` (`DDRAWI_DIRECTDRAW_GBL`
+  field offsets, `DDRAWI_NOHARDWARE`, `DDRAWI_GDIDRV`)
+- Windows 98 DDK: `C:\98DDK\src\display\inc\DDRAW.H` (`DDCAPS_*`, `DDBLT_*`)
+- Windows 98 DDK S3 sample: `C:\98DDK\src\display\mini\s3v\DDDRV.C`,
+  `CONTROL.ASM`
 - Local 86Box reference: `build/reference/86box/src/video/vid_s3.c`
 - [S3 Trio32/Trio64 Graphics Accelerators manual](https://www.bitsavers.org/components/s3/DB014-B_Trio32_Trio64_Graphics_Accelerators_Mar1995.pdf)
-
-The DDK confirms that `DD_HAL_VERSION` is `0x00FF`, `DDCAPS_NOHARDWARE` is `0x02000000`, the accelerated S3 sample omits `C1_SLOW_CARD` and `C1_DIBENGINE`, and its HAL data resides in DGROUP with `hInstance` set to a selector.
-
-## Next investigation steps
-
-1. Determine the precise condition inside the Win98 DirectDraw runtime that converts the accepted `DDHALINFO` into `DDCAPS_NOHARDWARE`.
-2. Compare the complete published `DDHALINFO` byte-for-byte and field-for-field with a known-working, DDK-shaped S3 driver rather than checking only callback flags and pointers.
-3. Verify `DDHAL_SetInfo` return semantics, registration order, driver-object lifetime, and whether the runtime requires a different 16-bit owner-module identity.
-4. Build a minimal HAL registration containing only one callback, preferably `WaitForVerticalBlank`, to isolate which structure or capability addition triggers rejection.
-5. Use the stock S3 Win98 driver in a throwaway clone as a control and record its caps, registry state, registration lifecycle, and callback behavior under the same 86Box adapter.
-6. Keep acceleration unpublished until a single run proves both nonzero driver callback counters and correct framebuffer output.
-
-## Acceptance criteria
-
-This issue is resolved when all of the following are true:
-
-- `GetCaps` no longer reports `DDCAPS_NOHARDWARE`.
-- At least one supported DirectDraw operation increments the corresponding Velocity9x HAL callback counter.
-- The same operation produces the expected pixels without relying on HEL.
-- Unsupported operations still fail or fall back safely.
-- Repeated GDI, mode-change, DirectDraw, and reboot tests remain stable.
-- Hardware acceleration is then accurately reported in the Velocity9x display settings.

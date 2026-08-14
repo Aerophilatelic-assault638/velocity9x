@@ -218,6 +218,11 @@ static void v9x_dd_refresh_info(void)
     shared->heaps[0].ddsCapsAlt = 0ul;
     shared->heaps[0].lpHeap = 0ul;
     info->vmiData.dwNumHeaps = 1ul;
+    /* DriverInit runs before the framebuffer descriptor is valid, so the
+     * video-memory totals it computed were zero. The heap is known here. */
+    info->ddCaps.dwVidMemTotal =
+        shared->fb.vram_bytes - shared->fb.visible_bytes;
+    info->ddCaps.dwVidMemFree = info->ddCaps.dwVidMemTotal;
 
     /* 16:16 far aliases DDRAW16 dereferences. */
     info->lpDDCallbacks = &shared->dd_callbacks;
@@ -258,35 +263,6 @@ WORD FAR PASCAL V9xDdCreateDriverObject(WORD reset)
         v9x_dd_trace("driverinit-pending");
         return 0u;
     }
-#ifdef V9X_TARGET_S3_TRIO64
-    /* DriverInit can run before the 16-bit side publishes the live engine
-     * identity. Clamp again immediately before SetInfo so DDRAW never sees
-     * the ViRGE-only capabilities initialized by the shared HAL binary. */
-    v9x_dd_shared->info.GetDriverInfo = 0;
-    v9x_dd_shared->info.lpD3DGlobalDriverData = 0ul;
-    v9x_dd_shared->info.lpD3DHALCallbacks = 0ul;
-    v9x_dd_shared->info.ddCaps.dwCaps = V9X_DDCAPS_GDI |
-        V9X_DDCAPS_VBI | V9X_DDCAPS_BLT | V9X_DDCAPS_BLTCOLORFILL;
-    v9x_dd_shared->info.ddCaps.dwRops[7] = 0x00010000ul;
-    v9x_dd_shared->info.ddCaps.ddsCaps =
-        V9X_DDSCAPS_OFFSCREENPLAIN | V9X_DDSCAPS_FLIP |
-        V9X_DDSCAPS_PRIMARYSURFACE | V9X_DDSCAPS_COMPLEX;
-    v9x_dd_shared->surface_callbacks.dwFlags =
-        V9X_DDHAL_SURFCB32_DESTROYSURFACE |
-        V9X_DDHAL_SURFCB32_FLIP |
-        V9X_DDHAL_SURFCB32_GETFLIPSTATUS |
-        V9X_DDHAL_SURFCB32_LOCK | V9X_DDHAL_SURFCB32_UNLOCK |
-        V9X_DDHAL_SURFCB32_ADDATTACHEDSURFACE |
-        V9X_DDHAL_SURFCB32_BLT | V9X_DDHAL_SURFCB32_GETBLTSTATUS;
-    v9x_dd_shared->execute_buffer_callbacks.dwFlags = 0ul;
-    v9x_dd_shared->d3d_global.dwNumTextureFormats = 0ul;
-    v9x_dd_shared->d3d_global.lpTextureFormats = 0;
-#endif
-    v9x_dd_trace_event(6u, v9x_dd_shared->dd_callbacks.dwFlags);
-    v9x_dd_trace_event(7u,
-        (DWORD)v9x_dd_shared->dd_callbacks.WaitForVerticalBlank);
-    v9x_dd_trace_event(8u, v9x_dd_shared->surface_callbacks.dwFlags);
-    v9x_dd_trace_event(9u, (DWORD)v9x_dd_shared->surface_callbacks.Blt);
     /* DDRAW16 retains these 16:16 tables after SetInfo. Keep them in the
      * display driver's DGROUP exactly like the Windows 98 S3 sample; the
      * separately allocated shared selector remains only 16/32-bit state. */
@@ -313,6 +289,53 @@ WORD FAR PASCAL V9xDdCreateDriverObject(WORD reset)
     v9x_dd_info16.lpModeInfo = &v9x_dd_modes16[0];
     v9x_dd_info16.hInstance =
         (DWORD)SELECTOROF((LPVOID)&v9x_dd_info16);
+
+#ifdef V9X_TARGET_S3_TRIO64
+    /* The shared HAL binary describes the ViRGE feature set. Trio64 keeps the
+     * scanout and vertical-blank services but has neither the new-MMIO window
+     * nor the S3D engine, so the description handed to DDRAW is narrowed here
+     * - on the DGROUP copy only, leaving the shared block's full description
+     * intact for the 32-bit side. */
+    v9x_dd_info16.GetDriverInfo = 0;
+    v9x_dd_info16.lpD3DGlobalDriverData = 0ul;
+    v9x_dd_info16.lpD3DHALCallbacks = 0ul;
+    v9x_dd_info16.lpDDExeBufCallbacks = 0;
+    v9x_dd_info16.ddCaps.dwCaps = V9X_DDCAPS_GDI | V9X_DDCAPS_BLT |
+        V9X_DDCAPS_BLTCOLORFILL;
+    /*
+     * Windows 98 DirectDraw discards the entire HAL - GetCaps then reports
+     * DDCAPS_NOHARDWARE and no callback is ever dispatched - when a driver
+     * sets DDCAPS_BLT without also advertising ROP3 SRCCOPY (0xcc) in
+     * dwRops. Measured on this guest: SRCCOPY alone is accepted, every other
+     * ROP3 combined without it is rejected, and dropping DDCAPS_BLT is
+     * accepted but never dispatches Blt. SRCCOPY lives in dwRops[6] bit 12
+     * (0xcc = 6 * 32 + 12); PATCOPY (0xf0) is the ROP the solid fill
+     * implements and lives in dwRops[7] bit 16.
+     *
+     * The claim is not free: once DDCAPS_BLT is set, answering a blit with
+     * DDHAL_DRIVER_NOTHANDLED does not fall back to the HEL - the runtime
+     * returns DDERR_UNSUPPORTED to the application. The source copies this
+     * bit admits are therefore implemented by the HAL (v9x_srccopy_body in
+     * ddhal.c). See docs/issues/2026-08-14-directdraw-hal-nohardware.md.
+     */
+    v9x_dd_info16.ddCaps.dwRops[6] = 0x00001000ul;
+    v9x_dd_info16.ddCaps.dwRops[7] = 0x00010000ul;
+    v9x_dd_info16.ddCaps.ddsCaps =
+        V9X_DDSCAPS_OFFSCREENPLAIN | V9X_DDSCAPS_FLIP |
+        V9X_DDSCAPS_PRIMARYSURFACE | V9X_DDSCAPS_COMPLEX;
+    v9x_dd_surface_callbacks16.dwFlags =
+        V9X_DDHAL_SURFCB32_DESTROYSURFACE |
+        V9X_DDHAL_SURFCB32_FLIP |
+        V9X_DDHAL_SURFCB32_GETFLIPSTATUS |
+        V9X_DDHAL_SURFCB32_LOCK | V9X_DDHAL_SURFCB32_UNLOCK |
+        V9X_DDHAL_SURFCB32_ADDATTACHEDSURFACE |
+        V9X_DDHAL_SURFCB32_BLT | V9X_DDHAL_SURFCB32_GETBLTSTATUS;
+#endif
+
+    v9x_dd_trace_event(6u, v9x_dd_callbacks16.dwFlags);
+    v9x_dd_trace_event(7u, (DWORD)v9x_dd_callbacks16.WaitForVerticalBlank);
+    v9x_dd_trace_event(8u, v9x_dd_info16.ddCaps.dwCaps);
+    v9x_dd_trace_event(9u, v9x_dd_info16.ddCaps.ddsCaps);
     result = v9x_dd_set_info(&v9x_dd_info16, reset);
     v9x_dd_trace_event((WORD)(V9X_TRACE_DD16_CREATEOBJECT |
                               V9X_DD_TRACE_EXIT_FLAG),

@@ -51,6 +51,14 @@ The VM was left at 1024x768x16 with a final GDI PASS.
 - DirectDraw video-memory surfaces, CRTC page flips, and bounded solid fills
   are advertised. Fills use the Trio32/64 enhanced 8514/A-compatible engine
   only for 8/16-bpp display-pitch surfaces; unsupported shapes fall back to HEL.
+- Advertising the blitter is all-or-nothing. Win98 DirectDraw discards the
+  whole `DDHALINFO` if `DDCAPS_BLT` is set without ROP3 `SRCCOPY` in
+  `dwRops`, and once `DDCAPS_BLT` is set a declined blit returns
+  `DDERR_UNSUPPORTED` to the application instead of falling back to the HEL.
+  The driver therefore also implements bounded video-memory source copies —
+  currently a CPU copy through the linear aperture, pending the Trio64
+  screen-to-screen BitBLT. See
+  [docs/issues/2026-08-14-directdraw-hal-nohardware.md](../issues/2026-08-14-directdraw-hal-nohardware.md).
 - The ViRGE new-MMIO window, S3D path, and hardware Direct3D are disabled.
 - Monitor-power behavior has not yet been included in this Trio64 baseline.
 - The remote agent's INFO `BitsPerPixel` field reports zero on this guest even

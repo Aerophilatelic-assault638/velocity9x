@@ -100,8 +100,10 @@ typedef void (FAR PASCAL *V9X_DD_CODE_PTR)();
 
 #define V9X_DDBLT_ASYNC              0x00000200ul
 #define V9X_DDBLT_COLORFILL          0x00000400ul
+#define V9X_DDBLT_ROP                0x00020000ul
 #define V9X_DDBLT_WAIT               0x01000000ul
 #define V9X_DDBLT_DONOTWAIT          0x08000000ul
+#define V9X_DDROP_SRCCOPY            0x00cc0020ul
 #define V9X_DDLOCK_WAIT              0x00000001ul
 #define V9X_DDLOCK_DONOTWAIT         0x00004000ul
 
@@ -998,6 +1000,11 @@ typedef struct v9x_d3d_diagnostics {
 #define V9X_TRACE_CREATESURFACE       21u
 #define V9X_TRACE_DESTROYSURFACE      22u
 #define V9X_TRACE_ADDATTACHEDSURFACE  23u
+/* Counted only when the driver itself executed the blit (the Blt callback
+ * returned DDHAL_DRIVER_HANDLED). Separating this from V9X_TRACE_BLT is what
+ * distinguishes engine execution from a HEL fallback, which produces the same
+ * pixels and the same ddRVal. */
+#define V9X_TRACE_BLT_ENGINE          24u
 #define V9X_TRACE_D3D_CTXCREATE       30u
 #define V9X_TRACE_D3D_CTXDESTROY      31u
 #define V9X_TRACE_D3D_CTXDESTROYALL   32u

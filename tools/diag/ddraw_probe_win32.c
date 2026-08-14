@@ -678,6 +678,183 @@ static void v9x_write_d3d_devices(const V9X_D3D_ENUM_RESULT *result)
     }
 }
 
+/*
+ * DirectDraw runtime-internals dump.
+ *
+ * An IDirectDraw interface pointer is a DDRAWI_DIRECTDRAW_INT whose second
+ * field is the DDRAWI_DIRECTDRAW_LCL, whose second field is the shared
+ * DDRAWI_DIRECTDRAW_GBL. Both layouts are published in the Windows 98 DDK
+ * (DDRAWI.H) with byte offsets, so the fields DDHAL_SetInfo is supposed to
+ * populate can be read back directly. This distinguishes "the runtime never
+ * recorded the HAL" from "the runtime recorded it and then disabled it".
+ */
+#define V9X_GBL_FLAGS            0x004u
+#define V9X_GBL_CAPS_SIZE        0x00cu
+#define V9X_GBL_CAPS             0x010u
+#define V9X_GBL_CAPS_VIDMEMTOTAL 0x048u
+#define V9X_GBL_CAPS_ROPS7       0x08cu
+#define V9X_GBL_CAPS_DDSCAPS     0x090u
+#define V9X_GBL_DDCBTMP          0x170u
+#define V9X_GBL_MONITORFREQ      0x18cu
+#define V9X_GBL_HELCAPS          0x194u
+#define V9X_GBL_VMI_PRIMARY      0x3a4u
+#define V9X_GBL_VMI_WIDTH        0x3acu
+#define V9X_GBL_VMI_HEIGHT       0x3b0u
+#define V9X_GBL_VMI_PITCH        0x3b4u
+#define V9X_GBL_VMI_NUMHEAPS     0x3ecu
+#define V9X_GBL_VMI_PVMLIST      0x3f0u
+#define V9X_GBL_DRIVERHANDLE     0x3f4u
+#define V9X_GBL_MODEINDEX        0x3fcu
+#define V9X_GBL_NUMMODES         0x40cu
+#define V9X_GBL_MODEINFO         0x410u
+#define V9X_GBL_DRIVERNAME       0x438u
+#define V9X_GBL_PDEVICE          0x460u
+#define V9X_GBL_HINSTANCE        0x46cu
+#define V9X_GBL_D3DGLOBAL        0x478u
+#define V9X_GBL_BOTHCAPS         0x484u
+#define V9X_GBL_SIZE             0x608u
+
+/* DDHAL_CALLBACKS: the driver-supplied tables first, then the resolved HAL
+ * tables, then the HEL tables. dwFlags is the second DWORD of each. */
+#define V9X_CB_DRV_DD_FLAGS      0x004u
+#define V9X_CB_DRV_SURF_FLAGS    0x034u
+#define V9X_CB_HAL_DD_FLAGS      0x088u
+#define V9X_CB_HAL_SURF_FLAGS    0x0b8u
+#define V9X_CB_HEL_DD_FLAGS      0x10cu
+#define V9X_CB_SIZE              0x140u
+
+#define V9X_DDRAWI_NOHARDWARE    0x00000100ul
+#define V9X_DDRAWI_DISPLAYDRV    0x00000020ul
+
+static DWORD v9x_peek(const BYTE *base, unsigned offset)
+{
+    return *(const DWORD *)(base + offset);
+}
+
+static void v9x_write_field(const char *key, const BYTE *base,
+                            unsigned offset)
+{
+    char text[11];
+
+    v9x_hex_text(text, v9x_peek(base, offset));
+    v9x_write_text(key, text);
+}
+
+/* One INI line per 8 DWORDs so an unexpected runtime layout can still be
+ * decoded on the host without another guest round. */
+static void v9x_write_raw(const char *prefix, const BYTE *base,
+                          unsigned offset, unsigned dwords)
+{
+    char key[32];
+    char line[128];
+    char cell[11];
+    unsigned index;
+    unsigned column;
+    unsigned length;
+    unsigned copy;
+
+    for (index = 0u; index < dwords; index += 8u) {
+        wsprintfA(key, "%s%04X", prefix, offset + index * 4u);
+        length = 0u;
+        for (column = 0u; column < 8u && index + column < dwords; ++column) {
+            v9x_hex_text(cell, v9x_peek(base, offset + (index + column) * 4u));
+            if (length != 0u) {
+                line[length++] = ' ';
+            }
+            for (copy = 2u; cell[copy] != '\0'; ++copy) {
+                line[length++] = cell[copy];
+            }
+        }
+        line[length] = '\0';
+        v9x_write_text(key, line);
+    }
+}
+
+static void v9x_write_ddraw_globals(struct v9x_dd *ddraw)
+{
+    const BYTE *object = (const BYTE *)ddraw;
+    const BYTE *lcl;
+    const BYTE *gbl;
+    const BYTE *callbacks;
+    char name[16];
+    unsigned index;
+
+    if (ddraw == 0 || IsBadReadPtr(object, 8u)) {
+        v9x_write_text("GblState", "no-object");
+        return;
+    }
+    lcl = (const BYTE *)v9x_peek(object, 4u);
+    if (lcl == 0 || IsBadReadPtr(lcl, 8u)) {
+        v9x_write_text("GblState", "no-local");
+        return;
+    }
+    gbl = (const BYTE *)v9x_peek(lcl, 4u);
+    if (gbl == 0 || IsBadReadPtr(gbl, V9X_GBL_SIZE)) {
+        v9x_write_text("GblState", "no-global");
+        return;
+    }
+    v9x_write_text("GblState", "ok");
+
+    v9x_write_field("GblFlags", gbl, V9X_GBL_FLAGS);
+    v9x_write_uint("GblNoHardware",
+                   (v9x_peek(gbl, V9X_GBL_FLAGS) & V9X_DDRAWI_NOHARDWARE)
+                       != 0ul ? 1ul : 0ul);
+    v9x_write_uint("GblDisplayDrv",
+                   (v9x_peek(gbl, V9X_GBL_FLAGS) & V9X_DDRAWI_DISPLAYDRV)
+                       != 0ul ? 1ul : 0ul);
+    v9x_write_field("GblCapsSize", gbl, V9X_GBL_CAPS_SIZE);
+    v9x_write_field("GblHalCaps", gbl, V9X_GBL_CAPS);
+    v9x_write_field("GblHalDdsCaps", gbl, V9X_GBL_CAPS_DDSCAPS);
+    v9x_write_field("GblHalRops7", gbl, V9X_GBL_CAPS_ROPS7);
+    v9x_write_field("GblHalVidMemTotal", gbl, V9X_GBL_CAPS_VIDMEMTOTAL);
+    v9x_write_field("GblHelCaps", gbl, V9X_GBL_HELCAPS);
+    v9x_write_field("GblBothCaps", gbl, V9X_GBL_BOTHCAPS);
+    v9x_write_field("GblMonitorFreq", gbl, V9X_GBL_MONITORFREQ);
+    v9x_write_field("GblPrimary", gbl, V9X_GBL_VMI_PRIMARY);
+    v9x_write_field("GblDisplayWidth", gbl, V9X_GBL_VMI_WIDTH);
+    v9x_write_field("GblDisplayHeight", gbl, V9X_GBL_VMI_HEIGHT);
+    v9x_write_field("GblDisplayPitch", gbl, V9X_GBL_VMI_PITCH);
+    v9x_write_field("GblNumHeaps", gbl, V9X_GBL_VMI_NUMHEAPS);
+    v9x_write_field("GblPvmList", gbl, V9X_GBL_VMI_PVMLIST);
+    v9x_write_field("GblDriverHandle", gbl, V9X_GBL_DRIVERHANDLE);
+    v9x_write_field("GblModeIndex", gbl, V9X_GBL_MODEINDEX);
+    v9x_write_field("GblNumModes", gbl, V9X_GBL_NUMMODES);
+    v9x_write_field("GblModeInfo", gbl, V9X_GBL_MODEINFO);
+    v9x_write_field("GblPDevice", gbl, V9X_GBL_PDEVICE);
+    v9x_write_field("GblHInstance", gbl, V9X_GBL_HINSTANCE);
+    v9x_write_field("GblD3DGlobal", gbl, V9X_GBL_D3DGLOBAL);
+
+    for (index = 0u; index < sizeof(name) - 1u; ++index) {
+        name[index] = (char)gbl[V9X_GBL_DRIVERNAME + index];
+        if (name[index] == '\0') {
+            break;
+        }
+    }
+    name[sizeof(name) - 1u] = '\0';
+    v9x_write_text("GblDriverName", name);
+
+    callbacks = (const BYTE *)v9x_peek(gbl, V9X_GBL_DDCBTMP);
+    v9x_write_field("GblDDCBtmp", gbl, V9X_GBL_DDCBTMP);
+    if (callbacks == 0 || IsBadReadPtr(callbacks, V9X_CB_SIZE)) {
+        v9x_write_text("GblCallbackState", "unreadable");
+        return;
+    }
+    v9x_write_text("GblCallbackState", "ok");
+    v9x_write_field("CbDrvDdFlags", callbacks, V9X_CB_DRV_DD_FLAGS);
+    v9x_write_field("CbDrvSurfFlags", callbacks, V9X_CB_DRV_SURF_FLAGS);
+    v9x_write_field("CbHalDdFlags", callbacks, V9X_CB_HAL_DD_FLAGS);
+    v9x_write_field("CbHalSurfFlags", callbacks, V9X_CB_HAL_SURF_FLAGS);
+    v9x_write_field("CbHelDdFlags", callbacks, V9X_CB_HEL_DD_FLAGS);
+
+    /* Raw windows so a layout surprise is still decodable on the host. */
+    v9x_write_raw("GblRaw", gbl, 0x000u, 8u);
+    v9x_write_raw("GblRaw", gbl, 0x140u, 24u);
+    v9x_write_raw("GblRaw", gbl, 0x3a0u, 32u);
+    v9x_write_raw("GblRaw", gbl, 0x440u, 24u);
+    v9x_write_raw("CbRaw", callbacks, 0x000u, 8u);
+    v9x_write_raw("CbRaw", callbacks, 0x080u, 16u);
+}
+
 static void v9x_write_mode(const char *prefix,
                            const V9X_DDSURFACEDESC *desc)
 {
@@ -892,6 +1069,7 @@ void __stdcall V9xDdrawProbeEntry(void)
     hr = ddraw->vtbl->GetCaps(ddraw, caps_buffer, 0);
     v9x_write_hresult("GetCapsHr", hr);
     v9x_write_uint("ReportedCaps", caps_buffer[1]);
+    v9x_write_ddraw_globals(ddraw);
     hr = ddraw->vtbl->GetVerticalBlankStatus(ddraw, &in_vblank);
     v9x_write_hresult("VBlankStatusHr", hr);
     v9x_write_uint("VBlankStatus", in_vblank ? 1ul : 0ul);
@@ -1597,6 +1775,51 @@ void __stdcall V9xDdrawProbeEntry(void)
     if (hr == 0 && stage != 0) {
         stage->vtbl->Release(stage);
         stage = 0;
+    }
+
+    /*
+     * Source-copy blit. The driver advertises ROP3 SRCCOPY because the Win9x
+     * runtime refuses a DDCAPS_BLT HAL without it, but implements only solid
+     * colour fills, so this blit must be declined by the HAL and completed by
+     * the HEL. The pixel check proves the fallback is correct, and pairing it
+     * with the HAL's BltEngine counter proves the driver did not execute it.
+     */
+    if (backbuffer != 0) {
+        v9x_zero(&desc, sizeof(desc));
+        desc.dwSize = sizeof(desc);
+        desc.dwFlags = V9X_DDSD_CAPS | V9X_DDSD_WIDTH | V9X_DDSD_HEIGHT;
+        desc.dwWidth = 64ul;
+        desc.dwHeight = 64ul;
+        desc.ddsCaps.dwCaps = V9X_DDSCAPS_OFFSCREENPLAIN |
+                              V9X_DDSCAPS_VIDEOMEMORY;
+        hr = ddraw->vtbl->CreateSurface(ddraw, &desc, &stage, 0);
+        v9x_write_hresult("SrcCopySurfaceHr", hr);
+        if (hr == 0 && stage != 0) {
+            RECT source_rect;
+            RECT destination_rect;
+
+            v9x_fill_surface(stage, 0x001f001ful);
+            v9x_fill_surface(backbuffer, 0xf800f800ul);
+            source_rect.left = 0;
+            source_rect.top = 0;
+            source_rect.right = 64;
+            source_rect.bottom = 64;
+            destination_rect.left = 32;
+            destination_rect.top = 32;
+            destination_rect.right = 96;
+            destination_rect.bottom = 96;
+            hr = backbuffer->vtbl->Blt(backbuffer, &destination_rect, stage,
+                                       &source_rect, V9X_DDBLT_WAIT, 0);
+            v9x_write_hresult("SrcCopyBltHr", hr);
+            v9x_write_uint("SrcCopyPixelOk",
+                           hr == 0 &&
+                           v9x_surface_pixel16_equals(backbuffer, 64ul, 64ul,
+                                                      0x001fu) &&
+                           v9x_surface_pixel16_equals(backbuffer, 16ul, 16ul,
+                                                      0xf800u) ? 1ul : 0ul);
+            stage->vtbl->Release(stage);
+            stage = 0;
+        }
     }
 
     /* Diagnostic hold keeps the DirectDraw object and HAL instance alive so

@@ -235,7 +235,7 @@ static void v9x_publish_hardware_diagnostics(void)
                               "live-same-depth",
                               V9X_HARDWARE_INFO_PATH);
     WritePrivateProfileString("Velocity9xHardware", "Acceleration",
-                              "directdraw-hal-pending",
+                              "directdraw-solid-fill",
                               V9X_HARDWARE_INFO_PATH);
 
     status = v9x_s3_virge_decode_clock_pll(sr10, sr11, &clocks);
@@ -567,11 +567,14 @@ static WORD v9x_fill_gdi_info(V9X_GDI_INFO FAR *info,
     info->dpLogPixelsX = (short)v9x_dpi;
     info->dpLogPixelsY = (short)v9x_dpi;
     info->dpDCManage = V9X_DC_IGNORE_DFNP;
-    /* Match the accelerated S3 mini-driver contract: DIBENGINE services are
-     * used internally, but C1_DIBENGINE describes the generic software-only
-     * mini-driver and makes DirectDraw publish DDCAPS_NOHARDWARE. */
-    info->dpCaps1 |= V9X_C1_REINIT_ABLE | V9X_C1_BYTE_PACKED |
-                     V9X_C1_COLORCURSOR;
+    /* C1_DIBENGINE is a statement of fact to GDI: this driver builds its
+     * PDEVICE with CreateDIBPDevice and forwards output to the DIB Engine.
+     * It was briefly dropped on the theory that it caused DirectDraw to
+     * publish DDCAPS_NOHARDWARE; that cause was measured to be an incomplete
+     * dwRops table (see dd16.c), so the accurate declaration is restored.
+     * C1_SLOW_CARD stays off now that fills reach the Trio64 engine. */
+    info->dpCaps1 |= V9X_C1_DIBENGINE | V9X_C1_REINIT_ABLE |
+                     V9X_C1_BYTE_PACKED | V9X_C1_COLORCURSOR;
     if (v9x_enabled == 0u) {
         v9x_boot_trace("query-ok");
     }

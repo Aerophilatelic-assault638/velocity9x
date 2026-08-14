@@ -252,6 +252,7 @@ static const char *v9x_trace_name(WORD id)
     case V9X_TRACE_CREATESURFACE:        return "CreateSurface";
     case V9X_TRACE_DESTROYSURFACE:       return "DestroySurface";
     case V9X_TRACE_ADDATTACHEDSURFACE:   return "AddAttachedSurface";
+    case V9X_TRACE_BLT_ENGINE:           return "BltEngine";
     case V9X_TRACE_D3D_CTXCREATE:        return "D3dContextCreate";
     case V9X_TRACE_D3D_CTXDESTROY:       return "D3dContextDestroy";
     case V9X_TRACE_D3D_CTXDESTROYALL:    return "D3dContextDestroyAll";
@@ -898,6 +899,160 @@ static int v9x_fill_rect_valid(const V9X_DDHAL_BLTDATA *data,
     return 1;
 }
 
+/*
+ * Bounded video-memory source copy.
+ *
+ * A driver that sets DDCAPS_BLT owns every blit DirectDraw can express with
+ * the ROPs it advertises, and the Win9x runtime will not accept DDCAPS_BLT
+ * without ROP3 SRCCOPY (measured; see dd16.c). Declining a source copy after
+ * claiming it does not fall back to the HEL - the runtime returns
+ * DDERR_UNSUPPORTED to the application - so the claim has to be honoured.
+ *
+ * This is a CPU copy through the mapped linear aperture, which is what the
+ * HEL would have done, so it costs nothing relative to the previous
+ * behaviour while keeping the engine-accelerated colour fill reachable.
+ * Replacing it with the Trio64 screen-to-screen BitBLT is the next bounded
+ * 2D primitive; the surface validation here already matches that engine's
+ * display-pitch constraint.
+ */
+static int v9x_copy_rect_valid(const V9X_DD_SURFACE_LCL *surface,
+                               const LONG *rect, DWORD bytes_per_pixel,
+                               DWORD *offset_out)
+{
+    const V9X_DD_SURFACE_GBL *global;
+    DWORD offset;
+    DWORD right_bytes;
+    DWORD last_row;
+
+    if (surface == 0 || surface->lpGbl == 0 ||
+        rect[0] < 0l || rect[1] < 0l ||
+        rect[2] <= rect[0] || rect[3] <= rect[1]) {
+        return 0;
+    }
+    global = surface->lpGbl;
+    if (rect[2] > (LONG)global->wWidth || rect[3] > (LONG)global->wHeight ||
+        global->lPitch <= 0l) {
+        return 0;
+    }
+    offset = v9x_surface_offset(surface);
+    if (offset == 0xfffffffful) {
+        return 0;
+    }
+    right_bytes = (DWORD)rect[2] * bytes_per_pixel;
+    /* The row must fit the surface's own pitch. This also rejects a surface
+     * whose pixel format differs from the display, whose pitch would be too
+     * small for the display's bytes-per-pixel - the copy assumes both
+     * surfaces carry the display format. */
+    if (right_bytes > (DWORD)global->lPitch) {
+        return 0;
+    }
+    last_row = (DWORD)(rect[3] - 1l) * (DWORD)global->lPitch;
+    if (right_bytes > v9x_hal->fb.vram_bytes ||
+        last_row > v9x_hal->fb.vram_bytes - right_bytes ||
+        offset > v9x_hal->fb.vram_bytes - right_bytes - last_row) {
+        return 0;
+    }
+    *offset_out = offset;
+    return 1;
+}
+
+static void v9x_copy_row(BYTE *destination, const BYTE *source, DWORD bytes)
+{
+    if (destination == source || bytes == 0ul) {
+        return;
+    }
+    if (destination < source) {
+        while (bytes-- != 0ul) {
+            *destination++ = *source++;
+        }
+    } else {
+        destination += bytes;
+        source += bytes;
+        while (bytes-- != 0ul) {
+            *--destination = *--source;
+        }
+    }
+}
+
+static DWORD v9x_srccopy_body(V9X_DDHAL_BLTDATA *data)
+{
+    const DWORD allowed = V9X_DDBLT_ROP | V9X_DDBLT_WAIT |
+                          V9X_DDBLT_DONOTWAIT | V9X_DDBLT_ASYNC;
+    DWORD bytes_per_pixel;
+    DWORD source_offset;
+    DWORD destination_offset;
+    DWORD source_pitch;
+    DWORD destination_pitch;
+    DWORD row_bytes;
+    DWORD height;
+    DWORD row;
+    BYTE *base;
+
+    data->ddRVal = V9X_DD_OK;
+    if ((data->dwFlags & ~allowed) != 0ul ||
+        ((data->dwFlags & V9X_DDBLT_ROP) != 0ul &&
+         data->bltFX.dwROP != V9X_DDROP_SRCCOPY) ||
+        v9x_hal == 0 || (v9x_hal->fb.flags & V9X_DD_FB_VALID) == 0ul ||
+        (v9x_hal->fb.bits_per_pixel != 8ul &&
+         v9x_hal->fb.bits_per_pixel != 16ul)) {
+        return V9X_DDHAL_DRIVER_NOTHANDLED;
+    }
+    /* No stretching, mirroring, colour keying or format conversion. */
+    if (data->rSrc[2] - data->rSrc[0] != data->rDest[2] - data->rDest[0] ||
+        data->rSrc[3] - data->rSrc[1] != data->rDest[3] - data->rDest[1]) {
+        return V9X_DDHAL_DRIVER_NOTHANDLED;
+    }
+    bytes_per_pixel = v9x_hal->fb.bits_per_pixel >> 3;
+    if (!v9x_copy_rect_valid(data->lpDDSrcSurface, data->rSrc,
+                             bytes_per_pixel, &source_offset) ||
+        !v9x_copy_rect_valid(data->lpDDDestSurface, data->rDest,
+                             bytes_per_pixel, &destination_offset)) {
+        return V9X_DDHAL_DRIVER_NOTHANDLED;
+    }
+    /* Drain whichever engine owns this chipset before touching the same
+     * memory from the CPU. With no engine enabled there is nothing in
+     * flight, so the copy can start immediately. */
+    {
+        int wait = (data->dwFlags &
+                    (V9X_DDBLT_ASYNC | V9X_DDBLT_DONOTWAIT)) == 0ul;
+        int idle = v9x_trio_engine_ready() ? v9x_trio_wait_idle(wait)
+                 : v9x_engine_status_validated() ? v9x_wait_idle(wait)
+                 : 1;
+
+        if (!idle) {
+            data->ddRVal = V9X_DDERR_WASSTILLDRAWING;
+            return V9X_DDHAL_DRIVER_HANDLED;
+        }
+    }
+
+    source_pitch = (DWORD)data->lpDDSrcSurface->lpGbl->lPitch;
+    destination_pitch = (DWORD)data->lpDDDestSurface->lpGbl->lPitch;
+    row_bytes = (DWORD)(data->rSrc[2] - data->rSrc[0]) * bytes_per_pixel;
+    height = (DWORD)(data->rSrc[3] - data->rSrc[1]);
+    base = (BYTE *)v9x_hal->fb.linear_base;
+    source_offset += (DWORD)data->rSrc[1] * source_pitch +
+                     (DWORD)data->rSrc[0] * bytes_per_pixel;
+    destination_offset += (DWORD)data->rDest[1] * destination_pitch +
+                          (DWORD)data->rDest[0] * bytes_per_pixel;
+
+    /* Source and destination can be the same surface (window scrolling), so
+     * pick the row order that keeps an overlapping copy correct. */
+    if (destination_offset > source_offset) {
+        for (row = height; row-- != 0ul;) {
+            v9x_copy_row(base + destination_offset + row * destination_pitch,
+                         base + source_offset + row * source_pitch,
+                         row_bytes);
+        }
+    } else {
+        for (row = 0ul; row < height; ++row) {
+            v9x_copy_row(base + destination_offset + row * destination_pitch,
+                         base + source_offset + row * source_pitch,
+                         row_bytes);
+        }
+    }
+    return V9X_DDHAL_DRIVER_HANDLED;
+}
+
 static DWORD v9x_blt_body(V9X_DDHAL_BLTDATA *data)
 {
     DWORD allowed = V9X_DDBLT_COLORFILL | V9X_DDBLT_WAIT |
@@ -909,6 +1064,9 @@ static DWORD v9x_blt_body(V9X_DDHAL_BLTDATA *data)
     DWORD command;
     int wait;
 
+    if (data != 0 && data->lpDDSrcSurface != 0) {
+        return v9x_srccopy_body(data);
+    }
     if (v9x_trio_engine_ready()) {
         DWORD trio_allowed = V9X_DDBLT_COLORFILL | V9X_DDBLT_WAIT |
                              V9X_DDBLT_DONOTWAIT | V9X_DDBLT_ASYNC;
@@ -1018,7 +1176,15 @@ DWORD __stdcall V9xHalBlt(V9X_DDHAL_BLTDATA *data)
 
     v9x_trace_enter(V9X_TRACE_BLT, data != 0 ? data->dwFlags : 0ul);
     result = v9x_blt_body(data);
-    v9x_trace_exit(V9X_TRACE_BLT, data != 0 ? data->ddRVal : 0ul);
+    /* Record the driver return, not ddRVal: DDHAL_DRIVER_HANDLED is the only
+     * evidence that the engine - rather than the HEL - executed the blit,
+     * and ddRVal is DD_OK in both cases. The separate counter survives a
+     * ring wrap; GetBltStatus polling floods the ring after every blit. */
+    if (result == V9X_DDHAL_DRIVER_HANDLED) {
+        v9x_trace_count(V9X_TRACE_BLT_ENGINE,
+                        data != 0 ? data->bltFX.dwFillColor : 0ul);
+    }
+    v9x_trace_exit(V9X_TRACE_BLT, result);
     return result;
 }
 
@@ -2827,35 +2993,10 @@ DWORD __stdcall DriverInit(DWORD context)
     shared->cb32.flags = 0ul;
 
     /* Trio64 shares the S3 scanout/vblank controls but not the ViRGE new-MMIO
-     * or S3D engines. Publish only the framebuffer HAL baseline until a
-     * bounded Trio accelerator path is independently validated. */
-    if ((shared->engine.flags & V9X_DD_ENGINE_S3_TRIO64) != 0ul) {
-        shared->info.GetDriverInfo = 0;
-        shared->info.lpD3DGlobalDriverData = 0ul;
-        shared->info.lpD3DHALCallbacks = 0ul;
-        shared->info.ddCaps.dwCaps = V9X_DDCAPS_GDI | V9X_DDCAPS_VBI |
-                                     V9X_DDCAPS_BLT |
-                                     V9X_DDCAPS_BLTCOLORFILL;
-        /* ROP3 PATCOPY (0xf0): dwRops[7], bit 16. Without this bit DDRAW
-         * correctly routes color fills to HEL even when BLTCOLORFILL is set. */
-        shared->info.ddCaps.dwRops[7] = 0x00010000ul;
-        shared->info.ddCaps.ddsCaps = V9X_DDSCAPS_OFFSCREENPLAIN |
-                                      V9X_DDSCAPS_FLIP |
-                                      V9X_DDSCAPS_PRIMARYSURFACE |
-                                      V9X_DDSCAPS_COMPLEX;
-        shared->surface_callbacks.dwFlags =
-            V9X_DDHAL_SURFCB32_DESTROYSURFACE |
-            V9X_DDHAL_SURFCB32_FLIP |
-            V9X_DDHAL_SURFCB32_GETFLIPSTATUS |
-            V9X_DDHAL_SURFCB32_LOCK |
-            V9X_DDHAL_SURFCB32_UNLOCK |
-            V9X_DDHAL_SURFCB32_ADDATTACHEDSURFACE |
-            V9X_DDHAL_SURFCB32_BLT |
-            V9X_DDHAL_SURFCB32_GETBLTSTATUS;
-        shared->execute_buffer_callbacks.dwFlags = 0ul;
-        shared->d3d_global.dwNumTextureFormats = 0ul;
-        shared->d3d_global.lpTextureFormats = 0;
-    }
+     * or S3D engines. The chipset is not known here: DriverInit runs from
+     * DDRAW's DDGET32BITDRIVERNAME escape, before the 16-bit side has
+     * refreshed the engine descriptor. The 16-bit driver therefore owns the
+     * per-chipset clamp and applies it immediately before DDHAL_SetInfo. */
 
     shared->hInstance = V9X_HAL_BASE;
     shared->driver_init_done = 1ul;

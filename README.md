@@ -52,8 +52,11 @@ transforms, clipping, lines, and indexed primitives remain unsupported. The
 ViRGE triangle engine writes native ZRGB1555 while the current 16-bpp display
 mode is RGB565, so this is an S3D execution milestone rather than general
 Direct3D compatibility. Other blits and palettes remain with the DirectDraw
-HEL. The Trio64 target also provides bounded hardware solid fills and CRTC
-page flips through DirectDraw; GDI acceleration is not yet advertised.
+HEL. The Trio64 target also provides bounded hardware solid fills, bounded
+video-memory source copies, and CRTC page flips through DirectDraw; GDI
+acceleration is not yet advertised. Advertising the DirectDraw blitter is
+all-or-nothing on Win98 — see
+[docs/issues/2026-08-14-directdraw-hal-nohardware.md](docs/issues/2026-08-14-directdraw-hal-nohardware.md).
 
 ## Host build
 

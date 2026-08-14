@@ -3,6 +3,10 @@ param(
     [string]$PackagePath,
     [string]$ControllerPath =
         "C:\everything\claude\personal\v9x-remote-agent\scripts\v9xctl.ps1",
+    # Remote-agent host port. The project runs more than one guest, so the
+    # controller default is not always the intended target.
+    [ValidateRange(1, 65535)]
+    [int]$Port = 9869,
     [string]$JobId = ("update-{0}" -f (Get-Date -Format "yyyyMMdd-HHmmss")),
     [string]$ResultsDirectory,
     [ValidateRange(30, 600)]
@@ -41,7 +45,8 @@ $powershell = Join-Path $PSHOME "powershell.exe"
 function Invoke-V9xCtlJson {
     param([string]$Operation, [string[]]$OperationArguments = @())
     $arguments = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
-                   $ControllerPath, $Operation, "-Json") + $OperationArguments
+                   $ControllerPath, $Operation, "-Json",
+                   "-Port", [string]$Port) + $OperationArguments
     $lastFailure = ""
     for ($attempt = 1; $attempt -le 3; ++$attempt) {
         try {

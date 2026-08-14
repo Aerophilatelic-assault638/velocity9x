@@ -44,6 +44,13 @@ build identifier so exact guest-tested binaries remain traceable.
 - Added a Trio64 DirectDraw framebuffer HAL with video-memory surfaces, CRTC
   page flips, and bounded 8/16-bpp hardware solid fills. Direct3D remains
   intentionally disabled on this non-ViRGE target.
+- V9XDDP now dumps the DirectDraw runtime's own `DDRAWI_DIRECTDRAW_GBL` —
+  flags, resolved HAL callback tables, video-memory info, mode list and
+  PDEVICE — so a rejected HAL can be told apart from an accepted one without
+  guessing, and tests a source-copy blit's HRESULT and resulting pixels.
+- The HAL trace distinguishes a blit the driver executed from one it declined
+  (`BltEngine`), which the previous `Blt` counter could not: `ddRVal` is
+  `DD_OK` either way, and `GetBltStatus` polling floods the trace ring.
 - The DirectDraw HAL now writes its callback ring directly to
   `C:\V9XTRACE.INI` on an unhandled process fault or bounded ViRGE engine
   timeout, before recovery can discard the last useful callback history. The
@@ -51,6 +58,26 @@ build identifier so exact guest-tested binaries remain traceable.
 
 ### Fixed
 
+- Windows 98 DirectDraw no longer reports `DDCAPS_NOHARDWARE` for the Trio64
+  target. The runtime discards a driver's entire `DDHALINFO` — not just its
+  blitter — when `DDCAPS_BLT` is set without ROP3 `SRCCOPY` in `dwRops`, so
+  no HAL callback was ever dispatched and every DirectDraw operation was
+  served by the software HEL. The driver now advertises `SRCCOPY` alongside
+  `PATCOPY`, drops the inaccurate `DDCAPS_VBI` claim, and implements bounded
+  video-memory source copies, because a HAL that claims `DDCAPS_BLT` and then
+  declines a blit gets `DDERR_UNSUPPORTED` returned to the application rather
+  than a HEL fallback. Guest-verified: hardware page flips, vertical-blank
+  waits, and engine-executed solid fills with correct pixels.
+  See [docs/issues/2026-08-14-directdraw-hal-nohardware.md](docs/issues/2026-08-14-directdraw-hal-nohardware.md).
+- The Trio64 HAL clamp now applies to the `DDHALINFO` copy handed to
+  `DDHAL_SetInfo` instead of the shared block, and the duplicate clamp in
+  `DriverInit` — which ran before the 16-bit side had published the engine
+  identity it branched on — was removed. `ddCaps.dwVidMemTotal` and
+  `dwVidMemFree` are refreshed from the framebuffer descriptor instead of
+  being computed before it is valid, where they were always zero.
+- Restored the `C1_DIBENGINE` GDI-info declaration, dropped earlier on the
+  disproven theory that it caused `DDCAPS_NOHARDWARE`. The driver does build
+  its PDEVICE with `CreateDIBPDevice` and forward output to the DIB Engine.
 - Runtime GDI-info queries no longer overwrite an existing `enable-ok` boot
   marker, and settings now report the active DirectDraw acceleration subset.
 - Direct3D primary and flip-chain render targets now use the live scanout
