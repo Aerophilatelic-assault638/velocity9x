@@ -30,6 +30,23 @@ typedef WORD (FAR PASCAL *V9X_SETINFO_FN)(V9X_DDHALINFO FAR *info,
 
 static V9X_DD_SHARED FAR *v9x_dd_shared;
 static V9X_SETINFO_FN v9x_dd_set_info;
+static V9X_DDHALINFO v9x_dd_info16;
+static V9X_DDHAL_DDCALLBACKS v9x_dd_callbacks16;
+static V9X_DDHAL_DDSURFACECALLBACKS v9x_dd_surface_callbacks16;
+static V9X_DDHAL_DDPALETTECALLBACKS v9x_dd_palette_callbacks16;
+static V9X_VIDMEM v9x_dd_heap16;
+static V9X_DDHALMODEINFO v9x_dd_modes16[V9X_DD_MODE_COUNT];
+
+static void v9x_dd_copy(void FAR *destination, const void FAR *source,
+                        WORD bytes)
+{
+    BYTE FAR *out = (BYTE FAR *)destination;
+    const BYTE FAR *in = (const BYTE FAR *)source;
+
+    while (bytes-- != 0u) {
+        *out++ = *in++;
+    }
+}
 
 static void v9x_dd_trace(const char FAR *stage)
 {
@@ -209,6 +226,10 @@ static void v9x_dd_refresh_info(void)
     info->vmiData.pvmList = &shared->heaps[0];
     info->lpModeInfo = &shared->modes[0];
     info->lpdwFourCC = 0;
+    /* DDRAW16 identifies the HAL by the selector which owns its callback
+     * tables (Win98 DDK S3 sample: SELECTOROF(&sData)), not by the flat
+     * image base of the 32-bit companion DLL. */
+    info->hInstance = (DWORD)SELECTOROF((LPVOID)&v9x_dd_shared);
     /* DriverInit supplies the flat DX5 extension callback. Preserve it when
      * refreshing the mode-dependent fields before SetInfo. */
     info->lpPDevice = v9x_dd_active_pdevice();
@@ -219,6 +240,7 @@ static void v9x_dd_refresh_info(void)
 WORD FAR PASCAL V9xDdCreateDriverObject(WORD reset)
 {
     WORD result;
+    WORD index;
 
     if (v9x_dd_set_info == 0) {
         v9x_dd_trace("setinfo-callback-missing");
@@ -245,6 +267,7 @@ WORD FAR PASCAL V9xDdCreateDriverObject(WORD reset)
     v9x_dd_shared->info.lpD3DHALCallbacks = 0ul;
     v9x_dd_shared->info.ddCaps.dwCaps = V9X_DDCAPS_GDI |
         V9X_DDCAPS_VBI | V9X_DDCAPS_BLT | V9X_DDCAPS_BLTCOLORFILL;
+    v9x_dd_shared->info.ddCaps.dwRops[7] = 0x00010000ul;
     v9x_dd_shared->info.ddCaps.ddsCaps =
         V9X_DDSCAPS_OFFSCREENPLAIN | V9X_DDSCAPS_FLIP |
         V9X_DDSCAPS_PRIMARYSURFACE | V9X_DDSCAPS_COMPLEX;
@@ -259,7 +282,38 @@ WORD FAR PASCAL V9xDdCreateDriverObject(WORD reset)
     v9x_dd_shared->d3d_global.dwNumTextureFormats = 0ul;
     v9x_dd_shared->d3d_global.lpTextureFormats = 0;
 #endif
-    result = v9x_dd_set_info(&v9x_dd_shared->info, reset);
+    v9x_dd_trace_event(6u, v9x_dd_shared->dd_callbacks.dwFlags);
+    v9x_dd_trace_event(7u,
+        (DWORD)v9x_dd_shared->dd_callbacks.WaitForVerticalBlank);
+    v9x_dd_trace_event(8u, v9x_dd_shared->surface_callbacks.dwFlags);
+    v9x_dd_trace_event(9u, (DWORD)v9x_dd_shared->surface_callbacks.Blt);
+    /* DDRAW16 retains these 16:16 tables after SetInfo. Keep them in the
+     * display driver's DGROUP exactly like the Windows 98 S3 sample; the
+     * separately allocated shared selector remains only 16/32-bit state. */
+    v9x_dd_copy(&v9x_dd_info16, &v9x_dd_shared->info,
+                sizeof(v9x_dd_info16));
+    v9x_dd_copy(&v9x_dd_callbacks16, &v9x_dd_shared->dd_callbacks,
+                sizeof(v9x_dd_callbacks16));
+    v9x_dd_copy(&v9x_dd_surface_callbacks16,
+                &v9x_dd_shared->surface_callbacks,
+                sizeof(v9x_dd_surface_callbacks16));
+    v9x_dd_copy(&v9x_dd_palette_callbacks16,
+                &v9x_dd_shared->palette_callbacks,
+                sizeof(v9x_dd_palette_callbacks16));
+    v9x_dd_copy(&v9x_dd_heap16, &v9x_dd_shared->heaps[0],
+                sizeof(v9x_dd_heap16));
+    for (index = 0u; index < V9X_DD_MODE_COUNT; ++index) {
+        v9x_dd_copy(&v9x_dd_modes16[index], &v9x_dd_shared->modes[index],
+                    sizeof(v9x_dd_modes16[index]));
+    }
+    v9x_dd_info16.lpDDCallbacks = &v9x_dd_callbacks16;
+    v9x_dd_info16.lpDDSurfaceCallbacks = &v9x_dd_surface_callbacks16;
+    v9x_dd_info16.lpDDPaletteCallbacks = &v9x_dd_palette_callbacks16;
+    v9x_dd_info16.vmiData.pvmList = &v9x_dd_heap16;
+    v9x_dd_info16.lpModeInfo = &v9x_dd_modes16[0];
+    v9x_dd_info16.hInstance =
+        (DWORD)SELECTOROF((LPVOID)&v9x_dd_info16);
+    result = v9x_dd_set_info(&v9x_dd_info16, reset);
     v9x_dd_trace_event((WORD)(V9X_TRACE_DD16_CREATEOBJECT |
                               V9X_DD_TRACE_EXIT_FLAG),
                        (DWORD)result);
@@ -285,7 +339,8 @@ static LONG v9x_dd_command(V9X_DCICMD FAR *command, LPVOID output)
             return 0;
         }
         if (output != 0) {
-            *(DWORD FAR *)output = v9x_dd_shared->hInstance;
+            *(DWORD FAR *)output =
+                (DWORD)SELECTOROF((LPVOID)&v9x_dd_shared);
         }
         return 1;
     case V9X_DDGET32BITDRIVERNAME:

@@ -829,6 +829,8 @@ void __stdcall V9xDdrawProbeEntry(void)
     struct v9x_d3d_texture2 *texture2 = 0;
     struct v9x_d3d_viewport2 *d3d_viewport = 0;
     V9X_D3D_ENUM_RESULT d3d_result;
+    DWORD caps_buffer[79]; /* DDCAPS_DX3, 0x13c bytes. */
+    BOOL in_vblank = FALSE;
     V9X_TEXTURE_ENUM_RESULT texture_result;
     V9X_DDSURFACEDESC desc;
     V9X_DDSCAPS caps;
@@ -885,6 +887,15 @@ void __stdcall V9xDdrawProbeEntry(void)
         ExitProcess(1u);
     }
 
+    v9x_zero(caps_buffer, sizeof(caps_buffer));
+    caps_buffer[0] = sizeof(caps_buffer);
+    hr = ddraw->vtbl->GetCaps(ddraw, caps_buffer, 0);
+    v9x_write_hresult("GetCapsHr", hr);
+    v9x_write_uint("ReportedCaps", caps_buffer[1]);
+    hr = ddraw->vtbl->GetVerticalBlankStatus(ddraw, &in_vblank);
+    v9x_write_hresult("VBlankStatusHr", hr);
+    v9x_write_uint("VBlankStatus", in_vblank ? 1ul : 0ul);
+
     v9x_zero(&d3d_result, sizeof(d3d_result));
     hr = ddraw->vtbl->QueryInterface(ddraw, &v9x_iid_d3d2,
                                      (void **)&d3d);
@@ -929,6 +940,9 @@ void __stdcall V9xDdrawProbeEntry(void)
                                           V9X_DDSCL_EXCLUSIVE |
                                           V9X_DDSCL_FULLSCREEN);
     v9x_write_hresult("CoopExclusiveHr", hr);
+    hr = ddraw->vtbl->WaitForVerticalBlank(ddraw, V9X_DDWAITVB_BLOCKBEGIN,
+                                           0);
+    v9x_write_hresult("ExclusiveVBlankHr", hr);
     hr = ddraw->vtbl->SetDisplayMode(ddraw, 640ul, 480ul, 16ul);
     v9x_write_hresult("SetModeHr", hr);
     v9x_zero(&desc, sizeof(desc));
@@ -1583,6 +1597,13 @@ void __stdcall V9xDdrawProbeEntry(void)
     if (hr == 0 && stage != 0) {
         stage->vtbl->Release(stage);
         stage = 0;
+    }
+
+    /* Diagnostic hold keeps the DirectDraw object and HAL instance alive so
+     * V9XTRACE can snapshot callback dispatch from a second process. */
+    if (v9x_has_switch("/hold")) {
+        v9x_write_text("Hold", "active");
+        Sleep(15000ul);
     }
 
     if (backbuffer != 0) {

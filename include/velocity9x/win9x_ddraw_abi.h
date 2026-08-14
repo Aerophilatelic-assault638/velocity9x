@@ -29,7 +29,7 @@ typedef void (FAR PASCAL *V9X_DD_CODE_PTR)();
 #define V9X_QUERYESCSUPPORT               8u
 #define V9X_DCICOMMAND                 3075u
 #define V9X_DD_VERSION           0x00000200ul
-#define V9X_DD_HAL_VERSION           0x0100u
+#define V9X_DD_HAL_VERSION           0x00ffu
 #define V9X_DD_RUNTIME_VERSION   0x0000050aul
 
 #define V9X_DDCREATEDRIVEROBJECT         10ul

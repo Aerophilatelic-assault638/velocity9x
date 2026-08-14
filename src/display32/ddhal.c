@@ -2599,7 +2599,9 @@ DWORD __stdcall DriverInit(DWORD context)
     shared->info.dwNumModes = V9X_DD_MODE_COUNT;
     shared->info.dwFlags = V9X_DDHALINFO_ISPRIMARYDISPLAY;
     shared->info.dwMonitorFrequency = 60ul;
-    shared->info.hInstance = V9X_HAL_BASE;
+    /* The 16-bit side stamps the owning selector immediately before
+     * DDHAL_SetInfo; a flat DLL base is not a valid DDRAW16 instance. */
+    shared->info.hInstance = 0ul;
     shared->info.GetDriverInfo = (V9X_DD_CODE_PTR)V9xHalGetDriverInfo;
     shared->info.lpD3DGlobalDriverData = (DWORD)&shared->d3d_global;
     shared->info.lpD3DHALCallbacks = (DWORD)&shared->d3d_callbacks;
@@ -2834,6 +2836,9 @@ DWORD __stdcall DriverInit(DWORD context)
         shared->info.ddCaps.dwCaps = V9X_DDCAPS_GDI | V9X_DDCAPS_VBI |
                                      V9X_DDCAPS_BLT |
                                      V9X_DDCAPS_BLTCOLORFILL;
+        /* ROP3 PATCOPY (0xf0): dwRops[7], bit 16. Without this bit DDRAW
+         * correctly routes color fills to HEL even when BLTCOLORFILL is set. */
+        shared->info.ddCaps.dwRops[7] = 0x00010000ul;
         shared->info.ddCaps.ddsCaps = V9X_DDSCAPS_OFFSCREENPLAIN |
                                       V9X_DDSCAPS_FLIP |
                                       V9X_DDSCAPS_PRIMARYSURFACE |
