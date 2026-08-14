@@ -109,7 +109,9 @@ static void v9x_create_controls(HWND window)
     SendMessageA(control, BM_SETCHECK, BST_CHECKED, 0);
     control = v9x_control(window, "BUTTON", "Hardware acceleration",
                           BS_AUTOCHECKBOX | WS_DISABLED, 28, 285, 250, 20, 0);
-    SendMessageA(control, BM_SETCHECK, BST_UNCHECKED, 0);
+    SendMessageA(control, BM_SETCHECK,
+                 v9x_status.hardware_acceleration
+                     ? BST_CHECKED : BST_UNCHECKED, 0);
     (void)v9x_control(window, "STATIC", "Version: " V9X_VERSION_STRING,
                       SS_RIGHT, 218, 287, 180, 18, 0);
     control = v9x_control(window, "BUTTON", "Live mode switching",

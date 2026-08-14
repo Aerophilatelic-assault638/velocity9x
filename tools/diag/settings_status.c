@@ -159,6 +159,7 @@ void v9x_settings_collect(V9X_SETTINGS_STATUS *status,
 
     {
         char switching[32];
+        char acceleration[40];
 
         GetPrivateProfileStringA("Velocity9xHardware", "ModeSwitching",
                                  "reboot-selected", switching,
@@ -171,6 +172,11 @@ void v9x_settings_collect(V9X_SETTINGS_STATUS *status,
                        ? "Live (same color depth); depth change requires"
                          " restart"
                        : "Selected at boot");
+        GetPrivateProfileStringA("Velocity9xHardware", "Acceleration",
+                                 "disabled", acceleration,
+                                 sizeof(acceleration), "C:\\V9XHW.INI");
+        status->hardware_acceleration =
+            lstrcmpiA(acceleration, "directdraw-solid-fill") == 0;
     }
 
     GetPrivateProfileStringA("Velocity9x", "Stage", "not recorded",
@@ -245,9 +251,14 @@ void v9x_settings_collect(V9X_SETTINGS_STATUS *status,
                status->mode_switching);
     v9x_append(status->report, sizeof(status->report),
         "\r\nSupported modes: 640x480, 800x600, 1024x768 at 8/16 bpp"
-        "\r\nRendering: Windows DIB Engine (software)"
-        "\r\nAcceleration: disabled"
-        "\r\nMini-VDD callbacks: master VDD defaults\r\n");
+        "\r\nRendering: Windows DIB Engine plus DirectDraw HAL"
+        "\r\nAcceleration: ");
+    v9x_append(status->report, sizeof(status->report),
+               status->hardware_acceleration
+                   ? "solid fills and page flips"
+                   : "disabled");
+    v9x_append(status->report, sizeof(status->report),
+               "\r\nMini-VDD callbacks: master VDD defaults\r\n");
 }
 
 int v9x_settings_copy_report(void *owner_window,

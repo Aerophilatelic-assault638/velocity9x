@@ -41,6 +41,9 @@ build identifier so exact guest-tested binaries remain traceable.
 - Register and verify the Velocity9x native Display Properties page and
   standalone settings utility on the Trio64 target, including adapter, mode,
   framebuffer, clock, build, and last-test reporting.
+- Added a Trio64 DirectDraw framebuffer HAL with video-memory surfaces, CRTC
+  page flips, and bounded 8/16-bpp hardware solid fills. Direct3D remains
+  intentionally disabled on this non-ViRGE target.
 - The DirectDraw HAL now writes its callback ring directly to
   `C:\V9XTRACE.INI` on an unhandled process fault or bounded ViRGE engine
   timeout, before recovery can discard the last useful callback history. The
@@ -48,6 +51,8 @@ build identifier so exact guest-tested binaries remain traceable.
 
 ### Fixed
 
+- Runtime GDI-info queries no longer overwrite an existing `enable-ok` boot
+  marker, and settings now report the active DirectDraw acceleration subset.
 - Direct3D primary and flip-chain render targets now use the live scanout
   pitch, dimensions, and RGB565 description instead of potentially stale
   per-surface metadata. Target layout is included in the callback trace.

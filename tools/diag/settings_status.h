@@ -19,6 +19,7 @@ typedef struct v9x_settings_status {
     char gdi_status[160];
     char mode_switching[80];
     int live_mode_switching;
+    int hardware_acceleration;
     char report[1024];
 } V9X_SETTINGS_STATUS;
 

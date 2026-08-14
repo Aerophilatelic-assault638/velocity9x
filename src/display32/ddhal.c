@@ -36,6 +36,20 @@
 #define V9X_INPUT_STATUS_1          0x03dau
 #define V9X_STATUS_VBLANK              0x08u
 
+/* Trio32/64 enhanced 8514/A-compatible drawing engine ports. */
+#define V9X_TRIO_CUR_Y                 0x82e8u
+#define V9X_TRIO_CUR_X                 0x86e8u
+#define V9X_TRIO_MAJ_AXIS_PCNT         0x96e8u
+#define V9X_TRIO_CMD_STATUS            0x9ae8u
+#define V9X_TRIO_FRGD_COLOR            0xa6e8u
+#define V9X_TRIO_FRGD_MIX              0xbae8u
+#define V9X_TRIO_MULTIFUNC_CNTL        0xbee8u
+#define V9X_TRIO_PIXEL_CNTL_FRGD_MIX   0xa000u
+#define V9X_TRIO_FRGD_MIX_NEW          0x0027u
+#define V9X_TRIO_CMD_RECT_SOLID        0x40b1u
+#define V9X_TRIO_STATUS_BUSY           0x0200u
+#define V9X_TRIO_IDLE_SPIN_LIMIT       0x00400000ul
+
 /* Bounded vblank polling so a broken timing source cannot hang a caller. */
 #define V9X_VBLANK_SPIN_LIMIT   0x00200000ul
 
@@ -406,6 +420,12 @@ static unsigned char v9x_inp(unsigned short port);
 static void v9x_outp(unsigned short port, unsigned char value);
 #pragma aux v9x_outp = "out dx,al" parm [dx] [al] modify exact [];
 
+static unsigned short v9x_inpw(unsigned short port);
+#pragma aux v9x_inpw = "in ax,dx" parm [dx] value [ax] modify exact [ax];
+
+static void v9x_outpw(unsigned short port, unsigned short value);
+#pragma aux v9x_outpw = "out dx,ax" parm [dx] [ax] modify exact [];
+
 static void v9x_fpu_save(void *area);
 #pragma aux v9x_fpu_save = "fnsave [eax]" parm [eax] modify exact [];
 
@@ -453,6 +473,39 @@ static int v9x_engine_status_validated(void)
     return v9x_engine_ready() &&
            (v9x_hal->engine.flags &
             V9X_DD_ENGINE_STATUS_VALIDATED) != 0ul;
+}
+
+static int v9x_trio_engine_ready(void)
+{
+    return v9x_hal != 0 &&
+           (v9x_hal->fb.flags & V9X_DD_FB_VALID) != 0ul &&
+           (v9x_hal->engine.flags &
+            (V9X_DD_ENGINE_VALID | V9X_DD_ENGINE_S3_TRIO64)) ==
+            (V9X_DD_ENGINE_VALID | V9X_DD_ENGINE_S3_TRIO64);
+}
+
+static int v9x_trio_wait_idle(int wait)
+{
+    DWORD spins;
+
+    if (!v9x_trio_engine_ready()) {
+        return 0;
+    }
+    if ((v9x_inpw(V9X_TRIO_CMD_STATUS) & V9X_TRIO_STATUS_BUSY) == 0u) {
+        return 1;
+    }
+    if (!wait) {
+        return 0;
+    }
+    spins = V9X_TRIO_IDLE_SPIN_LIMIT;
+    while (spins-- != 0ul) {
+        if ((v9x_inpw(V9X_TRIO_CMD_STATUS) & V9X_TRIO_STATUS_BUSY) == 0u) {
+            return 1;
+        }
+    }
+    ++v9x_hal->engine.idle_timeouts;
+    v9x_trace_flush_fault(0x54394944ul, V9X_TRIO_CMD_STATUS);
+    return 0;
 }
 
 static DWORD v9x_mmio_read(DWORD offset)
@@ -856,6 +909,66 @@ static DWORD v9x_blt_body(V9X_DDHAL_BLTDATA *data)
     DWORD command;
     int wait;
 
+    if (v9x_trio_engine_ready()) {
+        DWORD trio_allowed = V9X_DDBLT_COLORFILL | V9X_DDBLT_WAIT |
+                             V9X_DDBLT_DONOTWAIT | V9X_DDBLT_ASYNC;
+        DWORD trio_offset;
+        DWORD trio_pitch;
+        DWORD trio_y;
+
+        if (data == 0 ||
+            (data->dwFlags & V9X_DDBLT_COLORFILL) == 0ul ||
+            (data->dwFlags & ~trio_allowed) != 0ul ||
+            data->lpDDSrcSurface != 0 || data->lpDDDestSurface == 0 ||
+            data->lpDDDestSurface->lpGbl == 0 ||
+            (v9x_hal->fb.bits_per_pixel != 8ul &&
+             v9x_hal->fb.bits_per_pixel != 16ul)) {
+            if (data != 0) {
+                data->ddRVal = V9X_DD_OK;
+            }
+            return V9X_DDHAL_DRIVER_NOTHANDLED;
+        }
+        bytes_per_pixel = v9x_hal->fb.bits_per_pixel >> 3;
+        if (!v9x_fill_rect_valid(data, bytes_per_pixel, &trio_offset)) {
+            data->ddRVal = V9X_DD_OK;
+            return V9X_DDHAL_DRIVER_NOTHANDLED;
+        }
+        trio_pitch = v9x_hal->fb.pitch;
+        if ((DWORD)data->lpDDDestSurface->lpGbl->lPitch != trio_pitch ||
+            trio_pitch == 0ul || (trio_offset % trio_pitch) != 0ul) {
+            data->ddRVal = V9X_DD_OK;
+            return V9X_DDHAL_DRIVER_NOTHANDLED;
+        }
+        trio_y = trio_offset / trio_pitch + (DWORD)data->rDest[1];
+        width = (DWORD)(data->rDest[2] - data->rDest[0]);
+        height = (DWORD)(data->rDest[3] - data->rDest[1]);
+        if (trio_y >= 2048ul || height > 2048ul - trio_y) {
+            data->ddRVal = V9X_DD_OK;
+            return V9X_DDHAL_DRIVER_NOTHANDLED;
+        }
+        wait = (data->dwFlags &
+                (V9X_DDBLT_ASYNC | V9X_DDBLT_DONOTWAIT)) == 0ul;
+        if (!v9x_trio_wait_idle(wait)) {
+            data->ddRVal = V9X_DDERR_WASSTILLDRAWING;
+            return V9X_DDHAL_DRIVER_HANDLED;
+        }
+
+        /* S3 Trio32/64 databook section 13.3.3: solid rectangle fill. */
+        v9x_outpw(V9X_TRIO_FRGD_MIX, V9X_TRIO_FRGD_MIX_NEW);
+        v9x_outpw(V9X_TRIO_FRGD_COLOR,
+                  (unsigned short)data->bltFX.dwFillColor);
+        v9x_outpw(V9X_TRIO_MULTIFUNC_CNTL,
+                  V9X_TRIO_PIXEL_CNTL_FRGD_MIX);
+        v9x_outpw(V9X_TRIO_CUR_X, (unsigned short)data->rDest[0]);
+        v9x_outpw(V9X_TRIO_CUR_Y, (unsigned short)trio_y);
+        v9x_outpw(V9X_TRIO_MAJ_AXIS_PCNT, (unsigned short)(width - 1ul));
+        v9x_outpw(V9X_TRIO_MULTIFUNC_CNTL,
+                  (unsigned short)(height - 1ul));
+        v9x_outpw(V9X_TRIO_CMD_STATUS, V9X_TRIO_CMD_RECT_SOLID);
+        data->ddRVal = V9X_DD_OK;
+        return V9X_DDHAL_DRIVER_HANDLED;
+    }
+
     if (!v9x_engine_status_validated() || data == 0 ||
         (data->dwFlags & V9X_DDBLT_COLORFILL) == 0ul ||
         (data->dwFlags & ~allowed) != 0ul || data->lpDDSrcSurface != 0) {
@@ -915,6 +1028,16 @@ DWORD __stdcall V9xHalGetBltStatus(V9X_DDHAL_GETBLTSTATUSDATA *data)
     DWORD status;
 
     v9x_trace_count(V9X_TRACE_GETBLTSTATUS, data->dwFlags);
+    if (v9x_trio_engine_ready()) {
+        if (data->dwFlags != V9X_DDGBS_CANBLT &&
+            data->dwFlags != V9X_DDGBS_ISBLTDONE) {
+            data->ddRVal = V9X_DD_OK;
+            return V9X_DDHAL_DRIVER_NOTHANDLED;
+        }
+        ready = v9x_trio_wait_idle(0);
+        data->ddRVal = ready ? V9X_DD_OK : V9X_DDERR_WASSTILLDRAWING;
+        return V9X_DDHAL_DRIVER_HANDLED;
+    }
     if (!v9x_engine_ready()) {
         data->ddRVal = V9X_DD_OK;
         return V9X_DDHAL_DRIVER_NOTHANDLED;
@@ -2700,6 +2823,34 @@ DWORD __stdcall DriverInit(DWORD context)
     shared->cb32.WaitForVerticalBlank =
         (DWORD)V9xHalWaitForVerticalBlank;
     shared->cb32.flags = 0ul;
+
+    /* Trio64 shares the S3 scanout/vblank controls but not the ViRGE new-MMIO
+     * or S3D engines. Publish only the framebuffer HAL baseline until a
+     * bounded Trio accelerator path is independently validated. */
+    if ((shared->engine.flags & V9X_DD_ENGINE_S3_TRIO64) != 0ul) {
+        shared->info.GetDriverInfo = 0;
+        shared->info.lpD3DGlobalDriverData = 0ul;
+        shared->info.lpD3DHALCallbacks = 0ul;
+        shared->info.ddCaps.dwCaps = V9X_DDCAPS_GDI | V9X_DDCAPS_VBI |
+                                     V9X_DDCAPS_BLT |
+                                     V9X_DDCAPS_BLTCOLORFILL;
+        shared->info.ddCaps.ddsCaps = V9X_DDSCAPS_OFFSCREENPLAIN |
+                                      V9X_DDSCAPS_FLIP |
+                                      V9X_DDSCAPS_PRIMARYSURFACE |
+                                      V9X_DDSCAPS_COMPLEX;
+        shared->surface_callbacks.dwFlags =
+            V9X_DDHAL_SURFCB32_DESTROYSURFACE |
+            V9X_DDHAL_SURFCB32_FLIP |
+            V9X_DDHAL_SURFCB32_GETFLIPSTATUS |
+            V9X_DDHAL_SURFCB32_LOCK |
+            V9X_DDHAL_SURFCB32_UNLOCK |
+            V9X_DDHAL_SURFCB32_ADDATTACHEDSURFACE |
+            V9X_DDHAL_SURFCB32_BLT |
+            V9X_DDHAL_SURFCB32_GETBLTSTATUS;
+        shared->execute_buffer_callbacks.dwFlags = 0ul;
+        shared->d3d_global.dwNumTextureFormats = 0ul;
+        shared->d3d_global.lpTextureFormats = 0;
+    }
 
     shared->hInstance = V9X_HAL_BASE;
     shared->driver_init_done = 1ul;

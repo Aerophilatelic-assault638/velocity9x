@@ -52,6 +52,7 @@ typedef void (FAR PASCAL *V9X_DD_CODE_PTR)();
 #define V9X_DDCAPS_BLT               0x00000040ul
 #define V9X_DDCAPS_3D                0x00000001ul
 #define V9X_DDCAPS_GDI               0x00000400ul
+#define V9X_DDCAPS_VBI               0x00080000ul
 #define V9X_DDCAPS_BLTCOLORFILL      0x04000000ul
 #define V9X_DDSCAPS_3DDEVICE         0x00002000ul
 #define V9X_DDSCAPS_BACKBUFFER       0x00000004ul
@@ -931,6 +932,7 @@ typedef struct v9x_dd_framebuffer {
  * through control_linear_base and must never be exposed as a heap. */
 #define V9X_DD_ENGINE_VALID          0x00000001ul
 #define V9X_DD_ENGINE_S3_VIRGE_DX    0x00000002ul
+#define V9X_DD_ENGINE_S3_TRIO64      0x00000004ul
 #define V9X_DD_ENGINE_STATUS_VALIDATED 0x00000004ul
 
 typedef struct v9x_dd_engine {

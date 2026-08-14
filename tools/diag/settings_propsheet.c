@@ -107,7 +107,9 @@ static BOOL CALLBACK v9x_page_dialog_proc(HWND dialog,
         SetDlgItemTextA(dialog, V9X_IDC_GDI_TEST,
                         v9x_page_status.gdi_status);
         CheckDlgButton(dialog, V9X_IDC_DIB_CHECK, BST_CHECKED);
-        CheckDlgButton(dialog, V9X_IDC_ACCEL_CHECK, BST_UNCHECKED);
+        CheckDlgButton(dialog, V9X_IDC_ACCEL_CHECK,
+                       v9x_page_status.hardware_acceleration
+                           ? BST_CHECKED : BST_UNCHECKED);
         CheckDlgButton(dialog, V9X_IDC_MODESW_CHECK,
                        v9x_page_status.live_mode_switching
                            ? BST_CHECKED : BST_UNCHECKED);

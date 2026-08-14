@@ -18,7 +18,7 @@ extern void v9x_serial_write(const char FAR *message);
 extern LONG FAR PASCAL V9xDibControlCall(LPVOID device, WORD function,
                                          LPVOID input, LPVOID output);
 
-#if !defined(V9X_TARGET_MATROX_MILLENNIUM2) && !defined(V9X_TARGET_S3_TRIO64)
+#ifndef V9X_TARGET_MATROX_MILLENNIUM2
 
 extern WORD FAR PASCAL V9xDdSharedAlloc(void);
 extern DWORD FAR PASCAL V9xDdSharedLinear(void);
@@ -136,11 +136,18 @@ static void v9x_dd_refresh_framebuffer(void)
     /* V9xHardwareEnable maps the complete 64-MiB ViRGE linear aperture.
      * New-MMIO is a 64-KiB window at BAR + 16 MiB; register offsets such as
      * SUBSYS_STAT (0x8504) are relative to that window, not to VRAM. */
+#ifdef V9X_TARGET_S3_TRIO64
+    shared->engine.control_linear_base = 0ul;
+    shared->engine.mapped_aperture_bytes = 0ul;
+    shared->engine.flags = V9X_DD_ENGINE_VALID |
+                           V9X_DD_ENGINE_S3_TRIO64;
+#else
     shared->engine.control_linear_base =
         shared->fb.linear_base + 0x01000000ul;
     shared->engine.mapped_aperture_bytes = 0x00010000ul;
     shared->engine.flags = V9X_DD_ENGINE_VALID |
                            V9X_DD_ENGINE_S3_VIRGE_DX;
+#endif
 }
 
 /*
@@ -229,6 +236,29 @@ WORD FAR PASCAL V9xDdCreateDriverObject(WORD reset)
         v9x_dd_trace("driverinit-pending");
         return 0u;
     }
+#ifdef V9X_TARGET_S3_TRIO64
+    /* DriverInit can run before the 16-bit side publishes the live engine
+     * identity. Clamp again immediately before SetInfo so DDRAW never sees
+     * the ViRGE-only capabilities initialized by the shared HAL binary. */
+    v9x_dd_shared->info.GetDriverInfo = 0;
+    v9x_dd_shared->info.lpD3DGlobalDriverData = 0ul;
+    v9x_dd_shared->info.lpD3DHALCallbacks = 0ul;
+    v9x_dd_shared->info.ddCaps.dwCaps = V9X_DDCAPS_GDI |
+        V9X_DDCAPS_VBI | V9X_DDCAPS_BLT | V9X_DDCAPS_BLTCOLORFILL;
+    v9x_dd_shared->info.ddCaps.ddsCaps =
+        V9X_DDSCAPS_OFFSCREENPLAIN | V9X_DDSCAPS_FLIP |
+        V9X_DDSCAPS_PRIMARYSURFACE | V9X_DDSCAPS_COMPLEX;
+    v9x_dd_shared->surface_callbacks.dwFlags =
+        V9X_DDHAL_SURFCB32_DESTROYSURFACE |
+        V9X_DDHAL_SURFCB32_FLIP |
+        V9X_DDHAL_SURFCB32_GETFLIPSTATUS |
+        V9X_DDHAL_SURFCB32_LOCK | V9X_DDHAL_SURFCB32_UNLOCK |
+        V9X_DDHAL_SURFCB32_ADDATTACHEDSURFACE |
+        V9X_DDHAL_SURFCB32_BLT | V9X_DDHAL_SURFCB32_GETBLTSTATUS;
+    v9x_dd_shared->execute_buffer_callbacks.dwFlags = 0ul;
+    v9x_dd_shared->d3d_global.dwNumTextureFormats = 0ul;
+    v9x_dd_shared->d3d_global.lpTextureFormats = 0;
+#endif
     result = v9x_dd_set_info(&v9x_dd_shared->info, reset);
     v9x_dd_trace_event((WORD)(V9X_TRACE_DD16_CREATEOBJECT |
                               V9X_DD_TRACE_EXIT_FLAG),
@@ -350,14 +380,14 @@ static LONG v9x_dd_command(V9X_DCICMD FAR *command, LPVOID output)
     }
 }
 
-#endif /* ViRGE DirectDraw target only */
+#endif /* DirectDraw targets */
 
 LONG __loadds FAR PASCAL Control(LPVOID device,
                                  WORD function,
                                  LPVOID input,
                                  LPVOID output)
 {
-#if !defined(V9X_TARGET_MATROX_MILLENNIUM2) && !defined(V9X_TARGET_S3_TRIO64)
+#ifndef V9X_TARGET_MATROX_MILLENNIUM2
     if (function == V9X_QUERYESCSUPPORT && input != 0) {
         if (*(WORD FAR *)input == V9X_DCICOMMAND) {
             return (LONG)V9X_DD_HAL_VERSION;

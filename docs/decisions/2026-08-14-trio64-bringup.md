@@ -48,12 +48,14 @@ The VM was left at 1024x768x16 with a final GDI PASS.
 
 ## Current boundary
 
-- No Trio64 hardware acceleration is advertised.
-- The ViRGE DirectDraw HAL, new-MMIO window, and S3D path are disabled.
+- DirectDraw video-memory surfaces, CRTC page flips, and bounded solid fills
+  are advertised. Fills use the Trio32/64 enhanced 8514/A-compatible engine
+  only for 8/16-bpp display-pitch surfaces; unsupported shapes fall back to HEL.
+- The ViRGE new-MMIO window, S3D path, and hardware Direct3D are disabled.
 - Monitor-power behavior has not yet been included in this Trio64 baseline.
 - The remote agent's INFO `BitsPerPixel` field reports zero on this guest even
   though GDI and the Velocity9x settings contract report the correct depth.
 
-Future Trio64 work should add one bounded 2D primitive at a time, beginning
+Further Trio64 work should add one bounded 2D primitive at a time, continuing
 with engine identification and idle-status proof, while retaining this
 software-GDI configuration as the recovery baseline.

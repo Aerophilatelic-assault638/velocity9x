@@ -35,7 +35,7 @@ matrix repetitions. It is not a release driver.
 - a strict S3-only INF, recovery documentation, and read-only settings panel;
 - a read-only "Velocity9x" page inside native Display Properties, installed as
   a shell property-sheet extension by the INF;
-- a guest-proven Trio64 framebuffer target with hardware diagnostics and the
+- a guest-proven Trio64 framebuffer/DirectDraw target with hardware diagnostics and the
   complete 640/800/1024 x 8/16-bpp software-GDI matrix;
 - host tests and an Open Watcom build entry point.
 
@@ -52,7 +52,8 @@ transforms, clipping, lines, and indexed primitives remain unsupported. The
 ViRGE triangle engine writes native ZRGB1555 while the current 16-bpp display
 mode is RGB565, so this is an S3D execution milestone rather than general
 Direct3D compatibility. Other blits and palettes remain with the DirectDraw
-HEL. No GDI acceleration capability is advertised.
+HEL. The Trio64 target also provides bounded hardware solid fills and CRTC
+page flips through DirectDraw; GDI acceleration is not yet advertised.
 
 ## Host build
 

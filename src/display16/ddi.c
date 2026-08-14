@@ -234,6 +234,9 @@ static void v9x_publish_hardware_diagnostics(void)
     WritePrivateProfileString("Velocity9xHardware", "ModeSwitching",
                               "live-same-depth",
                               V9X_HARDWARE_INFO_PATH);
+    WritePrivateProfileString("Velocity9xHardware", "Acceleration",
+                              "directdraw-solid-fill",
+                              V9X_HARDWARE_INFO_PATH);
 
     status = v9x_s3_virge_decode_clock_pll(sr10, sr11, &clocks);
     if (status != V9X_STATUS_OK) {
@@ -378,7 +381,7 @@ static void v9x_select_requested_mode(void)
     v9x_apply_mode(requested);
 }
 
-#if !defined(V9X_TARGET_MATROX_MILLENNIUM2) && !defined(V9X_TARGET_S3_TRIO64)
+#ifndef V9X_TARGET_MATROX_MILLENNIUM2
 /* DirectDraw glue accessors (dd16.c). */
 extern WORD FAR PASCAL V9xDdCreateDriverObject(WORD reset);
 extern void FAR PASCAL V9xDdInvalidate(void);
@@ -498,11 +501,15 @@ static WORD v9x_fill_gdi_info(V9X_GDI_INFO FAR *info,
     WORD result;
     WORD extra_size;
 
-    v9x_boot_trace("query-start");
+    if (v9x_enabled == 0u) {
+        v9x_boot_trace("query-start");
+    }
     if (v9x_enabled == 0u) {
         v9x_select_requested_mode();
     }
-    v9x_boot_trace("query-mode-selected");
+    if (v9x_enabled == 0u) {
+        v9x_boot_trace("query-mode-selected");
+    }
 
     result = V9xDibEnableCall(info, 1u, destination_type, output_file, data);
     if (result == 0u || info->dpDEVICEsize <= 0) {
@@ -563,7 +570,9 @@ static WORD v9x_fill_gdi_info(V9X_GDI_INFO FAR *info,
     info->dpCaps1 |= V9X_C1_DIBENGINE | V9X_C1_REINIT_ABLE |
                      V9X_C1_BYTE_PACKED | V9X_C1_COLORCURSOR |
                      V9X_C1_SLOW_CARD;
-    v9x_boot_trace("query-ok");
+    if (v9x_enabled == 0u) {
+        v9x_boot_trace("query-ok");
+    }
     return V9X_GDIINFO_SIZE;
 }
 
@@ -710,7 +719,7 @@ static WORD v9x_build_pdevice(LPVOID device_info,
     v9x_serial_write_mode("V9X-DRV enable-ok mode=");
     v9x_serial_write(" lfb-mapped\r\n");
     v9x_publish_hardware_diagnostics();
-#if !defined(V9X_TARGET_MATROX_MILLENNIUM2) && !defined(V9X_TARGET_S3_TRIO64)
+#ifndef V9X_TARGET_MATROX_MILLENNIUM2
     /* A live ReEnable owns a DIBENGINE BeginAccessRect exclusion until the
      * rebuilt PDEVICE has been finalized below. Calling DIBENGINE's SetInfo
      * from inside that exclusion re-enters DIBENG and can fault. The
@@ -749,7 +758,7 @@ WORD __loadds FAR PASCAL Disable(LPVOID destination_device)
     v9x_active_mode = 0;
     v9x_driver_pdevice = 0;
     v9x_color_table = 0;
-#if !defined(V9X_TARGET_MATROX_MILLENNIUM2) && !defined(V9X_TARGET_S3_TRIO64)
+#ifndef V9X_TARGET_MATROX_MILLENNIUM2
     V9xDdInvalidate();
 #endif
     V9xVddUnregister();
@@ -824,7 +833,7 @@ WORD __loadds FAR PASCAL ReEnable(LPVOID destination_device,
         return 0u;
     }
     device->deFlags &= (WORD)~V9X_DE_BUSY;
-#if !defined(V9X_TARGET_MATROX_MILLENNIUM2) && !defined(V9X_TARGET_S3_TRIO64)
+#ifndef V9X_TARGET_MATROX_MILLENNIUM2
     /* PDEVICE reconstruction is complete; it is now safe to call the
      * runtime's SetInfo reset callback. */
     (void)V9xDdCreateDriverObject(1u);
