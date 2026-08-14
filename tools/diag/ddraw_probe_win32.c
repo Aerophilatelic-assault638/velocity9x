@@ -22,6 +22,7 @@
 #define V9X_DDSD_HEIGHT             0x00000002ul
 #define V9X_DDSD_WIDTH              0x00000004ul
 #define V9X_DDSD_BACKBUFFERCOUNT    0x00000020ul
+#define V9X_DDSD_MIPMAPCOUNT        0x00020000ul
 #define V9X_DDSD_PIXELFORMAT        0x00001000ul
 #define V9X_DDSCAPS_BACKBUFFER      0x00000004ul
 #define V9X_DDSCAPS_COMPLEX         0x00000008ul
@@ -32,6 +33,7 @@
 #define V9X_DDSCAPS_TEXTURE         0x00001000ul
 #define V9X_DDSCAPS_3DDEVICE        0x00002000ul
 #define V9X_DDSCAPS_VIDEOMEMORY     0x00004000ul
+#define V9X_DDSCAPS_MIPMAP          0x00400000ul
 #define V9X_DDSCL_FULLSCREEN        0x00000001ul
 #define V9X_DDSCL_NORMAL            0x00000008ul
 #define V9X_DDSCL_EXCLUSIVE         0x00000010ul
@@ -281,9 +283,24 @@ typedef struct v9x_d3dtlvertex {
     float tv;
 } V9X_D3DTLVERTEX;
 
-#define V9X_D3DRENDERSTATE_FOGENABLE       28ul
-#define V9X_D3DRENDERSTATE_SPECULARENABLE  29ul
-#define V9X_D3DRENDERSTATE_FOGCOLOR        34ul
+#define V9X_D3DRENDERSTATE_TEXTUREHANDLE      1ul
+#define V9X_D3DRENDERSTATE_TEXTUREMAG        17ul
+#define V9X_D3DRENDERSTATE_TEXTUREMIN        18ul
+#define V9X_D3DRENDERSTATE_SRCBLEND          19ul
+#define V9X_D3DRENDERSTATE_DESTBLEND        20ul
+#define V9X_D3DRENDERSTATE_TEXTUREMAPBLEND   21ul
+#define V9X_D3DRENDERSTATE_ALPHABLENDENABLE 27ul
+#define V9X_D3DRENDERSTATE_FOGENABLE        28ul
+#define V9X_D3DRENDERSTATE_SPECULARENABLE   29ul
+#define V9X_D3DRENDERSTATE_FOGCOLOR         34ul
+#define V9X_D3DBLEND_SRCALPHA                5ul
+#define V9X_D3DBLEND_INVSRCALPHA             6ul
+#define V9X_D3DFILTER_NEAREST                 1ul
+#define V9X_D3DFILTER_LINEAR                  2ul
+#define V9X_D3DFILTER_MIPNEAREST              3ul
+#define V9X_D3DFILTER_MIPLINEAR               4ul
+#define V9X_D3DFILTER_LINEARMIPLINEAR         6ul
+#define V9X_D3DTBLEND_COPY                    7ul
 
 struct v9x_d3d2 {
     const V9X_D3D2_VTBL *vtbl;
@@ -327,6 +344,7 @@ typedef struct v9x_d3d_enum_result {
 typedef struct v9x_texture_enum_result {
     DWORD count;
     DWORD rgb565;
+    DWORD argb1555;
 } V9X_TEXTURE_ENUM_RESULT;
 
 /* IDirectDraw version 1 method table, in vtable order. */
@@ -501,6 +519,15 @@ static HRESULT __stdcall v9x_enum_texture_format(
             desc->ddpfPixelFormat.dwGBitMask == 0x000007e0ul &&
             desc->ddpfPixelFormat.dwBBitMask == 0x0000001ful) {
             result->rgb565 = 1ul;
+        }
+        if ((desc->ddpfPixelFormat.dwFlags & 0x00000041ul) ==
+                0x00000041ul &&
+            desc->ddpfPixelFormat.dwRGBBitCount == 16ul &&
+            desc->ddpfPixelFormat.dwRBitMask == 0x00007c00ul &&
+            desc->ddpfPixelFormat.dwGBitMask == 0x000003e0ul &&
+            desc->ddpfPixelFormat.dwBBitMask == 0x0000001ful &&
+            desc->ddpfPixelFormat.dwRGBAlphaBitMask == 0x00008000ul) {
+            result->argb1555 = 1ul;
         }
     }
     return 1l;
@@ -795,6 +822,7 @@ void __stdcall V9xDdrawProbeEntry(void)
     struct v9x_dds *d3d_target = 0;
     struct v9x_dds *texture_surface = 0;
     struct v9x_dds *texture_surface2 = 0;
+    struct v9x_dds *texture_mip_level = 0;
     struct v9x_d3d2 *d3d = 0;
     struct v9x_d3d_device2 *d3d_device = 0;
     struct v9x_d3d_texture2 *texture = 0;
@@ -818,6 +846,7 @@ void __stdcall V9xDdrawProbeEntry(void)
     v9x_write_text("Result", "INCOMPLETE");
     v9x_write_uint("TexFormatCount", 0ul);
     v9x_write_uint("TexFormat565", 0ul);
+    v9x_write_uint("TexFormat1555", 0ul);
     v9x_write_hresult("TexSurfaceHr", (HRESULT)0x80004005ul);
     v9x_write_hresult("TexHandleHr", (HRESULT)0x80004005ul);
     v9x_write_hresult("TexSwapHr", (HRESULT)0x80004005ul);
@@ -954,6 +983,7 @@ void __stdcall V9xDdrawProbeEntry(void)
                 HRESULT state_hr;
                 DWORD texture_handle = 0ul;
                 DWORD texture_handle2 = 0ul;
+                DWORD trilinear_raw;
                 V9X_D3D_VIEWPORT_DESC2 viewport_desc;
 
                 v9x_zero(&texture_result, sizeof(texture_result));
@@ -962,6 +992,7 @@ void __stdcall V9xDdrawProbeEntry(void)
                 v9x_write_hresult("TexEnumHr", texture_hr);
                 v9x_write_uint("TexFormatCount", texture_result.count);
                 v9x_write_uint("TexFormat565", texture_result.rgb565);
+                v9x_write_uint("TexFormat1555", texture_result.argb1555);
 
                 v9x_zero(&desc, sizeof(desc));
                 desc.dwSize = sizeof(desc);
@@ -971,17 +1002,76 @@ void __stdcall V9xDdrawProbeEntry(void)
                 desc.dwHeight = 64ul;
                 desc.ddsCaps.dwCaps = V9X_DDSCAPS_TEXTURE;
                 desc.ddpfPixelFormat.dwSize = sizeof(V9X_DDPIXELFORMAT);
-                desc.ddpfPixelFormat.dwFlags = 0x00000040ul;
+                desc.ddpfPixelFormat.dwFlags = 0x00000041ul;
                 desc.ddpfPixelFormat.dwRGBBitCount = 16ul;
-                desc.ddpfPixelFormat.dwRBitMask = 0x0000f800ul;
-                desc.ddpfPixelFormat.dwGBitMask = 0x000007e0ul;
+                desc.ddpfPixelFormat.dwRBitMask = 0x00007c00ul;
+                desc.ddpfPixelFormat.dwGBitMask = 0x000003e0ul;
                 desc.ddpfPixelFormat.dwBBitMask = 0x0000001ful;
+                desc.ddpfPixelFormat.dwRGBAlphaBitMask = 0x00008000ul;
                 texture_hr = ddraw->vtbl->CreateSurface(
                     ddraw, &desc, &texture_surface, 0);
                 v9x_write_hresult("TexSurfaceHr", texture_hr);
+                v9x_zero(&desc, sizeof(desc));
+                desc.dwSize = sizeof(desc);
+                desc.dwFlags = V9X_DDSD_CAPS | V9X_DDSD_WIDTH |
+                               V9X_DDSD_HEIGHT | V9X_DDSD_PIXELFORMAT |
+                               V9X_DDSD_MIPMAPCOUNT;
+                desc.dwWidth = 64ul;
+                desc.dwHeight = 64ul;
+                desc.dwMipMapCount = 2ul;
+                desc.ddsCaps.dwCaps = V9X_DDSCAPS_TEXTURE |
+                                      V9X_DDSCAPS_COMPLEX |
+                                      V9X_DDSCAPS_MIPMAP |
+                                      V9X_DDSCAPS_VIDEOMEMORY;
+                desc.ddpfPixelFormat.dwSize = sizeof(V9X_DDPIXELFORMAT);
+                desc.ddpfPixelFormat.dwFlags = 0x00000041ul;
+                desc.ddpfPixelFormat.dwRGBBitCount = 16ul;
+                desc.ddpfPixelFormat.dwRBitMask = 0x00007c00ul;
+                desc.ddpfPixelFormat.dwGBitMask = 0x000003e0ul;
+                desc.ddpfPixelFormat.dwBBitMask = 0x0000001ful;
+                desc.ddpfPixelFormat.dwRGBAlphaBitMask = 0x00008000ul;
                 texture2_hr = ddraw->vtbl->CreateSurface(
                     ddraw, &desc, &texture_surface2, 0);
                 v9x_write_hresult("TexSurface2Hr", texture2_hr);
+                if (texture_hr == 0 && texture_surface != 0) {
+                    v9x_fill_surface(texture_surface, 0x83e0ul);
+                }
+                if (texture2_hr == 0 && texture_surface2 != 0) {
+                    V9X_DDSURFACEDESC mip_desc;
+
+                    v9x_zero(&mip_desc, sizeof(mip_desc));
+                    mip_desc.dwSize = sizeof(mip_desc);
+                    if (texture_surface2->vtbl->GetSurfaceDesc(
+                            texture_surface2, &mip_desc) == 0) {
+                        v9x_write_uint("TexMipTopW", mip_desc.dwWidth);
+                        v9x_write_uint("TexMipTopH", mip_desc.dwHeight);
+                        v9x_write_uint("TexMipTopPitch", (DWORD)mip_desc.lPitch);
+                        v9x_write_uint("TexMipTopAddress", (DWORD)mip_desc.lpSurface);
+                        v9x_write_uint("TexMipTopCaps",
+                                       mip_desc.ddsCaps.dwCaps);
+                    }
+                    v9x_fill_surface(texture_surface2, 0x83e0ul);
+                    caps.dwCaps = V9X_DDSCAPS_MIPMAP;
+                    texture2_hr = texture_surface2->vtbl->GetAttachedSurface(
+                        texture_surface2, &caps, &texture_mip_level);
+                    v9x_write_hresult("TexMipLevelHr", texture2_hr);
+                    if (texture2_hr == 0 && texture_mip_level != 0) {
+                        v9x_zero(&mip_desc, sizeof(mip_desc));
+                        mip_desc.dwSize = sizeof(mip_desc);
+                        if (texture_mip_level->vtbl->GetSurfaceDesc(
+                                texture_mip_level, &mip_desc) == 0) {
+                            v9x_write_uint("TexMipLevelW", mip_desc.dwWidth);
+                            v9x_write_uint("TexMipLevelH", mip_desc.dwHeight);
+                            v9x_write_uint("TexMipLevelPitch",
+                                           (DWORD)mip_desc.lPitch);
+                            v9x_write_uint("TexMipLevelAddress",
+                                           (DWORD)mip_desc.lpSurface);
+                            v9x_write_uint("TexMipLevelCaps",
+                                           mip_desc.ddsCaps.dwCaps);
+                        }
+                        v9x_fill_surface(texture_mip_level, 0x801ful);
+                    }
+                }
 
                 if (texture_hr == 0 && texture_surface != 0) {
                     texture_hr = texture_surface->vtbl->QueryInterface(
@@ -1016,6 +1106,12 @@ void __stdcall V9xDdrawProbeEntry(void)
                         d3d_device, texture, texture2);
                 }
                 v9x_write_hresult("TexSwapHr", swap_hr);
+                if (texture_surface2 != 0) {
+                    v9x_fill_surface(texture_surface2, 0x83e0ul);
+                }
+                if (texture_mip_level != 0) {
+                    v9x_fill_surface(texture_mip_level, 0x801ful);
+                }
 
                 viewport_hr = d3d->vtbl->CreateViewport(
                     d3d, (void **)&d3d_viewport, 0);
@@ -1153,6 +1249,170 @@ void __stdcall V9xDdrawProbeEntry(void)
                                                0x001fu) ? 1ul : 0ul);
                 (void)d3d_device->vtbl->SetRenderState(
                     d3d_device, V9X_D3DRENDERSTATE_FOGENABLE, 0ul);
+
+                v9x_fill_surface(d3d_target, 0x001ful);
+                state_hr = d3d_device->vtbl->SetRenderState(
+                    d3d_device, V9X_D3DRENDERSTATE_SRCBLEND,
+                    V9X_D3DBLEND_SRCALPHA);
+                if (state_hr == 0) {
+                    state_hr = d3d_device->vtbl->SetRenderState(
+                        d3d_device, V9X_D3DRENDERSTATE_DESTBLEND,
+                        V9X_D3DBLEND_INVSRCALPHA);
+                }
+                if (state_hr == 0) {
+                    state_hr = d3d_device->vtbl->SetRenderState(
+                        d3d_device, V9X_D3DRENDERSTATE_ALPHABLENDENABLE, 1ul);
+                }
+                v9x_write_hresult("D3DVertexAlphaStateHr", state_hr);
+                triangle[0].color = 0x80ff0000ul;
+                triangle[0].specular = 0ul;
+                triangle[1].color = triangle[0].color;
+                triangle[1].specular = triangle[0].specular;
+                triangle[2].color = triangle[0].color;
+                triangle[2].specular = triangle[0].specular;
+                begin_hr = state_hr == 0
+                    ? d3d_device->vtbl->BeginScene(d3d_device) : state_hr;
+                if (begin_hr == 0) {
+                    draw_hr = d3d_device->vtbl->DrawPrimitive(
+                        d3d_device, V9X_D3DPT_TRIANGLELIST,
+                        V9X_D3DVT_TLVERTEX, triangle, 3ul, 0ul);
+                    end_hr = d3d_device->vtbl->EndScene(d3d_device);
+                } else {
+                    draw_hr = begin_hr;
+                    end_hr = begin_hr;
+                }
+                v9x_write_uint("D3DVertexAlphaBlendOk",
+                    draw_hr == 0 && end_hr == 0 &&
+                    v9x_surface_pixel16_equals(d3d_target, 16ul, 16ul,
+                                               0x400fu) ? 1ul : 0ul);
+                (void)d3d_device->vtbl->SetRenderState(
+                    d3d_device, V9X_D3DRENDERSTATE_ALPHABLENDENABLE, 0ul);
+
+                v9x_fill_surface(d3d_target, 0ul);
+                state_hr = d3d_device->vtbl->SetRenderState(
+                    d3d_device, V9X_D3DRENDERSTATE_TEXTUREHANDLE,
+                    texture_handle2);
+                if (state_hr == 0) {
+                    state_hr = d3d_device->vtbl->SetRenderState(
+                        d3d_device, V9X_D3DRENDERSTATE_TEXTUREMAPBLEND,
+                        V9X_D3DTBLEND_COPY);
+                }
+                if (state_hr == 0) {
+                    state_hr = d3d_device->vtbl->SetRenderState(
+                        d3d_device, V9X_D3DRENDERSTATE_TEXTUREMIN,
+                        V9X_D3DFILTER_NEAREST);
+                }
+                if (state_hr == 0) {
+                    state_hr = d3d_device->vtbl->SetRenderState(
+                        d3d_device, V9X_D3DRENDERSTATE_TEXTUREMAG,
+                        V9X_D3DFILTER_NEAREST);
+                }
+                v9x_write_hresult("D3DTextureStateHr", state_hr);
+                triangle[0].color = 0xfffffffful;
+                triangle[0].specular = 0ul;
+                triangle[0].tu = 0.125f;
+                triangle[0].tv = 0.125f;
+                triangle[1].color = triangle[0].color;
+                triangle[1].specular = triangle[0].specular;
+                triangle[1].tu = 0.875f;
+                triangle[1].tv = 0.125f;
+                triangle[2].color = triangle[0].color;
+                triangle[2].specular = triangle[0].specular;
+                triangle[2].tu = 0.125f;
+                triangle[2].tv = 0.875f;
+                begin_hr = state_hr == 0
+                    ? d3d_device->vtbl->BeginScene(d3d_device) : state_hr;
+                if (begin_hr == 0) {
+                    draw_hr = d3d_device->vtbl->DrawPrimitive(
+                        d3d_device, V9X_D3DPT_TRIANGLELIST,
+                        V9X_D3DVT_TLVERTEX, triangle, 3ul, 0ul);
+                    end_hr = d3d_device->vtbl->EndScene(d3d_device);
+                } else {
+                    draw_hr = begin_hr;
+                    end_hr = begin_hr;
+                }
+                v9x_write_uint("D3DBaseTextureOk",
+                    draw_hr == 0 && end_hr == 0 &&
+                    v9x_surface_pixel16_equals(d3d_target, 16ul, 16ul,
+                                               0x03e0u) ? 1ul : 0ul);
+                v9x_write_uint("D3DBaseTextureRaw",
+                    v9x_surface_pixel16(d3d_target, 16ul, 16ul));
+
+                v9x_fill_surface(d3d_target, 0ul);
+                state_hr = d3d_device->vtbl->SetRenderState(
+                    d3d_device, V9X_D3DRENDERSTATE_TEXTUREHANDLE,
+                    texture_handle);
+                if (state_hr == 0) {
+                    state_hr = d3d_device->vtbl->SetRenderState(
+                        d3d_device, V9X_D3DRENDERSTATE_TEXTUREMIN,
+                        V9X_D3DFILTER_MIPNEAREST);
+                }
+                v9x_write_hresult("D3DMipmapStateHr", state_hr);
+                triangle[0].tu = 0.0f;
+                triangle[0].tv = 0.0f;
+                triangle[1].tu = 2.0f;
+                triangle[1].tv = 0.0f;
+                triangle[2].tu = 0.0f;
+                triangle[2].tv = 2.0f;
+                begin_hr = state_hr == 0
+                    ? d3d_device->vtbl->BeginScene(d3d_device) : state_hr;
+                if (begin_hr == 0) {
+                    draw_hr = d3d_device->vtbl->DrawPrimitive(
+                        d3d_device, V9X_D3DPT_TRIANGLELIST,
+                        V9X_D3DVT_TLVERTEX, triangle, 3ul, 0ul);
+                    end_hr = d3d_device->vtbl->EndScene(d3d_device);
+                } else {
+                    draw_hr = begin_hr;
+                    end_hr = begin_hr;
+                }
+                v9x_write_uint("D3DMipmapLevelSelectOk",
+                    draw_hr == 0 && end_hr == 0 &&
+                    v9x_surface_pixel16_equals(d3d_target, 16ul, 16ul,
+                                               0x001fu) ? 1ul : 0ul);
+                v9x_write_uint("D3DMipmapLevelRaw",
+                    v9x_surface_pixel16(d3d_target, 16ul, 16ul));
+
+                v9x_fill_surface(d3d_target, 0ul);
+                state_hr = d3d_device->vtbl->SetRenderState(
+                    d3d_device, V9X_D3DRENDERSTATE_TEXTUREMIN,
+                    V9X_D3DFILTER_LINEARMIPLINEAR);
+                if (state_hr == 0) {
+                    state_hr = d3d_device->vtbl->SetRenderState(
+                        d3d_device, V9X_D3DRENDERSTATE_TEXTUREMAG,
+                        V9X_D3DFILTER_LINEAR);
+                }
+                v9x_write_hresult("D3DTrilinearStateHr", state_hr);
+                /* 64 texels * 1.11328125 UV / 47.5 pixels = 1.5,
+                 * selecting LOD 0.5 exactly between the green and blue
+                 * levels. */
+                triangle[0].tu = 0.0f;
+                triangle[0].tv = 0.0f;
+                triangle[1].tu = 1.11328125f;
+                triangle[1].tv = 0.0f;
+                triangle[2].tu = 0.0f;
+                triangle[2].tv = 1.11328125f;
+                begin_hr = state_hr == 0
+                    ? d3d_device->vtbl->BeginScene(d3d_device) : state_hr;
+                if (begin_hr == 0) {
+                    draw_hr = d3d_device->vtbl->DrawPrimitive(
+                        d3d_device, V9X_D3DPT_TRIANGLELIST,
+                        V9X_D3DVT_TLVERTEX, triangle, 3ul, 0ul);
+                    end_hr = d3d_device->vtbl->EndScene(d3d_device);
+                } else {
+                    draw_hr = begin_hr;
+                    end_hr = begin_hr;
+                }
+                trilinear_raw = v9x_surface_pixel16(
+                    d3d_target, 16ul, 16ul);
+                v9x_write_uint("D3DTrilinearRaw", trilinear_raw);
+                v9x_write_uint("D3DTrilinearBlendOk",
+                    draw_hr == 0 && end_hr == 0 &&
+                    (trilinear_raw & 0x03e0ul) >= 0x0180ul &&
+                    (trilinear_raw & 0x03e0ul) <= 0x0240ul &&
+                    (trilinear_raw & 0x001ful) >= 12ul &&
+                    (trilinear_raw & 0x001ful) <= 20ul ? 1ul : 0ul);
+                (void)d3d_device->vtbl->SetRenderState(
+                    d3d_device, V9X_D3DRENDERSTATE_TEXTUREHANDLE, 0ul);
                 if (d3d_viewport != 0) {
                     d3d_device->vtbl->DeleteViewport(d3d_device,
                                                      d3d_viewport);
@@ -1168,6 +1428,10 @@ void __stdcall V9xDdrawProbeEntry(void)
                     texture = 0;
                 }
                 if (texture_surface2 != 0) {
+                    if (texture_mip_level != 0) {
+                        texture_mip_level->vtbl->Release(texture_mip_level);
+                        texture_mip_level = 0;
+                    }
                     texture_surface2->vtbl->Release(texture_surface2);
                     texture_surface2 = 0;
                 }

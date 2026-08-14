@@ -62,6 +62,15 @@
 #define V9X_VIRGE_3D_TEX_BORDER       0x0000b4f0ul
 #define V9X_VIRGE_3D_FADE_COLOR       0x0000b4f4ul
 #define V9X_VIRGE_3D_COMMAND          0x0000b500ul
+#define V9X_VIRGE_3D_TBV              0x0000b504ul
+#define V9X_VIRGE_3D_TBU              0x0000b508ul
+#define V9X_VIRGE_3D_DVDX             0x0000b51cul
+#define V9X_VIRGE_3D_DUDX             0x0000b520ul
+#define V9X_VIRGE_3D_DVDY             0x0000b528ul
+#define V9X_VIRGE_3D_DUDY             0x0000b52cul
+#define V9X_VIRGE_3D_DS               0x0000b530ul
+#define V9X_VIRGE_3D_VS               0x0000b534ul
+#define V9X_VIRGE_3D_US               0x0000b538ul
 #define V9X_VIRGE_3D_DGDX_DBDX        0x0000b53cul
 #define V9X_VIRGE_3D_DADX_DRDX        0x0000b540ul
 #define V9X_VIRGE_3D_DGDY_DBDY        0x0000b544ul
@@ -77,7 +86,20 @@
 #define V9X_VIRGE_3D_YSTART           0x0000b578ul
 #define V9X_VIRGE_3D_Y01_Y12          0x0000b57cul
 
-#define V9X_VIRGE_3D_CMD_FLAT_16_AE   0x83000007ul
+#define V9X_VIRGE_3D_CMD_GOURAUD_16_AE 0x83000007ul
+#define V9X_VIRGE_3D_CMD_ALPHA_SOURCE   0x00040000ul
+#define V9X_VIRGE_3D_CMD_ALPHA_ENABLE   0x00080000ul
+#define V9X_VIRGE_3D_CMD_TEXTURE_UNLIT  0x10000000ul
+#define V9X_VIRGE_3D_CMD_TEXTURE_LIT    0x08000000ul
+#define V9X_VIRGE_3D_CMD_TEX_ARGB1555   0x00000040ul
+#define V9X_VIRGE_3D_CMD_FILTER_NEAREST 0x00004000ul
+#define V9X_VIRGE_3D_CMD_FILTER_LINEAR  0x00006000ul
+#define V9X_VIRGE_3D_CMD_MIP_NEAREST    0x00000000ul
+#define V9X_VIRGE_3D_CMD_MIP_LINEAR     0x00001000ul
+#define V9X_VIRGE_3D_CMD_LINEAR_MIP_NEAREST 0x00002000ul
+#define V9X_VIRGE_3D_CMD_LINEAR_MIP_LINEAR  0x00003000ul
+#define V9X_VIRGE_3D_CMD_TEX_MODULATE   0x00008000ul
+#define V9X_VIRGE_3D_CMD_TEXTURE_WRAP   0x04000000ul
 
 #define V9X_VIRGE_STATUS_FIFO_SHIFT             8u
 #define V9X_VIRGE_STATUS_FIFO_MASK       0x00001f00ul
@@ -111,6 +133,15 @@ typedef struct v9x_d3d_context {
     DWORD specular_enable;
     DWORD fog_enable;
     DWORD fog_color;
+    DWORD alpha_blend_enable;
+    DWORD src_blend;
+    DWORD dest_blend;
+    DWORD texture_handle;
+    DWORD texture_min;
+    DWORD texture_mag;
+    DWORD texture_blend;
+    DWORD texture_wrap;
+    DWORD texture_border;
 } V9X_D3D_CONTEXT;
 
 typedef struct v9x_d3d_texture {
@@ -972,6 +1003,8 @@ static V9X_D3D_TEXTURE *v9x_d3d_texture_from_handle(DWORD handle,
     return 0;
 }
 
+static V9X_DD_SURFACE_LCL *v9x_d3d_surface_lcl(void *surface);
+
 static void v9x_d3d_textures_destroy_context(DWORD context)
 {
     DWORD index;
@@ -984,6 +1017,59 @@ static void v9x_d3d_textures_destroy_context(DWORD context)
             v9x_d3d_textures[index].surface = 0;
         }
     }
+}
+
+static int v9x_d3d_texture_info(V9X_D3D_CONTEXT *context,
+                                DWORD *offset_out, DWORD *size_log_out,
+                                int *mipmapped_out)
+{
+    V9X_D3D_TEXTURE *texture;
+    V9X_DD_SURFACE_LCL *surface;
+    DWORD size;
+    DWORD size_log = 0ul;
+    DWORD offset;
+    DWORD last_byte;
+
+    if (context->texture_handle == 0ul) {
+        return 0;
+    }
+    texture = v9x_d3d_texture_from_handle(context->texture_handle,
+                                           (DWORD)context);
+    surface = texture != 0 ? v9x_d3d_surface_lcl(texture->surface) : 0;
+    if (surface == 0 || surface->lpGbl == 0) {
+        return 0;
+    }
+    if ((surface->ddsCaps & V9X_DDSCAPS_TEXTURE) == 0ul ||
+        (surface->ddsCaps & V9X_DDSCAPS_SYSTEMMEMORY) != 0ul) {
+        return 0;
+    }
+    if (surface->lpGbl->wWidth != surface->lpGbl->wHeight ||
+        surface->lpGbl->wWidth < 4u || surface->lpGbl->wWidth > 512u) {
+        return 0;
+    }
+    if (surface->lpGbl->lPitch != (LONG)surface->lpGbl->wWidth * 2l) {
+        return 0;
+    }
+    size = surface->lpGbl->wWidth;
+    while ((1ul << size_log) < size && size_log < 9ul) {
+        ++size_log;
+    }
+    if ((1ul << size_log) != size) {
+        return 0;
+    }
+    offset = v9x_surface_offset(surface);
+    last_byte = size * size * 2ul;
+    if ((surface->ddsCaps & V9X_DDSCAPS_MIPMAP) != 0ul) {
+        last_byte += last_byte / 3ul;
+    }
+    if (offset == 0xfffffffful || last_byte > v9x_hal->fb.vram_bytes ||
+        offset > v9x_hal->fb.vram_bytes - last_byte) {
+        return 0;
+    }
+    *offset_out = offset;
+    *size_log_out = size_log;
+    *mipmapped_out = (surface->ddsCaps & V9X_DDSCAPS_MIPMAP) != 0ul;
+    return 1;
 }
 
 static int v9x_d3d_triangle(V9X_D3D_CONTEXT *context,
@@ -1248,6 +1334,15 @@ DWORD __stdcall V9xD3dContextCreate(V9X_D3DHAL_CONTEXTCREATEDATA *data)
             context->specular_enable = 0ul;
             context->fog_enable = 0ul;
             context->fog_color = 0ul;
+            context->alpha_blend_enable = 0ul;
+            context->src_blend = V9X_D3DBLEND_SRCALPHA;
+            context->dest_blend = V9X_D3DBLEND_INVSRCALPHA;
+            context->texture_handle = 0ul;
+            context->texture_min = V9X_D3DFILTER_NEAREST;
+            context->texture_mag = V9X_D3DFILTER_NEAREST;
+            context->texture_blend = V9X_D3DTBLEND_MODULATE;
+            context->texture_wrap = 1ul;
+            context->texture_border = 0ul;
             context->active = 1ul;
             data->dwhContext = (DWORD)context;
             data->ddrval = V9X_DD_OK;
@@ -1291,6 +1386,15 @@ DWORD __stdcall V9xD3dContextDestroy(V9X_D3DHAL_CONTEXTDESTROYDATA *data)
     context->specular_enable = 0ul;
     context->fog_enable = 0ul;
     context->fog_color = 0ul;
+    context->alpha_blend_enable = 0ul;
+    context->src_blend = 0ul;
+    context->dest_blend = 0ul;
+    context->texture_handle = 0ul;
+    context->texture_min = 0ul;
+    context->texture_mag = 0ul;
+    context->texture_blend = 0ul;
+    context->texture_wrap = 0ul;
+    context->texture_border = 0ul;
     data->ddrval = V9X_DD_OK;
     ++v9x_hal->d3d_diagnostics.context_destroys;
     v9x_trace_exit(V9X_TRACE_D3D_CTXDESTROY, data->ddrval);
@@ -1323,6 +1427,15 @@ DWORD __stdcall V9xD3dContextDestroyAll(
             v9x_d3d_contexts[index].specular_enable = 0ul;
             v9x_d3d_contexts[index].fog_enable = 0ul;
             v9x_d3d_contexts[index].fog_color = 0ul;
+            v9x_d3d_contexts[index].alpha_blend_enable = 0ul;
+            v9x_d3d_contexts[index].src_blend = 0ul;
+            v9x_d3d_contexts[index].dest_blend = 0ul;
+            v9x_d3d_contexts[index].texture_handle = 0ul;
+            v9x_d3d_contexts[index].texture_min = 0ul;
+            v9x_d3d_contexts[index].texture_mag = 0ul;
+            v9x_d3d_contexts[index].texture_blend = 0ul;
+            v9x_d3d_contexts[index].texture_wrap = 0ul;
+            v9x_d3d_contexts[index].texture_border = 0ul;
         }
     }
     data->ddrval = V9X_DD_OK;
@@ -1456,6 +1569,37 @@ DWORD __stdcall V9xD3dRenderState(V9X_D3DHAL_RENDERSTATEDATA *data)
         states = (V9X_D3DSTATE *)(exe->lpGbl->fpVidMem + data->dwOffset);
         for (index = 0ul; index < data->dwCount; ++index) {
             switch (states[index].type) {
+            case V9X_D3DRENDERSTATE_TEXTUREHANDLE:
+                context->texture_handle = states[index].argument;
+                break;
+            case V9X_D3DRENDERSTATE_TEXTUREPERSPECTIVE:
+                /* Perspective setup is added after the affine texture gate. */
+                break;
+            case V9X_D3DRENDERSTATE_WRAPU:
+            case V9X_D3DRENDERSTATE_WRAPV:
+                context->texture_wrap = states[index].argument != 0ul;
+                break;
+            case V9X_D3DRENDERSTATE_TEXTUREMAG:
+                context->texture_mag = states[index].argument;
+                break;
+            case V9X_D3DRENDERSTATE_TEXTUREMIN:
+                context->texture_min = states[index].argument;
+                break;
+            case V9X_D3DRENDERSTATE_TEXTUREMAPBLEND:
+                context->texture_blend = states[index].argument;
+                break;
+            case V9X_D3DRENDERSTATE_BORDERCOLOR:
+                context->texture_border = states[index].argument;
+                break;
+            case V9X_D3DRENDERSTATE_SRCBLEND:
+                context->src_blend = states[index].argument;
+                break;
+            case V9X_D3DRENDERSTATE_DESTBLEND:
+                context->dest_blend = states[index].argument;
+                break;
+            case V9X_D3DRENDERSTATE_ALPHABLENDENABLE:
+                context->alpha_blend_enable = states[index].argument != 0ul;
+                break;
             case V9X_D3DRENDERSTATE_FOGENABLE:
                 context->fog_enable = states[index].argument != 0ul;
                 break;
@@ -1785,9 +1929,21 @@ static int v9x_d3d_triangle(V9X_D3D_CONTEXT *context,
     float fdxr;
     float dgdx, dbdx, drdx;
     float dgdy, dbdy, drdy;
+    float dadx, dady;
+    float dudx = 0.0f, dvdx = 0.0f;
+    float dudy = 0.0f, dvdy = 0.0f;
     DWORD color;
     DWORD gs_bs;
     DWORD as_rs;
+    DWORD command;
+    DWORD texture_offset = 0ul;
+    DWORD texture_size_log = 0ul;
+    DWORD texture_d = 0ul;
+    DWORD texture_level = 0ul;
+    BYTE trilinear_alpha = 0u;
+    int trilinear_blend = 0;
+    int texture_mipmapped = 0;
+    int textured;
 
     if (!(p0->sx >= 0.0f && p0->sx <= (float)(context->width - 1ul) &&
           p0->sy >= 0.0f && p0->sy <= (float)(context->height - 1ul) &&
@@ -1845,6 +2001,59 @@ static int v9x_d3d_triangle(V9X_D3D_CONTEXT *context,
     drdx = ((float)((LONG)((p1->color >> 16) & 0xfful) -
                           (LONG)((p0->color >> 16) & 0xfful)) -
             drdy * fdy01) * fdxr;
+    dady = ((float)((LONG)((p2->color >> 24) & 0xfful) -
+                          (LONG)((p0->color >> 24) & 0xfful))) * fdy02r;
+    dadx = ((float)((LONG)((p1->color >> 24) & 0xfful) -
+                          (LONG)((p0->color >> 24) & 0xfful)) -
+            dady * fdy01) * fdxr;
+    textured = v9x_d3d_texture_info(context, &texture_offset,
+                                    &texture_size_log, &texture_mipmapped);
+    if (textured) {
+        dudy = (p2->tu - p0->tu) * 134217728.0f * fdy02r;
+        dvdy = (p2->tv - p0->tv) * 134217728.0f * fdy02r;
+        dudx = ((p1->tu - p0->tu) * 134217728.0f - dudy * fdy01) *
+                fdxr;
+        dvdx = ((p1->tv - p0->tv) * 134217728.0f - dvdy * fdy01) *
+                fdxr;
+        if (texture_mipmapped &&
+            context->texture_min >= V9X_D3DFILTER_MIPNEAREST) {
+            float rho = dudx < 0.0f ? -dudx : dudx;
+            float derivative;
+            float level_base = 134217728.0f /
+                               (float)(1ul << texture_size_log);
+            DWORD level = 0ul;
+
+            derivative = dvdx < 0.0f ? -dvdx : dvdx;
+            if (derivative > rho) rho = derivative;
+            derivative = dudy < 0.0f ? -dudy : dudy;
+            if (derivative > rho) rho = derivative;
+            derivative = dvdy < 0.0f ? -dvdy : dvdy;
+            if (derivative > rho) rho = derivative;
+            while (level < texture_size_log && rho >= level_base * 2.0f) {
+                level_base *= 2.0f;
+                ++level;
+            }
+            texture_d = level << 27;
+            texture_level = level;
+            if ((context->texture_min == V9X_D3DFILTER_MIPLINEAR ||
+                 context->texture_min == V9X_D3DFILTER_LINEARMIPLINEAR) &&
+                level < texture_size_log && rho > level_base) {
+                texture_d += (DWORD)v9x_float_to_long(
+                    ((rho - level_base) / level_base) * 134217727.0f);
+            }
+            if (context->texture_min ==
+                    V9X_D3DFILTER_LINEARMIPLINEAR &&
+                context->alpha_blend_enable == 0ul &&
+                level < texture_size_log &&
+                (texture_d & 0x07fffffful) != 0ul) {
+                trilinear_alpha = (BYTE)v9x_float_to_long(
+                    ((float)(texture_d & 0x07fffffful) /
+                     134217727.0f) * 255.0f);
+                trilinear_blend = 1;
+                texture_d = level << 27;
+            }
+        }
+    }
     color = p0->color;
 
     if (!v9x_wait_idle(1) || !v9x_wait_fifo(9ul, 1)) {
@@ -1856,28 +2065,90 @@ static int v9x_d3d_triangle(V9X_D3D_CONTEXT *context,
     v9x_mmio_write(V9X_VIRGE_3D_CLIP_T_B, context->height - 1ul);
     v9x_mmio_write(V9X_VIRGE_3D_DEST_SRC_STRIDE, context->pitch << 16);
     v9x_mmio_write(V9X_VIRGE_3D_Z_STRIDE, context->width * 2ul);
-    v9x_mmio_write(V9X_VIRGE_3D_TEX_BASE, 0ul);
-    v9x_mmio_write(V9X_VIRGE_3D_TEX_BORDER, 0xfffffffful);
+    v9x_mmio_write(V9X_VIRGE_3D_TEX_BASE,
+                   textured ? texture_offset : 0ul);
+    v9x_mmio_write(V9X_VIRGE_3D_TEX_BORDER, context->texture_border);
     v9x_mmio_write(V9X_VIRGE_3D_FADE_COLOR, 0ul);
 
+    if (textured) {
+        if (!v9x_wait_fifo(9ul, 1)) {
+            return 0;
+        }
+        v9x_mmio_write(V9X_VIRGE_3D_TBV, 0ul);
+        v9x_mmio_write(V9X_VIRGE_3D_TBU, 0ul);
+        v9x_mmio_write(V9X_VIRGE_3D_DVDX, (DWORD)v9x_float_to_long(dvdx));
+        v9x_mmio_write(V9X_VIRGE_3D_DUDX, (DWORD)v9x_float_to_long(dudx));
+        v9x_mmio_write(V9X_VIRGE_3D_DVDY, (DWORD)v9x_float_to_long(dvdy));
+        v9x_mmio_write(V9X_VIRGE_3D_DUDY, (DWORD)v9x_float_to_long(dudy));
+        v9x_mmio_write(V9X_VIRGE_3D_DS, texture_d);
+        v9x_mmio_write(V9X_VIRGE_3D_VS,
+            (DWORD)v9x_float_to_long(p0->tv * 134217728.0f));
+        v9x_mmio_write(V9X_VIRGE_3D_US,
+            (DWORD)v9x_float_to_long(p0->tu * 134217728.0f));
+    }
     if (!v9x_wait_fifo(15ul, 1)) {
         return 0;
     }
     /* With AE set, CMD_SET establishes persistent state; the final
      * Y01_Y12 write launches the triangle. */
-    v9x_mmio_write(V9X_VIRGE_3D_COMMAND, V9X_VIRGE_3D_CMD_FLAT_16_AE);
+    command = V9X_VIRGE_3D_CMD_GOURAUD_16_AE;
+    if (textured) {
+        command |= V9X_VIRGE_3D_CMD_TEX_ARGB1555 |
+                   (texture_size_log << 8);
+        if (context->texture_blend == V9X_D3DTBLEND_MODULATE) {
+            command |= V9X_VIRGE_3D_CMD_TEXTURE_LIT |
+                       V9X_VIRGE_3D_CMD_TEX_MODULATE;
+        } else {
+            command |= V9X_VIRGE_3D_CMD_TEXTURE_UNLIT;
+        }
+        if (texture_mipmapped &&
+            context->texture_min == V9X_D3DFILTER_MIPNEAREST) {
+            command |= V9X_VIRGE_3D_CMD_MIP_NEAREST;
+        } else if (texture_mipmapped &&
+                   context->texture_min == V9X_D3DFILTER_MIPLINEAR) {
+            command |= V9X_VIRGE_3D_CMD_MIP_LINEAR;
+        } else if (texture_mipmapped &&
+                   context->texture_min ==
+                       V9X_D3DFILTER_LINEARMIPNEAREST) {
+            command |= V9X_VIRGE_3D_CMD_LINEAR_MIP_NEAREST;
+        } else if (texture_mipmapped &&
+                   context->texture_min ==
+                       V9X_D3DFILTER_LINEARMIPLINEAR) {
+            command |= trilinear_blend
+                ? V9X_VIRGE_3D_CMD_LINEAR_MIP_NEAREST
+                : V9X_VIRGE_3D_CMD_LINEAR_MIP_LINEAR;
+        } else if (context->texture_min == V9X_D3DFILTER_LINEAR ||
+                   context->texture_mag == V9X_D3DFILTER_LINEAR) {
+            command |= V9X_VIRGE_3D_CMD_FILTER_LINEAR;
+        } else {
+            command |= V9X_VIRGE_3D_CMD_FILTER_NEAREST;
+        }
+        if (context->texture_wrap != 0ul) {
+            command |= V9X_VIRGE_3D_CMD_TEXTURE_WRAP;
+        }
+    }
+    if (context->alpha_blend_enable != 0ul &&
+        context->src_blend == V9X_D3DBLEND_SRCALPHA &&
+        context->dest_blend == V9X_D3DBLEND_INVSRCALPHA) {
+        command |= V9X_VIRGE_3D_CMD_ALPHA_SOURCE |
+                   V9X_VIRGE_3D_CMD_ALPHA_ENABLE;
+    }
+    v9x_mmio_write(V9X_VIRGE_3D_COMMAND, command);
     gs_bs = (((color >> 8) & 0xfful) << 23) |
             ((color & 0xfful) << 7);
-    as_rs = (255ul << 23) | (((color >> 16) & 0xfful) << 7);
+    as_rs = (((color >> 24) & 0xfful) << 23) |
+            (((color >> 16) & 0xfful) << 7);
     v9x_mmio_write(V9X_VIRGE_3D_DGDX_DBDX,
                    ((DWORD)v9x_d3d_fixed_8_7(dgdx) << 16) |
                    (DWORD)v9x_d3d_fixed_8_7(dbdx));
     v9x_mmio_write(V9X_VIRGE_3D_DADX_DRDX,
+                   ((DWORD)v9x_d3d_fixed_8_7(dadx) << 16) |
                    (DWORD)v9x_d3d_fixed_8_7(drdx));
     v9x_mmio_write(V9X_VIRGE_3D_DGDY_DBDY,
                    ((DWORD)v9x_d3d_fixed_8_7(dgdy) << 16) |
                    (DWORD)v9x_d3d_fixed_8_7(dbdy));
     v9x_mmio_write(V9X_VIRGE_3D_DADY_DRDY,
+                   ((DWORD)v9x_d3d_fixed_8_7(dady) << 16) |
                    (DWORD)v9x_d3d_fixed_8_7(drdy));
     v9x_mmio_write(V9X_VIRGE_3D_GS_BS, gs_bs);
     v9x_mmio_write(V9X_VIRGE_3D_AS_RS, as_rs);
@@ -1899,6 +2170,84 @@ static int v9x_d3d_triangle(V9X_D3D_CONTEXT *context,
                    ((DWORD)dy01 << 16) |
                    (DWORD)(dy12 + (p2->sy == (float)i2y ? 1l : 0l)) |
                    (dx > 0.0f ? 0x80000000ul : 0ul));
+    if (trilinear_blend) {
+        DWORD second_command = command;
+
+        if (!v9x_wait_idle(1) || !v9x_wait_fifo(9ul, 1)) {
+            return 0;
+        }
+        v9x_mmio_write(V9X_VIRGE_3D_TBV, 0ul);
+        v9x_mmio_write(V9X_VIRGE_3D_TBU, 0ul);
+        v9x_mmio_write(V9X_VIRGE_3D_DVDX,
+                       (DWORD)v9x_float_to_long(dvdx));
+        v9x_mmio_write(V9X_VIRGE_3D_DUDX,
+                       (DWORD)v9x_float_to_long(dudx));
+        v9x_mmio_write(V9X_VIRGE_3D_DVDY,
+                       (DWORD)v9x_float_to_long(dvdy));
+        v9x_mmio_write(V9X_VIRGE_3D_DUDY,
+                       (DWORD)v9x_float_to_long(dudy));
+        v9x_mmio_write(V9X_VIRGE_3D_DS, (texture_level + 1ul) << 27);
+        v9x_mmio_write(V9X_VIRGE_3D_VS,
+            (DWORD)v9x_float_to_long(p0->tv * 134217728.0f));
+        v9x_mmio_write(V9X_VIRGE_3D_US,
+            (DWORD)v9x_float_to_long(p0->tu * 134217728.0f));
+        if (!v9x_wait_fifo(15ul, 1)) {
+            return 0;
+        }
+        second_command &= ~V9X_VIRGE_3D_CMD_TEXTURE_UNLIT;
+        second_command |= V9X_VIRGE_3D_CMD_TEXTURE_LIT |
+                          V9X_VIRGE_3D_CMD_TEX_MODULATE |
+                          V9X_VIRGE_3D_CMD_ALPHA_SOURCE |
+                          V9X_VIRGE_3D_CMD_ALPHA_ENABLE;
+        v9x_mmio_write(V9X_VIRGE_3D_COMMAND, second_command);
+        if (context->texture_blend == V9X_D3DTBLEND_MODULATE) {
+            v9x_mmio_write(V9X_VIRGE_3D_DGDX_DBDX,
+                           ((DWORD)v9x_d3d_fixed_8_7(dgdx) << 16) |
+                           (DWORD)v9x_d3d_fixed_8_7(dbdx));
+            v9x_mmio_write(V9X_VIRGE_3D_DGDY_DBDY,
+                           ((DWORD)v9x_d3d_fixed_8_7(dgdy) << 16) |
+                           (DWORD)v9x_d3d_fixed_8_7(dbdy));
+            v9x_mmio_write(V9X_VIRGE_3D_GS_BS, gs_bs);
+            v9x_mmio_write(V9X_VIRGE_3D_AS_RS,
+                ((DWORD)trilinear_alpha << 23) |
+                (((color >> 16) & 0xfful) << 7));
+            v9x_mmio_write(V9X_VIRGE_3D_DADX_DRDX,
+                           (DWORD)v9x_d3d_fixed_8_7(drdx));
+            v9x_mmio_write(V9X_VIRGE_3D_DADY_DRDY,
+                           (DWORD)v9x_d3d_fixed_8_7(drdy));
+        } else {
+            v9x_mmio_write(V9X_VIRGE_3D_DGDX_DBDX, 0ul);
+            v9x_mmio_write(V9X_VIRGE_3D_DGDY_DBDY, 0ul);
+            v9x_mmio_write(V9X_VIRGE_3D_GS_BS,
+                           (255ul << 23) | (255ul << 7));
+            v9x_mmio_write(V9X_VIRGE_3D_AS_RS,
+                           ((DWORD)trilinear_alpha << 23) |
+                           (255ul << 7));
+            v9x_mmio_write(V9X_VIRGE_3D_DADX_DRDX, 0ul);
+            v9x_mmio_write(V9X_VIRGE_3D_DADY_DRDY, 0ul);
+        }
+        v9x_mmio_write(V9X_VIRGE_3D_DXDY12,
+                       (DWORD)v9x_d3d_fixed_12_20(dxdy12));
+        v9x_mmio_write(V9X_VIRGE_3D_XEND12,
+                       (DWORD)v9x_d3d_fixed_12_20(
+                           p1->sx + dxdy12 * (p1->sy - (float)i1y)));
+        v9x_mmio_write(V9X_VIRGE_3D_DXDY01,
+                       (DWORD)v9x_d3d_fixed_12_20(dxdy01));
+        v9x_mmio_write(V9X_VIRGE_3D_XEND01,
+                       (DWORD)v9x_d3d_fixed_12_20(
+                           p0->sx + dxdy01 * fdycc));
+        v9x_mmio_write(V9X_VIRGE_3D_DXDY02,
+                       (DWORD)v9x_d3d_fixed_12_20(dxdy02));
+        v9x_mmio_write(V9X_VIRGE_3D_XSTART02,
+                       (DWORD)v9x_d3d_fixed_12_20(
+                           p0->sx + dxdy02 * fdycc));
+        v9x_mmio_write(V9X_VIRGE_3D_YSTART, (DWORD)i0y);
+        v9x_mmio_write(V9X_VIRGE_3D_Y01_Y12,
+                       ((DWORD)dy01 << 16) |
+                       (DWORD)(dy12 +
+                           (p2->sy == (float)i2y ? 1l : 0l)) |
+                       (dx > 0.0f ? 0x80000000ul : 0ul));
+    }
     return 1;
 }
 
@@ -2149,6 +2498,8 @@ DWORD __stdcall DriverInit(DWORD context)
                                   V9X_DDSCAPS_FLIP |
                                   V9X_DDSCAPS_PRIMARYSURFACE |
                                   V9X_DDSCAPS_TEXTURE |
+                                  V9X_DDSCAPS_COMPLEX |
+                                  V9X_DDSCAPS_MIPMAP |
                                   V9X_DDSCAPS_ZBUFFER;
     shared->info.ddCaps.dwVidMemTotal =
         shared->fb.vram_bytes - shared->fb.visible_bytes;
@@ -2245,10 +2596,16 @@ DWORD __stdcall DriverInit(DWORD context)
         V9X_D3DPCMPCAPS_EQUAL | V9X_D3DPCMPCAPS_LESSEQUAL |
         V9X_D3DPCMPCAPS_GREATER | V9X_D3DPCMPCAPS_NOTEQUAL |
         V9X_D3DPCMPCAPS_GREATEREQUAL | V9X_D3DPCMPCAPS_ALWAYS;
+    shared->d3d_global.hwCaps.dpcTriCaps.dwSrcBlendCaps =
+        V9X_D3DPBLENDCAPS_SRCALPHA;
+    shared->d3d_global.hwCaps.dpcTriCaps.dwDestBlendCaps =
+        V9X_D3DPBLENDCAPS_INVSRCALPHA;
     shared->d3d_global.hwCaps.dpcTriCaps.dwShadeCaps =
         V9X_D3DPSHADECAPS_COLORFLATRGB |
         V9X_D3DPSHADECAPS_COLORGOURAUDRGB |
         V9X_D3DPSHADECAPS_SPECULARGOURAUDRGB |
+        V9X_D3DPSHADECAPS_ALPHAFLATBLEND |
+        V9X_D3DPSHADECAPS_ALPHAGOURAUDBLEND |
         V9X_D3DPSHADECAPS_FOGGOURAUD;
     shared->d3d_global.hwCaps.dpcTriCaps.dwTextureCaps =
 #if V9X_C4_CAPS_VARIANT == 1
@@ -2262,7 +2619,11 @@ DWORD __stdcall DriverInit(DWORD context)
 #endif
 #if V9X_C4_CAPS_VARIANT != 1
     shared->d3d_global.hwCaps.dpcTriCaps.dwTextureFilterCaps =
-        V9X_D3DPTFILTERCAPS_NEAREST | V9X_D3DPTFILTERCAPS_LINEAR;
+        V9X_D3DPTFILTERCAPS_NEAREST | V9X_D3DPTFILTERCAPS_LINEAR |
+        V9X_D3DPTFILTERCAPS_MIPNEAREST |
+        V9X_D3DPTFILTERCAPS_MIPLINEAR |
+        V9X_D3DPTFILTERCAPS_LINEARMIPNEAREST |
+        V9X_D3DPTFILTERCAPS_LINEARMIPLINEAR;
     shared->d3d_global.hwCaps.dpcTriCaps.dwTextureBlendCaps =
         V9X_D3DPTBLENDCAPS_DECAL | V9X_D3DPTBLENDCAPS_MODULATE |
         V9X_D3DPTBLENDCAPS_COPY;
@@ -2278,11 +2639,14 @@ DWORD __stdcall DriverInit(DWORD context)
         V9X_DDSD_CAPS | V9X_DDSD_PIXELFORMAT;
     shared->texture_formats[0].ddpfPixelFormat.dwSize =
         sizeof(V9X_DDPIXELFORMAT);
-    shared->texture_formats[0].ddpfPixelFormat.dwFlags = V9X_DDPF_RGB;
+    shared->texture_formats[0].ddpfPixelFormat.dwFlags =
+        V9X_DDPF_RGB | V9X_DDPF_ALPHAPIXELS;
     shared->texture_formats[0].ddpfPixelFormat.dwRGBBitCount = 16ul;
-    shared->texture_formats[0].ddpfPixelFormat.dwRBitMask = 0x0000f800ul;
-    shared->texture_formats[0].ddpfPixelFormat.dwGBitMask = 0x000007e0ul;
+    shared->texture_formats[0].ddpfPixelFormat.dwRBitMask = 0x00007c00ul;
+    shared->texture_formats[0].ddpfPixelFormat.dwGBitMask = 0x000003e0ul;
     shared->texture_formats[0].ddpfPixelFormat.dwBBitMask = 0x0000001ful;
+    shared->texture_formats[0].ddpfPixelFormat.dwRGBAlphaBitMask =
+        0x00008000ul;
     shared->texture_formats[0].ddsCaps.dwCaps = V9X_DDSCAPS_TEXTURE;
 #if V9X_C4_CAPS_VARIANT == 1
     shared->d3d_global.dwNumTextureFormats = 0ul;

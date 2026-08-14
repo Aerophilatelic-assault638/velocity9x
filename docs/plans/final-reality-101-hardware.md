@@ -1,8 +1,9 @@
 # Final Reality 1.01 hardware Direct3D
 
 Status: hardware enumeration and benchmark submission path working on VM 9869;
-subpixel accuracy, specular Gouraud, and vertex fog working; texture mapping
-and real Z-buffer state remain incomplete.
+subpixel accuracy, specular Gouraud, vertex fog, vertex-alpha blending,
+ARGB1555 texturing, mipmapping, and trilinear filtering working. Real Z-buffer
+state remains incomplete.
 
 ## 2026-08-14 baseline diagnosis
 
@@ -43,6 +44,21 @@ documented 32-bpp rejection case.
   ViRGE Gouraud colour interpolation.
 - Advertise specular Gouraud and vertex Gouraud fog, with independent
   pixel-verified V9XDDP tests (`D3DSpecularGouraudOk` and `D3DDepthFogOk`).
+- Retain source/destination blend state and vertex alpha per context; program
+  ViRGE source-alpha/inverse-source-alpha blending. Advertise only the
+  supported crossfade equation, leaving additive and multiplicative alpha
+  disabled in FR.
+- Advertise the ViRGE's actual ARGB1555 texture format, resolve D3D texture
+  handles to hardware-resident DirectDraw surfaces, and program affine U/V
+  gradients and point/bilinear sampling.
+- Advertise DirectDraw complex mip surfaces as well as all ViRGE mip filter
+  modes. Select the mip level from the texture-coordinate derivatives and
+  program the ViRGE D/DS state.
+- Implement trilinear filtering as two ViRGE texture passes when fractional
+  LOD is present: bilinear level N followed by bilinear level N+1 blended by
+  the LOD fraction. This supplies the between-level interpolation omitted by
+  86Box's current ViRGE emulation while retaining hardware rasterization and
+  blending.
 
 ## Verified result
 
@@ -79,17 +95,35 @@ Installed build: `fr101-specular-fog`, boot counter 147.
 Evidence is under
 `build\driver-results\fr101-specular-fog-vm1`.
 
+### Alpha/texture/mipmap/trilinear verification
+
+Installed build: `fr101-trilinear-twopass`, boot counter 159.
+
+- FR enables `Texture bi-linear filtering`, `Texture mip-mapping`, `Texture
+  tri-linear mapping`, `Vertex alpha`, and `Alpha blending (crossfade)` for
+  `Direct3D On-board Accelerator`. Additive and multiplicative alpha remain
+  disabled, matching the advertised blend equation.
+- V9XDDP independently pixel-verifies vertex-alpha crossfade, an ordinary
+  ARGB1555 texture, discrete mip selection, and fractional-LOD trilinear
+  filtering. The exact results are `D3DVertexAlphaBlendOk=1`,
+  `D3DBaseTextureRaw=992` (green), `D3DMipmapLevelRaw=31` (blue), and
+  `D3DTrilinearRaw=495` (`0x01ef`, half green/half blue).
+- The focused FR 25-pixel run completes at 28.54 Kpolys/s, 0.91 R-marks, and
+  74.07% visual appearance.
+- The post-FR trace records 6 hardware context creates and 2,311 hardware
+  primitive calls, with zero FIFO timeouts, idle timeouts, engine resets,
+  context rejects, or primitive rejects.
+
+Evidence is under
+`build\driver-results\fr101-trilinear-twopass-vm1`.
+
 ## Remaining correctness work
 
-FR reports only 18.52% visual appearance. The current triangle path accepts
-texture handles and render-state calls but still emits a flat-colour S3D
-command. It also validates the attached Z surface without programming Z
+FR visual appearance is now 74.07%. The remaining major correctness gap is
+that the driver validates the attached Z surface without programming Z
 coordinates, comparison mode, or updates. The next implementation slice is:
 
-1. retain the current texture handle and relevant render states per context;
-2. resolve the handle to its DirectDraw video-memory surface;
-3. program TEX_BASE and the ViRGE U/V gradients for non-perspective RGB565
-   texturing;
-4. program Z_BASE/Z_STRIDE and Z gradients/comparison/update state;
-5. add a pixel-verified textured-plus-Z probe before enabling further FR
-   options such as mipmapping and alpha blending.
+1. retain Z enable, write-enable, and comparison render states per context;
+2. program Z_BASE/Z_STRIDE and Z gradients for transformed vertices;
+3. add pixel-verified depth-test and depth-write probes;
+4. rerun the Robots and City scene tests after the Z gate passes.
