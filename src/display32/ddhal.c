@@ -3254,6 +3254,18 @@ DWORD __stdcall DriverInit(DWORD context)
         V9X_D3DPSHADECAPS_SPECULARGOURAUDRGB |
         V9X_D3DPSHADECAPS_ALPHAFLATBLEND |
         V9X_D3DPSHADECAPS_ALPHAGOURAUDBLEND |
+        /*
+         * Flat fog. The driver blends fog into the vertex colour
+         * (v9x_d3d_apply_vertex_color), and under flat shading that colour is
+         * used across the whole triangle, so this costs nothing beyond the
+         * Gouraud case already implemented.
+         *
+         * It was the one capability difference from the retail S3 ViRGE
+         * driver with a visible symptom: without it Hellbender warns that the
+         * adapter cannot show fog, and the retail driver - which sets it -
+         * produces no warning at all.
+         */
+        V9X_D3DPSHADECAPS_FOGFLAT |
         V9X_D3DPSHADECAPS_FOGGOURAUD;
     shared->d3d_global.hwCaps.dpcTriCaps.dwTextureCaps =
 #if V9X_C4_CAPS_VARIANT == 1

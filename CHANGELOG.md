@@ -58,6 +58,13 @@ build identifier so exact guest-tested binaries remain traceable.
 
 ### Fixed
 
+- The Direct3D device advertises `D3DPSHADECAPS_FOGFLAT`. The driver already
+  blends fog into the vertex colour and flat shading reuses that colour across
+  the triangle, so the capability was implemented but unpublished. It was the
+  only capability difference from the retail S3 ViRGE driver with a visible
+  symptom: Hellbender warned that the adapter could not show fog, and no
+  longer does.
+
 - The Direct3D device advertises `D3DDEVCAPS_EXECUTESYSTEMMEMORY`. A DirectX
   2/3-era title renders only through execute buffers and selects its device by
   capability, and the Windows 98 DDK's ViRGE sample sets this bit while
