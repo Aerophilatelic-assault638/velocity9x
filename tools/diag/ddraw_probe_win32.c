@@ -321,6 +321,14 @@ static const GUID v9x_iid_d3d2 = {
     { 0x88, 0x9d, 0x00, 0xaa, 0x00, 0xbb, 0xb7, 0x6a }
 };
 
+/* DirectX 2/3-era Direct3D. A title of that vintage - Hellbender is one -
+ * carries only this interface and creates its device by asking the render
+ * target for the enumerated device GUID, not through IDirect3D2::CreateDevice. */
+static const GUID v9x_iid_d3d = {
+    0x3bba0080ul, 0x2421, 0x11cf,
+    { 0xa3, 0x1a, 0x00, 0xaa, 0x00, 0xb9, 0x33, 0x56 }
+};
+
 static const GUID v9x_iid_d3d_hal = {
     0x84e63de0ul, 0x46aa, 0x11cf,
     { 0x81, 0x6f, 0x00, 0x00, 0xc0, 0x20, 0x15, 0x6e }
@@ -1280,6 +1288,56 @@ void __stdcall V9xDdrawProbeEntry(void)
         caps.dwCaps = V9X_DDSCAPS_BACKBUFFER;
         hr = primary->vtbl->GetAttachedSurface(primary, &caps, &backbuffer);
         v9x_write_hresult("BackbufferHr", hr);
+    }
+
+    /*
+     * Legacy device creation, on its own render target.
+     *
+     * The rest of this probe creates its Direct3D device through
+     * IDirect3D2::CreateDevice. A DirectX 2/3-era application cannot: it
+     * holds only IID_IDirect3D and creates the device by calling
+     * QueryInterface for the enumerated device GUID on the render-target
+     * surface. Both routes reach the same HAL, but only one of them was
+     * covered, so a failure specific to the legacy route would have been
+     * invisible. It passes today; keep it covered. A separate surface keeps
+     * the attempt from disturbing the IDirect3D2 device below.
+     */
+    if (d3d_result.hal_found != 0ul) {
+        struct v9x_dds *legacy_target = 0;
+        void *legacy_d3d = 0;
+        void *legacy_device = 0;
+
+        hr = ddraw->vtbl->QueryInterface(ddraw, &v9x_iid_d3d, &legacy_d3d);
+        v9x_write_hresult("D3DV1InterfaceHr", hr);
+
+        v9x_zero(&desc, sizeof(desc));
+        desc.dwSize = sizeof(desc);
+        desc.dwFlags = V9X_DDSD_CAPS | V9X_DDSD_WIDTH | V9X_DDSD_HEIGHT;
+        desc.dwWidth = 64ul;
+        desc.dwHeight = 64ul;
+        desc.ddsCaps.dwCaps = V9X_DDSCAPS_3DDEVICE |
+                              V9X_DDSCAPS_OFFSCREENPLAIN |
+                              V9X_DDSCAPS_VIDEOMEMORY;
+        hr = ddraw->vtbl->CreateSurface(ddraw, &desc, &legacy_target, 0);
+        v9x_write_hresult("D3DV1TargetHr", hr);
+        if (hr == 0 && legacy_target != 0) {
+            hr = legacy_target->vtbl->QueryInterface(
+                legacy_target, &v9x_iid_d3d_hal, &legacy_device);
+            v9x_write_hresult("D3DV1DeviceHr", hr);
+            v9x_write_uint("D3DV1DeviceOk",
+                           hr == 0 && legacy_device != 0 ? 1ul : 0ul);
+            if (legacy_device != 0) {
+                struct v9x_dds *unknown = (struct v9x_dds *)legacy_device;
+
+                unknown->vtbl->Release(unknown);
+            }
+            legacy_target->vtbl->Release(legacy_target);
+        }
+        if (legacy_d3d != 0) {
+            struct v9x_dds *unknown = (struct v9x_dds *)legacy_d3d;
+
+            unknown->vtbl->Release(unknown);
+        }
     }
 
     if (d3d != 0 && d3d_result.hal_found != 0ul) {

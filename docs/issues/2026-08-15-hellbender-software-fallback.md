@@ -1,6 +1,7 @@
 # Hellbender renders in software despite accepting the Direct3D HAL
 
-Status: Open — investigation
+Status: Closed — 2026-08-15. Not a driver defect: Hellbender does not use
+hardware Direct3D on this chipset even with the stock S3 ViRGE driver.
 
 Date: 2026-08-15
 
@@ -83,34 +84,95 @@ produced the `DDCAPS_NOHARDWARE` and `DDERR_UNSUPPORTED` failures recorded in
 **The blocker is therefore not a missing capability bit in the device
 description.**
 
-## Leading hypothesis: the v1 device-creation path is untested
+## Tested and rejected: the v1 device-creation path
 
-V9XDDP creates its Direct3D device through `IDirect3D2::CreateDevice`, after
-`QueryInterface(IID_IDirect3D2)`. That path works: the probe creates a
-context, renders a pixel-verified triangle, and cycles the context cleanly.
+V9XDDP creates its device through `IDirect3D2::CreateDevice`. A v1 application
+cannot — it holds only `IID_IDirect3D` and creates the device by calling
+`QueryInterface` for the enumerated device GUID **on the render-target
+surface**. That path had never been exercised, and it was the largest
+untested difference between the working probe and the failing game.
 
-Hellbender cannot use that path — it has no `IDirect3D2` GUID. A v1
-application creates its device by calling `QueryInterface` for the enumerated
-device GUID **on the render-target surface**, which is a different code path
-through the runtime and one this driver has never been tested against.
+The probe now exercises it on its own render target, and it works:
 
-That is the largest untested difference between the working probe and the
-failing game, and it is consistent with everything observed: enumeration
-succeeds and caps are read (fog warning), but no context is ever created.
+```text
+D3DV1InterfaceHr = 0x00000000    QueryInterface(IID_IDirect3D)
+D3DV1TargetHr    = 0x00000000    3DDEVICE video-memory surface
+D3DV1DeviceHr    = 0x00000000    QueryInterface(IID_IDirect3DHALDevice) on it
+D3DV1DeviceOk    = 1
+```
 
-## Next investigation steps
+So the runtime will hand a DirectX 2/3-era application a hardware device on
+this HAL. The rejection is in Hellbender's own device-selection logic, not in
+the runtime and not in device creation.
 
-1. Extend V9XDDP with a v1 device-creation path: `QueryInterface(IID_IDirect3D)`,
-   `EnumDevices` to obtain the HAL device GUID, then `QueryInterface` for that
-   GUID on the render-target surface. If that fails where the `IDirect3D2`
-   path succeeds, the failure is reproduced in a two-minute probe instead of a
-   ten-minute game run, and the HRESULT names the reason.
-2. If v1 creation succeeds in the probe, the difference is in the game's
-   selection logic rather than the runtime, and the next lever is the
-   enumeration order and the device description the game compares against the
-   software devices it also enumerates.
-3. Only once a context is created on the HAL does texture sampling become the
-   relevant problem.
+## What the enumerated device actually reports
+
+```text
+TexFormatCount          = 1        only one texture format
+TexFormat565            = 0        not RGB565
+TexFormat1555           = 1        ARGB1555 only
+D3DDevice2HwRenderDepth = 1024     DDBD_16
+D3DDevice2HwZDepth      = 1024     DDBD_16
+D3DDevice2HwMaxBuffer   = 0
+D3DDevice2HwMaxVertices = 1024
+```
+
+The single texture format is the most suspicious remaining entry. The display
+mode is RGB565 and the only advertised texture format is ARGB1555, so a
+textured title has one format to choose from and it does not match the frame
+buffer. The DDK ViRGE sample publishes more than one.
+
+## Reference comparison: the stock S3 ViRGE driver
+
+The reference VM on host port 9870 runs the retail S3 ViRGE driver on the same
+emulated chip. Its Direct3D HAL is enumerated as "Microsoft Direct3D Hardware
+acceleration through Direct3D HAL" and is materially richer than ours:
+
+| HAL device field | ours | stock S3 | ours is missing |
+|---|---|---|---|
+| `dwFlags` | `0x1C3` | `0x1E3` | `D3DDD_LINECAPS` |
+| `dwDevCaps` | `0x2451` | `0x2653` | `TEXTUREVIDEOMEMORY`, `SORTINCREASINGZ` |
+| `dpcTriCaps.dwMiscCaps` | `0x10` | `0x70` | `CULLCW`, `CULLCCW` |
+| `dwRasterCaps` | `0xB0` | `0xA1` | `DITHER` |
+| `dwSrcBlendCaps` | `0x10` | `0x12` | `ONE` |
+| `dwDestBlendCaps` | `0x20` | `0x21` | `ZERO` |
+| `dwShadeCaps` | `0x8520A` | `0xC528A` | `FOGFLAT`, `SPECULARFLATRGB` |
+| `dwTextureCaps` | `0x1` | `0x2F` | `POW2`, `SQUAREONLY`, others |
+| `dwTextureBlendCaps` | `0x43` | `0xCF` | several |
+| `dwDeviceRenderBitDepth` | `0x400` | `0x600` | `DDBD_24` |
+| texture formats | 1 | 5 | four more |
+
+Hellbender shows **no fog warning at all** on the stock driver, so the missing
+`D3DPSHADECAPS_FOGFLAT` is what produces it here.
+
+## Conclusion: the game does not use hardware Direct3D on this chipset
+
+With `useDirect3D=1` and a driver whose HAL it accepts without a single
+warning, Hellbender renders **identically** on the stock S3 ViRGE driver and
+on Velocity9x. Comparing the 3D viewport of the two captures at the same game
+state, 97.1% of sampled pixels match exactly; the remainder is animated rain
+and a moving target marker between the two capture moments.
+
+If the stock driver were giving the game hardware rasterisation and ours were
+not, the two frames could not agree pixel-for-pixel. Both are the same
+software renderer.
+
+So the premise of this investigation was wrong. There is no capability this
+driver can publish that moves Hellbender onto hardware Direct3D, because the
+game does not take that path on this chipset even when a full retail driver
+offers it. The earlier capability experiments were not merely unlucky guesses;
+the target did not exist.
+
+## What remains worth doing
+
+1. **`D3DPSHADECAPS_FOGFLAT`.** The one difference with a visible symptom. The
+   driver already implements fog as a colour blend, so flat fog is within what
+   it can honour, and adding it removes the 3D Adapter Warning.
+2. The rest of the table is a fidelity roadmap for Direct3D titles that *do*
+   use the hardware path — culling, dithering, the four missing texture
+   formats — and should be driven by a title that actually exercises them,
+   not by Hellbender.
+3. Do not spend further effort trying to move Hellbender onto the HAL.
 
 ## Related
 
