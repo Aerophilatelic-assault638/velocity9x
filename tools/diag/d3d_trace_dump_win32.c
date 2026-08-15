@@ -243,6 +243,9 @@ void __stdcall V9xTraceDumpEntry(void)
     v9x_write_uint("ModeHeight", snapshot.fb.height);
     v9x_write_uint("ModeBpp", snapshot.fb.bits_per_pixel);
     v9x_write_uint("ModePitch", snapshot.fb.pitch);
+    v9x_write_hex("ScreenSelector", snapshot.fb.screen_selector);
+    v9x_write_uint("EnableCount", snapshot.fb.enable_count);
+    v9x_write_uint("DisableCount", snapshot.fb.disable_count);
     v9x_write_uint("EngineFlags", snapshot.engine.flags);
     v9x_write_uint("EngineFifoTimeouts", snapshot.engine.fifo_timeouts);
     v9x_write_uint("EngineIdleTimeouts", snapshot.engine.idle_timeouts);

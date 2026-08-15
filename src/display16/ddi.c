@@ -106,6 +106,9 @@ static WORD v9x_enabled;
  * suppresses the boot-style teardown on failure. */
 static WORD v9x_reenabling;
 static WORD v9x_dpi = 96u;
+/* Enable/Disable lifecycle counts published through the HAL trace. */
+static WORD v9x_enable_count;
+static WORD v9x_disable_count;
 
 #ifdef V9X_BOOT_TRACE
 static BOOL v9x_boot_trace(const char FAR *stage)
@@ -389,6 +392,24 @@ extern void FAR PASCAL V9xDdInvalidate(void);
 LPVOID v9x_dd_active_pdevice(void)
 {
     return (LPVOID)v9x_driver_pdevice;
+}
+
+/* Diagnostics for the DIBENG fault investigation: the live framebuffer
+ * selector, and how many times the driver has been enabled and disabled.
+ * Disable frees this selector, so a stale copy anywhere else would dangle. */
+WORD v9x_dd_screen_selector(void)
+{
+    return v9x_screen_selector;
+}
+
+WORD v9x_dd_enable_count(void)
+{
+    return v9x_enable_count;
+}
+
+WORD v9x_dd_disable_count(void)
+{
+    return v9x_disable_count;
 }
 
 WORD v9x_dd_active_mode(WORD FAR *width, WORD FAR *height,
@@ -717,6 +738,7 @@ static WORD v9x_build_pdevice(LPVOID device_info,
         v9x_program_palette(0u, V9X_PALETTE_ENTRIES);
     }
     v9x_enabled = 1u;
+    ++v9x_enable_count;
     v9x_active_mode = v9x_selected_mode;
     v9x_serial_write("V9X-DRV lfb=0x");
     v9x_serial_write_hex32(V9xHardwareBase());
@@ -760,6 +782,7 @@ WORD __loadds FAR PASCAL Disable(LPVOID destination_device)
         device->deFlags |= V9X_DE_BUSY;
     }
     v9x_enabled = 0u;
+    ++v9x_disable_count;
     v9x_active_mode = 0;
     v9x_driver_pdevice = 0;
     v9x_color_table = 0;

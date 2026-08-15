@@ -22,6 +22,9 @@
 #define V9X_RESULT_PATH "C:\\V9XMSW.INI"
 #define V9X_SECTION     "Velocity9xModeSwitch"
 
+/* /cursor: keep the pointer moving and redrawing across every switch. */
+static UINT v9x_cursor_stress;
+
 static void v9x_uint_text(char *text, DWORD value)
 {
     char reverse[12];
@@ -50,6 +53,20 @@ static void v9x_int_text(char *text, LONG value)
 static void v9x_write_text(const char *key, const char *value)
 {
     WritePrivateProfileStringA(V9X_SECTION, key, value, V9X_RESULT_PATH);
+}
+
+/*
+ * Flush the profile cache.
+ *
+ * Windows caches .INI writes, and a mode change immediately before process
+ * exit discarded everything written after the last ChangeDisplaySettings -
+ * the run reported nine of ten cycles and no verdict while still exiting
+ * zero, because the tail of the file never reached disk. Passing a null
+ * section is the documented way to commit it.
+ */
+static void v9x_flush_results(void)
+{
+    WritePrivateProfileStringA(0, 0, 0, V9X_RESULT_PATH);
 }
 
 static void v9x_write_uint(const char *key, DWORD value)
@@ -115,6 +132,33 @@ static int v9x_pixel_check(void)
     return passed;
 }
 
+/*
+ * Move the pointer across the screen and force it to be redrawn.
+ *
+ * A live mode switch rebuilds the display PDEVICE in place, and the DIB
+ * Engine's cursor bookkeeping lives inside that PDEVICE. Hellbender faulted
+ * inside DIBENG's cursor code during exactly that window, so the exerciser
+ * has to be able to keep the cursor busy while the switch happens. Driving it
+ * from inside this process is the only way to overlap the two: the remote
+ * agent serialises its connections, so injected pointer input cannot arrive
+ * while a mode switch is executing on that same agent.
+ */
+static void v9x_agitate_cursor(UINT width, UINT height, UINT steps)
+{
+    UINT step;
+
+    for (step = 0u; step < steps; ++step) {
+        UINT x = (width * ((step * 37u) % 100u)) / 100u;
+        UINT y = (height * ((step * 61u) % 100u)) / 100u;
+
+        SetCursorPos((int)x, (int)y);
+        /* ShowCursor toggling makes the DIB Engine remove and redraw the
+         * cursor, which is what touches the save-under buffer. */
+        ShowCursor(FALSE);
+        ShowCursor(TRUE);
+    }
+}
+
 static int v9x_switch_and_verify(UINT width, UINT height, UINT bits,
                                  LONG *change_result)
 {
@@ -122,7 +166,13 @@ static int v9x_switch_and_verify(UINT width, UINT height, UINT bits,
     UINT now_height;
     UINT now_bits;
 
+    if (v9x_cursor_stress != 0u) {
+        v9x_agitate_cursor(width, height, 24u);
+    }
     *change_result = v9x_request_mode(width, height, bits);
+    if (v9x_cursor_stress != 0u) {
+        v9x_agitate_cursor(width, height, 24u);
+    }
     if (*change_result != DISP_CHANGE_SUCCESSFUL) {
         return 0;
     }
@@ -210,6 +260,9 @@ void __stdcall V9xModeSwitchEntry(void)
         ExitProcess(exit_code);
     }
 
+    v9x_cursor_stress = v9x_find_switch(command_line, "/cursor") != 0 ? 1u : 0u;
+    v9x_write_uint("CursorStress", v9x_cursor_stress);
+
     argument = v9x_find_switch(command_line, "/cycle:");
     if (argument != 0) {
         UINT rounds = v9x_parse_uint(&argument);
@@ -247,6 +300,7 @@ void __stdcall V9xModeSwitchEntry(void)
         } else {
             v9x_write_text("Result", "FAIL");
         }
+        v9x_flush_results();
         ExitProcess(exit_code);
     }
 

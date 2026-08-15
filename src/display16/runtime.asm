@@ -801,6 +801,22 @@ V9XHARDWAREBASE PROC FAR
     retf
 V9XHARDWAREBASE ENDP
 
+; Return the framebuffer to VGA text mode, but keep the LDT descriptor and
+; the linear mapping that address it.
+;
+; Freeing the descriptor here used to change the framebuffer selector across
+; every Disable/Enable cycle. The DIB Engine caches that selector inside the
+; PDEVICE it builds, and it does not reacquire it on a later Enable, so once
+; the value changed the engine was writing through a descriptor that had been
+; returned to the LDT and could since belong to anything. That is the fault
+; Hellbender hit: a general protection fault inside DIBENG's cursor code with
+; ES holding the previous selector value. See
+; docs/issues/2026-08-14-hellbender-dibeng-gpf.md.
+;
+; Enable already reuses a live selector (V9xHardwareReuse), and it re-enters
+; the VBE mode and re-enables the linear aperture before that point, so
+; holding one descriptor and one mapping for the driver's lifetime keeps the
+; value stable without changing what Enable does.
 PUBLIC V9XHARDWAREDISABLE
 V9XHARDWAREDISABLE PROC FAR
     push    bx
@@ -810,24 +826,6 @@ V9XHARDWAREDISABLE PROC FAR
     mov     ax, 0003h
     int     10h
 
-    cmp     V9xLinearAddress, 0
-    je      short V9xHardwareDisableSelector
-    mov     bx, word ptr V9xLinearAddress+2
-    mov     cx, word ptr V9xLinearAddress
-    mov     ax, 0801h
-    int     31h
-    mov     V9xLinearAddress, 0
-
-V9xHardwareDisableSelector:
-    cmp     V9xScreenSelector, 0
-    je      short V9xHardwareDisableDone
-    mov     bx, V9xScreenSelector
-    mov     ax, 0001h
-    int     31h
-    mov     V9xScreenSelector, 0
-    mov     V9xPhysicalBase, 0
-
-V9xHardwareDisableDone:
     pop     dx
     pop     cx
     pop     bx

@@ -173,8 +173,12 @@ CPU.
 - The Trio64 engine copy only serves display-pitch surfaces on scan-line
   boundaries, which is what its engine can address. Offscreen surfaces with
   their own pitch still take the CPU copy on that target.
-- Not yet exercised against Hellbender, so the Direct3D milestone has only
-  probe-level coverage of the blitter change.
+- Hellbender does not exercise the blitter. It was run on both targets and
+  presents through `Lock`/`Unlock` and `Flip` only — `CountBlt` did not move
+  during either run. It confirms the change broke nothing, but the blit paths
+  still have no real-workload coverage beyond Ironfield. Its own remaining
+  failure is tracked in
+  [docs/issues/2026-08-14-hellbender-dibeng-gpf.md](../issues/2026-08-14-hellbender-dibeng-gpf.md).
 - Colour fills still go through the mono-pattern path rather than the
   engine's rectangle-fill source, and stretching, colour keying and other
   ROPs remain unadvertised and therefore HEL work.

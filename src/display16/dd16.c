@@ -87,6 +87,9 @@ static void v9x_dd_trace_event(WORD id, DWORD detail)
 extern V9X_DD_VOID_PTR v9x_dd_active_pdevice(void);
 extern WORD v9x_dd_active_mode(WORD FAR *width, WORD FAR *height,
                                WORD FAR *bpp, WORD FAR *pitch);
+extern WORD v9x_dd_screen_selector(void);
+extern WORD v9x_dd_enable_count(void);
+extern WORD v9x_dd_disable_count(void);
 
 static V9X_DD_SHARED FAR *v9x_dd_block(void)
 {
@@ -148,6 +151,9 @@ static void v9x_dd_refresh_framebuffer(void)
     shared->fb.height = height;
     shared->fb.bits_per_pixel = bpp;
     shared->fb.visible_bytes = (DWORD)pitch * (DWORD)height;
+    shared->fb.screen_selector = (DWORD)v9x_dd_screen_selector();
+    shared->fb.enable_count = (DWORD)v9x_dd_enable_count();
+    shared->fb.disable_count = (DWORD)v9x_dd_disable_count();
     shared->fb.flags |= V9X_DD_FB_VALID;
 
     /* V9xHardwareEnable maps the complete 64-MiB ViRGE linear aperture.

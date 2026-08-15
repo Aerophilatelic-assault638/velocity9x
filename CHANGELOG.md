@@ -58,6 +58,22 @@ build identifier so exact guest-tested binaries remain traceable.
 
 ### Fixed
 
+- The framebuffer selector is stable for the driver's lifetime. `Disable`
+  freed its LDT descriptor and the next `Enable` allocated a different one,
+  but the DIB Engine caches that selector inside the PDEVICE and does not
+  reacquire it, so after one cycle it was writing through a descriptor that
+  had been returned to the LDT. Hellbender hit exactly that — a general
+  protection fault in `DIBENG.DLL` with `ES` holding the previous selector —
+  and now reaches gameplay for the first time, past both the black-frame hard
+  wedge and the GPF.
+  See [docs/issues/2026-08-14-hellbender-dibeng-gpf.md](docs/issues/2026-08-14-hellbender-dibeng-gpf.md).
+- The HAL trace publishes the live framebuffer selector and the Enable and
+  Disable counts, which is what made the selector change observable.
+- V9XMSW gained a `/cursor` switch that moves the pointer and forces it to be
+  redrawn across every mode change, and now flushes its results file before
+  exiting — a mode change immediately before process exit was discarding the
+  tail of the file, so a passing run could report nine of ten cycles and no
+  verdict.
 - The ViRGE DirectDraw blitter is now reachable at all. The HAL published
   `DDCAPS_BLTCOLORFILL` without `DDCAPS_BLT`, which the runtime treats as no
   blitter, so the bounded solid fill added in the ViRGE engine foundation had

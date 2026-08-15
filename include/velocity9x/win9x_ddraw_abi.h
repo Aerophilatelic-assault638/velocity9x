@@ -911,7 +911,7 @@ typedef struct v9x_ddhal_destroydriverdata {
  * V9XHAL.DLL's DriverInit. The 32-bit side owns all content except the
  * framebuffer descriptor, which the 16-bit side refreshes on every enable.
  */
-#define V9X_DD_SHARED_ABI   2026081401ul
+#define V9X_DD_SHARED_ABI   2026081501ul
 #define V9X_DD_MODE_COUNT            6u
 
 /* fb.flags */
@@ -927,6 +927,14 @@ typedef struct v9x_dd_framebuffer {
     DWORD height;
     DWORD bits_per_pixel;
     DWORD flags;            /* V9X_DD_FB_*                              */
+    /* Diagnostics for the DIBENG fault investigation. The 16-bit selector
+     * that addresses the framebuffer is freed by Disable and reallocated by
+     * the next Enable, so a cached copy held elsewhere would dangle; the
+     * counts say whether a real Disable happened at all. See
+     * docs/issues/2026-08-14-hellbender-dibeng-gpf.md. */
+    DWORD screen_selector;
+    DWORD enable_count;
+    DWORD disable_count;
 } V9X_DD_FRAMEBUFFER;
 
 /* The active S3 mapping spans the full 64-MiB linear aperture. Only the
