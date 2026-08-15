@@ -3222,6 +3222,13 @@ DWORD __stdcall DriverInit(DWORD context)
         sizeof(V9X_D3DTRANSFORMCAPS);
     shared->d3d_global.hwCaps.dlcLightingCaps.dwSize =
         sizeof(V9X_D3DLIGHTINGCAPS);
+    /*
+     * dpcLineCaps stays empty and D3DDD_LINECAPS unset: this driver does not
+     * rasterise lines. Populating them, and claiming
+     * D3DDEVCAPS_TEXTUREVIDEOMEMORY, were both measured against Hellbender
+     * and neither made it create a context on the HAL, so neither claim is
+     * kept. See docs/issues/2026-08-15-hellbender-software-fallback.md.
+     */
     shared->d3d_global.hwCaps.dpcLineCaps.dwSize =
         sizeof(V9X_D3DPRIMCAPS);
     shared->d3d_global.hwCaps.dpcTriCaps.dwSize =

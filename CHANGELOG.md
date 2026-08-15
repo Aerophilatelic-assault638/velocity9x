@@ -58,6 +58,16 @@ build identifier so exact guest-tested binaries remain traceable.
 
 ### Fixed
 
+- The Direct3D device advertises `D3DDEVCAPS_EXECUTESYSTEMMEMORY`. A DirectX
+  2/3-era title renders only through execute buffers and selects its device by
+  capability, and the Windows 98 DDK's ViRGE sample sets this bit while
+  leaving the `Execute` callbacks null exactly as this driver does — the
+  runtime decomposes execute buffers into `RenderState` and `RenderPrimitive`
+  calls, which the probe pixel-verifies. `D3DDEVCAPS_TEXTUREVIDEOMEMORY` and
+  `D3DDD_LINECAPS` were measured against Hellbender in the same way and
+  reverted: neither changed its behaviour and neither is implemented.
+  See [docs/issues/2026-08-15-hellbender-software-fallback.md](docs/issues/2026-08-15-hellbender-software-fallback.md).
+
 - The framebuffer selector is stable for the driver's lifetime. `Disable`
   freed its LDT descriptor and the next `Enable` allocated a different one,
   but the DIB Engine caches that selector inside the PDEVICE and does not
