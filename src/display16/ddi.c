@@ -77,6 +77,14 @@ static const V9X_DISPLAY_MODE v9x_modes[] = {
     {  640u, 480u,  8u,  640u, 0x0101u, 254, 127 },
     {  800u, 600u,  8u,  800u, 0x0103u, 318, 159 },
     { 1024u, 768u,  8u, 1024u, 0x0105u, 407, 203 },
+    /* 640x400 is VBE mode 100h, the first mode VESA defined and the default
+     * screen size Doom95 asks DirectDraw for. Without it SetDisplayMode
+     * fails, the game keeps the 16-bpp desktop mode and writes its 8-bpp
+     * frame into it: one byte per pixel into a two-byte pitch renders the
+     * picture at half width in garbage colours. It sits after the other
+     * 8-bpp entries so this list runs in the same order as the MODES
+     * registry key GDI enumerates. */
+    {  640u, 400u,  8u,  640u, 0x0100u, 254, 127 },
     {  640u, 480u, 16u, 1280u, 0x0111u, 254, 127 },
     {  800u, 600u, 16u, 1600u, 0x0114u, 318, 159 },
     { 1024u, 768u, 16u, 2048u, 0x0117u, 407, 203 }
@@ -109,6 +117,11 @@ static WORD v9x_dpi = 96u;
 /* Enable/Disable lifecycle counts published through the HAL trace. */
 static WORD v9x_enable_count;
 static WORD v9x_disable_count;
+/* The PDEVICE size reported to GDI at the first query. GDI allocates once
+ * from that value, so a later live depth change has to fit inside it. */
+static WORD v9x_pdevice_allocated;
+/* Non-zero while ReEnable rebuilds at a different colour depth. */
+static WORD v9x_depth_changed;
 
 #ifdef V9X_BOOT_TRACE
 static BOOL v9x_boot_trace(const char FAR *stage)
@@ -235,7 +248,7 @@ static void v9x_publish_hardware_diagnostics(void)
                               "s3-virge-pll-v1",
                               V9X_HARDWARE_INFO_PATH);
     WritePrivateProfileString("Velocity9xHardware", "ModeSwitching",
-                              "live-same-depth",
+                              "live-any-depth",
                               V9X_HARDWARE_INFO_PATH);
     WritePrivateProfileString("Velocity9xHardware", "Acceleration",
                               "directdraw-solid-fill",
@@ -549,7 +562,17 @@ static WORD v9x_fill_gdi_info(V9X_GDI_INFO FAR *info,
     info->dpPlanes = 1;
     info->dpNumBrushes = -1;
     info->dpNumFonts = 0;
-    extra_size = V9X_BITMAP_HEADER_SIZE;
+    /*
+     * Reserve the colour table at every depth, not just at 8 bpp.
+     *
+     * GDI allocates the PDEVICE once, from the size reported by the first
+     * query, and a live depth change rebuilds inside that same allocation.
+     * Sizing it for the current depth made the 8-bpp PDEVICE 1 KiB larger
+     * than the 16-bpp one, so switching down could not fit and the driver
+     * had to refuse depth changes outright. Reserving the maximum costs
+     * 1 KiB at 16 bpp and makes the switch expressible.
+     */
+    extra_size = V9X_BITMAP_HEADER_SIZE + V9X_PALETTE_BYTES;
     info->dpRaster |= V9X_RC_DIBTODEV;
     if (v9x_palettized != 0u) {
         info->dpNumPens = 16;
@@ -558,7 +581,6 @@ static WORD v9x_fill_gdi_info(V9X_GDI_INFO FAR *info,
         info->dpNumPalReg = V9X_PALETTE_ENTRIES;
         info->dpPalReserved = 20u;
         info->dpColorRes = 18u;
-        extra_size += V9X_PALETTE_BYTES;
     } else {
         info->dpNumPens = -1;
         info->dpNumColors = -1;
@@ -568,6 +590,9 @@ static WORD v9x_fill_gdi_info(V9X_GDI_INFO FAR *info,
         info->dpColorRes = 0u;
     }
     info->dpDEVICEsize = (short)(v9x_dib_pdevice_size + extra_size);
+    if (v9x_pdevice_allocated == 0u) {
+        v9x_pdevice_allocated = (WORD)info->dpDEVICEsize;
+    }
 
     v9x_set_point(&info->dpMLoWin, 2080, 1560);
     v9x_set_point(&info->dpMLoVpt, (short)v9x_selected_mode->width,
@@ -661,6 +686,18 @@ static WORD v9x_build_pdevice(LPVOID device_info,
         pdevice_flags |= V9X_DE_FIVE6FIVE;
     }
 
+    /*
+     * The PDEVICE is GDI's allocation and cannot grow. Reserving the colour
+     * table at every depth is what makes a live depth change fit, but verify
+     * it rather than trusting it: overrunning GDI's buffer would corrupt the
+     * heap silently, while refusing the switch is recoverable.
+     */
+    if (v9x_pdevice_allocated != 0u &&
+        (DWORD)v9x_dib_pdevice_size + V9X_BITMAP_HEADER_SIZE +
+            V9X_PALETTE_BYTES > (DWORD)v9x_pdevice_allocated) {
+        v9x_boot_trace("fail-pdevice-too-small");
+        return 0u;
+    }
     bitmap_info = (BITMAPINFO FAR *)
         ((BYTE FAR *)device_info + v9x_dib_pdevice_size);
     bitmap_info->bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
@@ -681,7 +718,7 @@ static WORD v9x_build_pdevice(LPVOID device_info,
         /* During a live switch the BITMAPINFO color table in the reused
          * PDEVICE still holds the realized palette; do not reset it to the
          * defaults (vmdisp9x preserves it the same way). */
-        if (v9x_reenabling == 0u) {
+        if (v9x_reenabling == 0u || v9x_depth_changed != 0u) {
             v9x_build_palette(v9x_color_table);
         }
     } else {
@@ -813,16 +850,6 @@ WORD __loadds FAR PASCAL ReEnable(LPVOID destination_device,
     previous_mode = v9x_active_mode;
     v9x_select_requested_mode();
 
-    if (v9x_selected_mode->bits_per_pixel !=
-        previous_mode->bits_per_pixel) {
-        /* Windows 9x never changes color depth dynamically (KB Q127139),
-         * and the 8-bpp PDEVICE is 1 KiB larger than the 16-bpp one, so an
-         * in-place rebuild cannot fit. Depth changes require a restart. */
-        v9x_apply_mode(previous_mode);
-        v9x_serial_write("V9X-DRV switch-refuse-depth\r\n");
-        return 0u;
-    }
-
     if (v9x_selected_mode == previous_mode) {
         /* Unchanged mode: restore the current mode, e.g. returning from a
          * full-screen DOS box. */
@@ -847,6 +874,10 @@ WORD __loadds FAR PASCAL ReEnable(LPVOID destination_device,
      * PDEVICE, so an exclusion begun against the old contents cannot safely
      * be ended against the rebuilt contents. */
     v9x_reenabling = 1u;
+    /* Arriving at 8 bpp from 16 bpp there is no realized palette in the
+     * reused colour table to preserve, so it has to be rebuilt. */
+    v9x_depth_changed = v9x_selected_mode->bits_per_pixel !=
+                        previous_mode->bits_per_pixel ? 1u : 0u;
     if (v9x_build_pdevice(device, 0, 0, 0) == 0u) {
         /* Bring the previous mode back before reporting failure. */
         v9x_apply_mode(previous_mode);
@@ -856,6 +887,7 @@ WORD __loadds FAR PASCAL ReEnable(LPVOID destination_device,
         return 0u;
     }
     v9x_reenabling = 0u;
+    v9x_depth_changed = 0u;
     if (v9x_fill_gdi_info((V9X_GDI_INFO FAR *)gdi_info, 0, 0, 0) == 0u) {
         v9x_serial_write("V9X-DRV switch-fail stage=gdi-info\r\n");
         return 0u;

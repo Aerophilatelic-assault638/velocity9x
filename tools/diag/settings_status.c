@@ -165,13 +165,18 @@ void v9x_settings_collect(V9X_SETTINGS_STATUS *status,
                                  "reboot-selected", switching,
                                  sizeof(switching), "C:\\V9XHW.INI");
         status->live_mode_switching =
+            lstrcmpiA(switching, "live-any-depth") == 0 ||
             lstrcmpiA(switching, "live-same-depth") == 0;
+        status->live_depth_switching =
+            lstrcmpiA(switching, "live-any-depth") == 0;
         status->mode_switching[0] = '\0';
         v9x_append(status->mode_switching, sizeof(status->mode_switching),
-                   status->live_mode_switching
-                       ? "Live (same color depth); depth change requires"
-                         " restart"
-                       : "Selected at boot");
+                   status->live_depth_switching
+                       ? "Live, including color depth"
+                       : (status->live_mode_switching
+                          ? "Live (same color depth); depth change requires"
+                            " restart"
+                          : "Selected at boot"));
         GetPrivateProfileStringA("Velocity9xHardware", "Acceleration",
                                  "disabled", acceleration,
                                  sizeof(acceleration), "C:\\V9XHW.INI");

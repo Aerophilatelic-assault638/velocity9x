@@ -63,8 +63,8 @@ would otherwise leave the VDD holding a stale save/restore size.
 ## Test tooling
 
 - `V9XMSW.EXE` (tools/diag/mode_switch_win32.c): `/set:WxHxB`, `/cycle:N`,
-  `/depth`; results in `C:\V9XMSW.INI`. Vehicle for the Phase 3 exit gate
-  and the 1,000-switch reliability target.
+  `/depth:N`, `/cursor`; results in `C:\V9XMSW.INI`. Vehicle for the Phase 3
+  exit gate and the 1,000-switch reliability target.
 - `V9XDDP.EXE` (tools/diag/ddraw_probe_win32.c): DirectDraw mode honesty and
   flip/fill timing; results in `C:\V9XDD.INI`.
 - Both are packaged in the active package alongside the existing tests.

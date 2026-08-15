@@ -1,5 +1,23 @@
 # Changelog
 
+- Support live colour-depth changes. The 8-bpp PDEVICE needs a palette the
+  16-bpp one does not, so an in-place rebuild across a depth change used to
+  overrun the allocation and `ReEnable` refused it; `dpDEVICEsize` now always
+  reserves the palette so one GDI allocation serves either depth, the size
+  actually granted is recorded and re-checked before every rebuild, and the
+  palette is rebuilt whenever the depth changes. Verified on the ViRGE guest:
+  20/20 alternating 8/16-bpp switches with cursor agitation, palette
+  animation and GDI readback passing at both depths, and a clean boot with
+  the registry left at 8 bpp. `ModeSwitching` now reports `live-any-depth`.
+- Publish 640x400x8 (VBE mode `100h`) in the mode table and the INF. It works
+  as a GDI desktop mode, but DirectDraw admits no sub-480-line mode outside
+  its own ModeX set, so it does not make `SetDisplayMode(640, 400, 8)`
+  succeed - see `docs/issues/2026-08-15-doom95-low-resolution-modes.md`.
+- Extend V9XDDP with a `/pal8` palettized-presentation test that records the
+  depth and pitch DirectDraw actually delivers, dumps both the GDI and the
+  DirectDraw mode lists, and reads a known palette index back through the
+  surface and the screen DC. Rework `V9XMSW /depth` into `/depth:N`, a
+  depth-cycle stress, now that live depth changes are expected to succeed.
 - Trace DirectDraw surface negotiation through `CanCreateSurface`,
   `CreateSurface`, `DestroySurface`, and `AddAttachedSurface`; enlarge the
   shared callback ring, correct Win16 exit bookkeeping, and honor the

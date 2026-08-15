@@ -37,6 +37,9 @@
 #define V9X_DDSCL_FULLSCREEN        0x00000001ul
 #define V9X_DDSCL_NORMAL            0x00000008ul
 #define V9X_DDSCL_EXCLUSIVE         0x00000010ul
+/* Without this, DirectDraw hides every mode below 480 lines - including
+ * 640x400 - from EnumDisplayModes and rejects SetDisplayMode for them. */
+#define V9X_DDSCL_ALLOWMODEX        0x00000040ul
 #define V9X_DDFLIP_WAIT             0x00000001ul
 #define V9X_DDBLT_COLORFILL          0x00000400ul
 #define V9X_DDBLT_KEYSRC             0x00008000ul
@@ -46,6 +49,8 @@
 #define V9X_DDGBS_ISBLTDONE          0x00000002ul
 #define V9X_DDWAITVB_BLOCKBEGIN     0x00000001ul
 #define V9X_DDLOCK_WAIT             0x00000001ul
+#define V9X_DDPCAPS_8BIT            0x00000004ul
+#define V9X_DDPCAPS_ALLOW256        0x00000040ul
 #define V9X_DDERR_WASSTILLDRAWING   0x8876021cul
 #define V9X_D3DPT_TRIANGLELIST               4ul
 #define V9X_D3DVT_TLVERTEX                   3ul
@@ -407,6 +412,25 @@ typedef struct v9x_dd_vtbl {
                                               HANDLE);
 } V9X_DD_VTBL;
 
+/* IDirectDrawPalette method table, in vtable order. */
+typedef struct v9x_ddpal_vtbl {
+    HRESULT (__stdcall *QueryInterface)(struct v9x_ddpal *, const void *,
+                                        void **);
+    ULONG (__stdcall *AddRef)(struct v9x_ddpal *);
+    ULONG (__stdcall *Release)(struct v9x_ddpal *);
+    HRESULT (__stdcall *GetCaps)(struct v9x_ddpal *, DWORD *);
+    HRESULT (__stdcall *GetEntries)(struct v9x_ddpal *, DWORD, DWORD, DWORD,
+                                    PALETTEENTRY *);
+    HRESULT (__stdcall *Initialize)(struct v9x_ddpal *, struct v9x_dd *,
+                                    DWORD, PALETTEENTRY *);
+    HRESULT (__stdcall *SetEntries)(struct v9x_ddpal *, DWORD, DWORD, DWORD,
+                                    PALETTEENTRY *);
+} V9X_DDPAL_VTBL;
+
+typedef struct v9x_ddpal {
+    V9X_DDPAL_VTBL *vtbl;
+} V9X_DDPAL;
+
 /* IDirectDrawSurface version 1 method table, in vtable order. */
 typedef struct v9x_dds_vtbl {
     HRESULT (__stdcall *QueryInterface)(struct v9x_dds *, const void *,
@@ -657,6 +681,15 @@ static void v9x_write_hresult(const char *key, HRESULT value)
     v9x_write_text(key, text);
 }
 
+/*
+ * Windows caches .INI writes, and a display mode change immediately before
+ * process exit discards the cached tail. Flush explicitly before exiting.
+ */
+static void v9x_flush_results(void)
+{
+    WritePrivateProfileStringA(0, 0, 0, V9X_RESULT_PATH);
+}
+
 static void v9x_write_d3d_devices(const V9X_D3D_ENUM_RESULT *result)
 {
     char key[64];
@@ -860,6 +893,44 @@ static void v9x_write_ddraw_globals(struct v9x_dd *ddraw)
     v9x_write_field("GblModeIndex", gbl, V9X_GBL_MODEINDEX);
     v9x_write_field("GblNumModes", gbl, V9X_GBL_NUMMODES);
     v9x_write_field("GblModeInfo", gbl, V9X_GBL_MODEINFO);
+    /*
+     * Dump the mode table DirectDraw actually holds. The driver publishes its
+     * list through DDHALINFO, but EnumDisplayModes reports fewer entries than
+     * the driver offers, so it matters whether a missing mode never reached
+     * DirectDraw or reached it and was filtered afterwards.
+     */
+    {
+        const BYTE *modes = (const BYTE *)v9x_peek(gbl, V9X_GBL_MODEINFO);
+        DWORD count = v9x_peek(gbl, V9X_GBL_NUMMODES);
+        DWORD index;
+
+        if (count > 24ul) {
+            count = 24ul;
+        }
+        for (index = 0ul; modes != 0 && index < count; ++index) {
+            const BYTE *entry = modes + index * 36ul;
+            char key[32];
+            char index_text[12];
+            char base[32];
+            int end;
+
+            if (IsBadReadPtr(entry, 36u)) {
+                break;
+            }
+            v9x_uint_text(index_text, index);
+            v9x_compose_key(base, "GblMode", index_text);
+            for (end = 0; base[end] != '\0'; ++end) {
+                key[end] = base[end];
+            }
+            key[end + 1] = '\0';
+            key[end] = 'W';
+            v9x_write_uint(key, *(const DWORD *)(entry + 0));
+            key[end] = 'H';
+            v9x_write_uint(key, *(const DWORD *)(entry + 4));
+            key[end] = 'B';
+            v9x_write_uint(key, *(const DWORD *)(entry + 12));
+        }
+    }
     v9x_write_field("GblPDevice", gbl, V9X_GBL_PDEVICE);
     v9x_write_field("GblHInstance", gbl, V9X_GBL_HINSTANCE);
     v9x_write_field("GblD3DGlobal", gbl, V9X_GBL_D3DGLOBAL);
@@ -895,6 +966,40 @@ static void v9x_write_ddraw_globals(struct v9x_dd *ddraw)
     v9x_write_raw("CbRaw", callbacks, 0x080u, 16u);
 }
 
+/*
+ * Palettized presentation at one resolution, the path Doom95 uses.
+ *
+ * Doom asks DirectDraw for a low-resolution palettized mode, attaches a
+ * 256-entry palette and writes one index byte per pixel. If the driver hands
+ * back a 16-bpp primary instead, those index bytes are read as half as many
+ * RGB565 pixels: the picture ends up half as wide with garbage colours,
+ * which is what the guest showed. Recording the depth and pitch actually
+ * delivered, plus a known index read back through both the surface and the
+ * GDI screen DC, separates a depth failure from a palette failure and shows
+ * which resolutions survive the round trip.
+ */
+static void v9x_pal8_mode_test(struct v9x_dd *ddraw, const char *prefix,
+                               DWORD width, DWORD height);
+
+/* Dump every mode DirectDraw enumerates, so a resolution the driver never
+ * published can be told apart from one it published and mis-programmed. */
+static void v9x_enum_modes(struct v9x_dd *ddraw);
+
+/* Compose "<prefix><suffix>" into an INI key. */
+static void v9x_compose_key(char *key, const char *prefix, const char *suffix)
+{
+    int offset = 0;
+    int index;
+
+    for (index = 0; prefix[index] != '\0'; ++index) {
+        key[offset++] = prefix[index];
+    }
+    for (index = 0; suffix[index] != '\0'; ++index) {
+        key[offset++] = suffix[index];
+    }
+    key[offset] = '\0';
+}
+
 static void v9x_write_mode(const char *prefix,
                            const V9X_DDSURFACEDESC *desc)
 {
@@ -915,6 +1020,193 @@ static void v9x_write_mode(const char *prefix,
     key[offset + 2] = 'p';
     key[offset + 3] = '\0';
     v9x_write_uint(key, desc->ddpfPixelFormat.dwRGBBitCount);
+}
+
+static DWORD v9x_enum_mode_count;
+
+static HRESULT __stdcall v9x_enum_mode_callback(V9X_DDSURFACEDESC *desc,
+                                                void *context)
+{
+    char key[32];
+    char index_text[12];
+
+    (void)context;
+    if (v9x_enum_mode_count < 32ul) {
+        v9x_uint_text(index_text, v9x_enum_mode_count);
+        v9x_compose_key(key, "EnumMode", index_text);
+        v9x_write_mode(key, desc);
+    }
+    ++v9x_enum_mode_count;
+    return 1l;
+}
+
+static void v9x_enum_modes(struct v9x_dd *ddraw)
+{
+    DEVMODEA device_mode;
+    DWORD index;
+    DWORD written = 0ul;
+
+    v9x_enum_mode_count = 0ul;
+    ddraw->vtbl->EnumDisplayModes(ddraw, 0ul, 0,
+                                  0, (void *)v9x_enum_mode_callback);
+    v9x_write_uint("EnumModeCount", v9x_enum_mode_count);
+
+    /*
+     * GDI's own list, for comparison. DirectDraw builds its mode list from
+     * the driver's DDHALINFO, but only publishes the entries GDI will also
+     * accept, so a mode present here and missing above is being filtered by
+     * DirectDraw rather than never offered by the driver.
+     */
+    for (index = 0ul; index < 64ul; ++index) {
+        char key[32];
+        char index_text[12];
+
+        v9x_zero(&device_mode, sizeof(device_mode));
+        device_mode.dmSize = sizeof(device_mode);
+        if (!EnumDisplaySettingsA(0, index, &device_mode)) {
+            break;
+        }
+        if (written < 32ul) {
+            char base[32];
+            int end;
+
+            v9x_uint_text(index_text, written);
+            v9x_compose_key(base, "GdiMode", index_text);
+            for (end = 0; base[end] != '\0'; ++end) {
+                key[end] = base[end];
+            }
+            key[end + 1] = '\0';
+            key[end] = 'W';
+            v9x_write_uint(key, device_mode.dmPelsWidth);
+            key[end] = 'H';
+            v9x_write_uint(key, device_mode.dmPelsHeight);
+            key[end] = 'B';
+            v9x_write_uint(key, device_mode.dmBitsPerPel);
+        }
+        ++written;
+    }
+    v9x_write_uint("GdiModeCount", written);
+}
+
+static void v9x_pal8_mode_test(struct v9x_dd *ddraw, const char *prefix,
+                               DWORD width, DWORD height)
+{
+    V9X_DDSURFACEDESC desc;
+    struct v9x_dds *primary = 0;
+    V9X_DDPAL *palette = 0;
+    PALETTEENTRY entries[256];
+    char key[40];
+    HRESULT hr;
+    unsigned index;
+    unsigned probe_x = (unsigned)(width / 4ul);
+    unsigned probe_y = (unsigned)(height / 4ul);
+
+    v9x_compose_key(key, prefix, "SetModeHr");
+    hr = ddraw->vtbl->SetDisplayMode(ddraw, width, height, 8ul);
+    v9x_write_hresult(key, hr);
+    if (hr != 0) {
+        return;
+    }
+
+    v9x_zero(&desc, sizeof(desc));
+    desc.dwSize = sizeof(desc);
+    if (ddraw->vtbl->GetDisplayMode(ddraw, &desc) == 0) {
+        v9x_compose_key(key, prefix, "Mode");
+        v9x_write_mode(key, &desc);
+    }
+
+    v9x_zero(&desc, sizeof(desc));
+    desc.dwSize = sizeof(desc);
+    desc.dwFlags = V9X_DDSD_CAPS;
+    desc.ddsCaps.dwCaps = V9X_DDSCAPS_PRIMARYSURFACE;
+    hr = ddraw->vtbl->CreateSurface(ddraw, &desc, &primary, 0);
+    v9x_compose_key(key, prefix, "PrimaryHr");
+    v9x_write_hresult(key, hr);
+    if (hr != 0) {
+        return;
+    }
+
+    v9x_zero(&desc, sizeof(desc));
+    desc.dwSize = sizeof(desc);
+    if (primary->vtbl->GetSurfaceDesc(primary, &desc) == 0) {
+        v9x_compose_key(key, prefix, "Primary");
+        v9x_write_mode(key, &desc);
+        v9x_compose_key(key, prefix, "PrimaryPitch");
+        v9x_write_uint(key, (DWORD)desc.lPitch);
+    }
+
+    /* A ramp with a distinctive entry at index 40: pure blue. */
+    for (index = 0u; index < 256u; ++index) {
+        entries[index].peRed = (BYTE)index;
+        entries[index].peGreen = (BYTE)(255u - index);
+        entries[index].peBlue = (BYTE)((index * 3u) & 0xFFu);
+        entries[index].peFlags = 0u;
+    }
+    entries[40].peRed = 0u;
+    entries[40].peGreen = 0u;
+    entries[40].peBlue = 255u;
+
+    hr = ddraw->vtbl->CreatePalette(ddraw,
+                                    V9X_DDPCAPS_8BIT | V9X_DDPCAPS_ALLOW256,
+                                    entries, (void **)&palette, 0);
+    v9x_compose_key(key, prefix, "CreatePaletteHr");
+    v9x_write_hresult(key, hr);
+    if (hr == 0) {
+        hr = primary->vtbl->SetPalette(primary, palette);
+        v9x_compose_key(key, prefix, "SetPaletteHr");
+        v9x_write_hresult(key, hr);
+    }
+
+    v9x_zero(&desc, sizeof(desc));
+    desc.dwSize = sizeof(desc);
+    hr = primary->vtbl->Lock(primary, 0, &desc, V9X_DDLOCK_WAIT, 0);
+    v9x_compose_key(key, prefix, "LockHr");
+    v9x_write_hresult(key, hr);
+    if (hr == 0 && desc.lpSurface != 0) {
+        BYTE FAR *base = (BYTE FAR *)desc.lpSurface;
+        unsigned y;
+
+        for (y = probe_y; y < probe_y + 40u; ++y) {
+            BYTE FAR *row = base + y * (DWORD)desc.lPitch;
+            unsigned x;
+
+            for (x = probe_x; x < probe_x + 40u; ++x) {
+                row[x] = 40u;
+            }
+        }
+        primary->vtbl->Unlock(primary, desc.lpSurface);
+
+        v9x_zero(&desc, sizeof(desc));
+        desc.dwSize = sizeof(desc);
+        if (primary->vtbl->Lock(primary, 0, &desc, V9X_DDLOCK_WAIT, 0) == 0) {
+            BYTE FAR *row = (BYTE FAR *)desc.lpSurface +
+                            (DWORD)(probe_y + 10u) * (DWORD)desc.lPitch;
+
+            v9x_compose_key(key, prefix, "ReadIndex");
+            v9x_write_uint(key, (DWORD)row[probe_x + 10u]);
+            primary->vtbl->Unlock(primary, desc.lpSurface);
+        }
+    }
+
+    {
+        HDC screen = GetDC(0);
+
+        v9x_compose_key(key, prefix, "ScreenBpp");
+        v9x_write_uint(key, (DWORD)GetDeviceCaps(screen, BITSPIXEL));
+        v9x_compose_key(key, prefix, "ScreenW");
+        v9x_write_uint(key, (DWORD)GetDeviceCaps(screen, HORZRES));
+        v9x_compose_key(key, prefix, "ScreenH");
+        v9x_write_uint(key, (DWORD)GetDeviceCaps(screen, VERTRES));
+        v9x_compose_key(key, prefix, "ScreenPixel");
+        v9x_write_uint(key, (DWORD)GetPixel(screen, (int)(probe_x + 10u),
+                                            (int)(probe_y + 10u)));
+        ReleaseDC(0, screen);
+    }
+
+    if (palette != 0) {
+        palette->vtbl->Release(palette);
+    }
+    primary->vtbl->Release(primary);
 }
 
 static void v9x_fill_surface(struct v9x_dds *surface, DWORD pattern)
@@ -1287,11 +1579,39 @@ void __stdcall V9xDdrawProbeEntry(void)
     /* The exact sequence a fullscreen game performs. */
     hr = ddraw->vtbl->SetCooperativeLevel(ddraw, window,
                                           V9X_DDSCL_EXCLUSIVE |
-                                          V9X_DDSCL_FULLSCREEN);
+                                          V9X_DDSCL_FULLSCREEN |
+                                          V9X_DDSCL_ALLOWMODEX);
     v9x_write_hresult("CoopExclusiveHr", hr);
     hr = ddraw->vtbl->WaitForVerticalBlank(ddraw, V9X_DDWAITVB_BLOCKBEGIN,
                                            0);
     v9x_write_hresult("ExclusiveVBlankHr", hr);
+    /*
+     * Palettized 8-bpp presentation, the path Doom95 uses.
+     *
+     * Doom asks DirectDraw for a 640x480x8 mode, attaches a 256-entry
+     * palette and writes one index byte per pixel. If the driver hands back
+     * a 16-bpp primary instead, those index bytes are read as half as many
+     * RGB565 pixels: the picture ends up 320 columns wide with garbage
+     * colours, which is exactly what the guest showed. This block records
+     * the depth actually delivered and reads one known index back through
+     * both the surface and the GDI screen DC, so a depth failure and a
+     * palette failure can be told apart.
+     */
+    if (v9x_has_switch("/pal8")) {
+        v9x_enum_modes(ddraw);
+        v9x_pal8_mode_test(ddraw, "Pal8_640_480_", 640ul, 480ul);
+        v9x_pal8_mode_test(ddraw, "Pal8_640_400_", 640ul, 400ul);
+        v9x_pal8_mode_test(ddraw, "Pal8_320_240_", 320ul, 240ul);
+        v9x_pal8_mode_test(ddraw, "Pal8_320_200_", 320ul, 200ul);
+        v9x_write_text("Result", "PAL8");
+        v9x_flush_results();
+        ddraw->vtbl->RestoreDisplayMode(ddraw);
+        ddraw->vtbl->SetCooperativeLevel(ddraw, window, V9X_DDSCL_NORMAL);
+        ddraw->vtbl->Release(ddraw);
+        DestroyWindow(window);
+        ExitProcess(0u);
+    }
+
     hr = ddraw->vtbl->SetDisplayMode(ddraw, 640ul, 480ul, 16ul);
     v9x_write_hresult("SetModeHr", hr);
     v9x_zero(&desc, sizeof(desc));

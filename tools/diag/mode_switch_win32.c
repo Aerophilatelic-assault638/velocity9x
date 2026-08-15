@@ -8,9 +8,9 @@
  *   V9XMSW /set:800x600x8    switch to one mode and verify it
  *   V9XMSW /cycle:20         alternate 640x480 and 800x600 at the current
  *                            depth the requested number of times
- *   V9XMSW /depth            request the other color depth and record the
- *                            ChangeDisplaySettings return code (expected to
- *                            require a restart)
+ *   V9XMSW /depth:20         alternate 8 and 16 bpp at the current
+ *                            resolution the requested number of times
+ *   V9XMSW /cursor           add cursor agitation around every switch
  */
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -304,22 +304,40 @@ void __stdcall V9xModeSwitchEntry(void)
         ExitProcess(exit_code);
     }
 
-    argument = v9x_find_switch(command_line, "/depth");
+    argument = v9x_find_switch(command_line, "/depth:");
     if (argument != 0) {
-        UINT other_bits = start_bits == 8u ? 16u : 8u;
+        /* Alternate 8 and 16 bpp at the current resolution. Every switch has
+         * to be honoured live and leave a readable framebuffer behind: the
+         * driver now rebuilds the PDEVICE in place across a depth change
+         * instead of demanding a restart. */
+        UINT rounds = v9x_parse_uint(&argument);
+        UINT completed = 0u;
+        UINT round;
 
-        v9x_write_uint("RequestBpp", other_bits);
-        change_result = v9x_request_mode(start_width, start_height,
-                                         other_bits);
-        v9x_write_int("ChangeResult", change_result);
-        /* Any outcome except a silent wrong-mode success is acceptable;
-         * record the code (1 = DISP_CHANGE_RESTART is the expected one)
-         * and restore the starting registry mode. */
+        v9x_write_uint("RequestedDepthCycles", rounds);
+        for (round = 0u; round < rounds; ++round) {
+            UINT bits = (round & 1u) != 0u ? start_bits
+                                           : (start_bits == 8u ? 16u : 8u);
+
+            if (!v9x_switch_and_verify(start_width, start_height, bits,
+                                       &change_result)) {
+                v9x_write_uint("FailedAtBpp", bits);
+                v9x_write_int("ChangeResult", change_result);
+                break;
+            }
+            ++completed;
+            v9x_write_uint("CompletedDepthCycles", completed);
+        }
         (void)v9x_request_mode(start_width, start_height, start_bits);
-        v9x_write_text("Result",
-                       change_result == DISP_CHANGE_SUCCESSFUL
-                           ? "UNEXPECTED-LIVE" : "RECORDED");
-        ExitProcess(change_result == DISP_CHANGE_SUCCESSFUL ? 1u : 0u);
+        v9x_write_uint("CompletedDepthCycles", completed);
+        if (completed == rounds) {
+            v9x_write_text("Result", "PASS");
+            exit_code = 0u;
+        } else {
+            v9x_write_text("Result", "FAIL");
+        }
+        v9x_flush_results();
+        ExitProcess(exit_code);
     }
 
     v9x_write_text("Result", "NO-ARGUMENT");

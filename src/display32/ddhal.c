@@ -3085,6 +3085,7 @@ static void v9x_fill_modes(V9X_DD_SHARED *shared)
         {  640ul, 480ul,  640l,  8ul },
         {  800ul, 600ul,  800l,  8ul },
         { 1024ul, 768ul, 1024l,  8ul },
+        {  640ul, 400ul,  640l,  8ul },
         {  640ul, 480ul, 1280l, 16ul },
         {  800ul, 600ul, 1600l, 16ul },
         { 1024ul, 768ul, 2048l, 16ul }

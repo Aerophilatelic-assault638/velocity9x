@@ -933,8 +933,8 @@ typedef struct v9x_ddhal_destroydriverdata {
  * V9XHAL.DLL's DriverInit. The 32-bit side owns all content except the
  * framebuffer descriptor, which the 16-bit side refreshes on every enable.
  */
-#define V9X_DD_SHARED_ABI   2026081502ul
-#define V9X_DD_MODE_COUNT            6u
+#define V9X_DD_SHARED_ABI   2026081503ul
+#define V9X_DD_MODE_COUNT            7u
 
 /* fb.flags */
 #define V9X_DD_FB_VALID          0x00000001ul

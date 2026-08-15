@@ -20,6 +20,7 @@ typedef struct v9x_settings_status {
     char mode_switching[80];
     int live_mode_switching;
     int hardware_acceleration;
+    int live_depth_switching;
     char report[1024];
 } V9X_SETTINGS_STATUS;
 
