@@ -170,5 +170,14 @@ Always keep a standard-VGA fallback and a cold backup. Never install directly
 from `packaging/win98se`; build the package and read the `FIRSTBOOT.TXT`,
 `INSTALL.TXT` and `RECOVER.TXT` it contains.
 
-Copyright (c) 2026 Michael Dale. No project license has been selected. Unless
-and until a license is added, this work is all rights reserved.
+Copyright (c) 2026 Michael Dale.
+
+Velocity9x is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License, or (at your option) any later
+version.
+
+It is distributed in the hope that it will be useful, but **without any
+warranty** — without even the implied warranty of merchantability or fitness
+for a particular purpose. See the [GNU General Public License](LICENSE) for
+details.

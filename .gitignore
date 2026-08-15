@@ -1,4 +1,5 @@
 /build/
+/Velocity9x-*.zip
 *.err
 *.map
 *.obj
