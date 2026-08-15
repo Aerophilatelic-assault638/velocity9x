@@ -58,6 +58,20 @@ build identifier so exact guest-tested binaries remain traceable.
 
 ### Fixed
 
+- The Direct3D texture capabilities now describe what the sampler actually
+  does. `v9x_d3d_texture_setup` accepts only square, power-of-two, 16-bit
+  surfaces in video memory and silently declines anything else, but the
+  shipping build declared neither `D3DPTEXTURECAPS_POW2` nor `SQUAREONLY`, so
+  an application had no way to comply and its textures were simply dropped.
+  `ALPHA` and `D3DDEVCAPS_TEXTUREVIDEOMEMORY` are declared for the same
+  reason: the published format carries an alpha bit the sampler reads, and the
+  sampler rejects system-memory surfaces outright. `dwTextureCaps` is now
+  `0x27` against the retail S3 ViRGE driver's `0x2F`, the remainder being
+  colour-key transparency, which is not implemented.
+- Removed the concluded C4 caps experiment. Its "control" arm was the shipping
+  configuration and under-declared the texture constraints, while the arm
+  labelled "self-consistent texture advertisement" had the correct answer.
+
 - The Direct3D device advertises `D3DPSHADECAPS_FOGFLAT`. The driver already
   blends fog into the vertex colour and flat shading reuses that colour across
   the triangle, so the capability was implemented but unpublished. It was the

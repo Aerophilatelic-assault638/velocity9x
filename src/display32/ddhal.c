@@ -25,10 +25,6 @@
  * every GUID; stage 2 changes this to 1 to serve only D3DCallbacks2. */
 #define V9X_C3_SERVE_D3D_CALLBACKS2 1
 
-/* C4 caps discriminator: 0 = control, 1 = no textures/perspective,
- * 2 = self-consistent texture advertisement. */
-#define V9X_C4_CAPS_VARIANT 0
-
 #define V9X_HAL_BASE            0xb0400000ul
 
 #define V9X_CRTC_INDEX              0x03d4u
@@ -3216,6 +3212,13 @@ DWORD __stdcall DriverInit(DWORD context)
          * exactly as this driver does.
          */
         V9X_D3DDEVCAPS_EXECUTESYSTEMMEMORY |
+        /*
+         * "Device can texture from device memory", and only from there:
+         * v9x_d3d_texture_setup rejects any surface carrying
+         * DDSCAPS_SYSTEMMEMORY. Declaring it is what tells an application
+         * where its textures have to live.
+         */
+        V9X_D3DDEVCAPS_TEXTUREVIDEOMEMORY |
         V9X_D3DDEVCAPS_TLVERTEXSYSTEMMEMORY |
         V9X_D3DDEVCAPS_DRAWPRIMTLVERTEX;
     shared->d3d_global.hwCaps.dtcTransformCaps.dwSize =
@@ -3267,17 +3270,19 @@ DWORD __stdcall DriverInit(DWORD context)
          */
         V9X_D3DPSHADECAPS_FOGFLAT |
         V9X_D3DPSHADECAPS_FOGGOURAUD;
+    /*
+     * Describe the sampler's real constraints. v9x_d3d_texture_setup accepts
+     * only square, power-of-two, 16-bit surfaces between 4 and 512 texels and
+     * silently declines anything else, so a driver that does not declare
+     * POW2 and SQUAREONLY leaves an application no way to comply - its
+     * textures are simply dropped. ALPHA matches the ARGB1555 format
+     * published below, whose alpha bit the sampler reads.
+     */
     shared->d3d_global.hwCaps.dpcTriCaps.dwTextureCaps =
-#if V9X_C4_CAPS_VARIANT == 1
-        0ul;
-#elif V9X_C4_CAPS_VARIANT == 2
         V9X_D3DPTEXTURECAPS_PERSPECTIVE |
         V9X_D3DPTEXTURECAPS_POW2 |
-        V9X_D3DPTEXTURECAPS_SQUAREONLY;
-#else
-        V9X_D3DPTEXTURECAPS_PERSPECTIVE;
-#endif
-#if V9X_C4_CAPS_VARIANT != 1
+        V9X_D3DPTEXTURECAPS_SQUAREONLY |
+        V9X_D3DPTEXTURECAPS_ALPHA;
     shared->d3d_global.hwCaps.dpcTriCaps.dwTextureFilterCaps =
         V9X_D3DPTFILTERCAPS_NEAREST | V9X_D3DPTFILTERCAPS_LINEAR |
         V9X_D3DPTFILTERCAPS_MIPNEAREST |
@@ -3289,7 +3294,6 @@ DWORD __stdcall DriverInit(DWORD context)
         V9X_D3DPTBLENDCAPS_COPY;
     shared->d3d_global.hwCaps.dpcTriCaps.dwTextureAddressCaps =
         V9X_D3DPTADDRESSCAPS_WRAP | V9X_D3DPTADDRESSCAPS_CLAMP;
-#endif
     shared->d3d_global.hwCaps.dwDeviceRenderBitDepth = V9X_DDBD_16;
     shared->d3d_global.hwCaps.dwDeviceZBufferBitDepth = V9X_DDBD_16;
     shared->d3d_global.dwNumVertices = 0ul;
@@ -3308,13 +3312,8 @@ DWORD __stdcall DriverInit(DWORD context)
     shared->texture_formats[0].ddpfPixelFormat.dwRGBAlphaBitMask =
         0x00008000ul;
     shared->texture_formats[0].ddsCaps.dwCaps = V9X_DDSCAPS_TEXTURE;
-#if V9X_C4_CAPS_VARIANT == 1
-    shared->d3d_global.dwNumTextureFormats = 0ul;
-    shared->d3d_global.lpTextureFormats = 0;
-#else
     shared->d3d_global.dwNumTextureFormats = 1ul;
     shared->d3d_global.lpTextureFormats = &shared->texture_formats[0];
-#endif
 
     shared->d3d_callbacks.dwSize = sizeof(V9X_D3DHAL_CALLBACKS);
     shared->d3d_callbacks.ContextCreate =
