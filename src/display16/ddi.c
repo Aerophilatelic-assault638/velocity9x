@@ -122,6 +122,17 @@ static WORD v9x_disable_count;
 static WORD v9x_pdevice_allocated;
 /* Non-zero while ReEnable rebuilds at a different colour depth. */
 static WORD v9x_depth_changed;
+/*
+ * Latched on the first successful Enable and never cleared.
+ *
+ * The boot trace records the furthest stage reached, so a GDIINFO query must
+ * not overwrite an existing enable-ok marker. Guarding those writes on
+ * v9x_enabled is not enough: Disable clears it, and Windows disables and
+ * re-enables the display during startup, so a query arriving while the driver
+ * was between the two rewrote the marker back to query-ok. The settings page
+ * then reported a healthy driver as "Not confirmed".
+ */
+static WORD v9x_ever_enabled;
 
 #ifdef V9X_BOOT_TRACE
 static BOOL v9x_boot_trace(const char FAR *stage)
@@ -535,13 +546,13 @@ static WORD v9x_fill_gdi_info(V9X_GDI_INFO FAR *info,
     WORD result;
     WORD extra_size;
 
-    if (v9x_enabled == 0u) {
+    if (v9x_ever_enabled == 0u) {
         v9x_boot_trace("query-start");
     }
     if (v9x_enabled == 0u) {
         v9x_select_requested_mode();
     }
-    if (v9x_enabled == 0u) {
+    if (v9x_ever_enabled == 0u) {
         v9x_boot_trace("query-mode-selected");
     }
 
@@ -621,7 +632,7 @@ static WORD v9x_fill_gdi_info(V9X_GDI_INFO FAR *info,
      * C1_SLOW_CARD stays off now that fills reach the Trio64 engine. */
     info->dpCaps1 |= V9X_C1_DIBENGINE | V9X_C1_REINIT_ABLE |
                      V9X_C1_BYTE_PACKED | V9X_C1_COLORCURSOR;
-    if (v9x_enabled == 0u) {
+    if (v9x_ever_enabled == 0u) {
         v9x_boot_trace("query-ok");
     }
     return V9X_GDIINFO_SIZE;
@@ -775,6 +786,7 @@ static WORD v9x_build_pdevice(LPVOID device_info,
         v9x_program_palette(0u, V9X_PALETTE_ENTRIES);
     }
     v9x_enabled = 1u;
+    v9x_ever_enabled = 1u;
     ++v9x_enable_count;
     v9x_active_mode = v9x_selected_mode;
     v9x_serial_write("V9X-DRV lfb=0x");

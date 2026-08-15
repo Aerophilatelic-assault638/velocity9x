@@ -82,7 +82,7 @@ It is archived at:
 
 A cold VM backup predating activation is available at:
 
-`C:\Users\michael\86Box VMs\Velocity9x Backups\Win86SE-pre-velocity9x-20260809-080027`
+`<86Box VMs>\Velocity9x Backups\Win86SE-pre-velocity9x-20260809-080027`
 
 ## Failure chronology
 

@@ -10,8 +10,9 @@ Host-audited properties:
 - the LE mini-VDD has a valid DDB and installs no dispatch callbacks;
 - binary names and system destination directory are fixed;
 - the INF matches only `PCI\VEN_5333&DEV_8A01`;
-- 640x480, 800x600, and 1024x768 are advertised at 8 and 16 bpp;
-- same-depth resolution changes apply live; depth changes require a reboot;
+- 640x480, 800x600, and 1024x768 are advertised at 8 and 16 bpp, plus
+  640x400 at 8 bpp;
+- resolution and colour-depth changes both apply live on the ViRGE target;
 - 640x480 standard VGA remains available as the recovery fallback;
 - every component carries a build identifier and the package carries hashes;
 - external DDK and Open Watcom inputs remain outside the package.

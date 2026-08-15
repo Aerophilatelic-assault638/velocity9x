@@ -1,8 +1,9 @@
 [CmdletBinding()]
 param(
     [string]$PackagePath,
-    [string]$ControllerPath =
-        "C:\everything\claude\personal\v9x-remote-agent\scripts\v9xctl.ps1",
+    # Path to the remote-agent controller (v9xctl.ps1). Set V9X_AGENT_CTL to
+    # avoid passing it on every call; the agent lives outside this repository.
+    [string]$ControllerPath = $env:V9X_AGENT_CTL,
     # Remote-agent host port. The project runs more than one guest, so the
     # controller default is not always the intended target.
     [ValidateRange(1, 65535)]
@@ -28,6 +29,9 @@ if ($JobId -notmatch '^[A-Za-z0-9._-]+$') {
 }
 $package = [IO.Path]::GetFullPath($PackagePath)
 $results = [IO.Path]::GetFullPath($ResultsDirectory)
+if (-not $ControllerPath) {
+    throw "Specify -ControllerPath (or set V9X_AGENT_CTL) to the remote agent's v9xctl.ps1."
+}
 foreach ($path in @($ControllerPath, $package)) {
     if (-not (Test-Path -LiteralPath $path)) {
         throw "Required path does not exist: $path"

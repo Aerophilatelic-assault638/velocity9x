@@ -65,7 +65,7 @@ release-ready capability claim.
 ### 2.2 Confirm VM health
 
 ```powershell
-$ctl = 'C:\everything\claude\personal\v9x-remote-agent\scripts\v9xctl.ps1'
+$ctl = $env:V9X_AGENT_CTL   # path to the remote agent's v9xctl.ps1
 & $ctl info -Json
 ```
 

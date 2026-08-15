@@ -28,7 +28,7 @@ therefore obliges the driver to implement source copies.
 
 - Guest: Windows 98 SE
 - Emulator: 86Box 6.0
-- VM: `C:\Users\michael\86Box VMs\Win98SE-Trio64`
+- VM: `<86Box VMs>\Win98SE-Trio64`
 - Display adapter: `[PCI] S3 Trio64`, PCI ID `5333:8811`, 4 MB VRAM
 - Mode under test: 1024 x 768 x 16 bpp
 - Remote agent: v0.5.2, host port 9871 forwarded to guest port 9869

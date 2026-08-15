@@ -4,7 +4,12 @@ param(
     [string]$DdkRoot = "C:\98DDK",
     [ValidateRange(-1, 5)]
     [int]$ForceModeIndex = -1,
+    # Boot tracing is on by default: the driver records the furthest lifecycle
+    # stage it reached in C:\V9XBOOT.INI, which the settings page reports and
+    # the install guide asks testers to send in. -BootTrace is still accepted
+    # so existing invocations keep working. Use -NoBootTrace to omit it.
     [switch]$BootTrace,
+    [switch]$NoBootTrace,
     [switch]$S3Trio64
 )
 
@@ -21,9 +26,10 @@ if ($BuildId -notmatch '^[A-Za-z0-9._+-]+$') {
     throw "BuildId may contain only letters, digits, dot, underscore, plus, and hyphen."
 }
 
+$traceEnabled = -not $NoBootTrace
 & (Join-Path $PSScriptRoot "build-win16-ddi-skeleton.ps1") `
     -BuildId $BuildId -DdkRoot $DdkRoot -ForceModeIndex $ForceModeIndex `
-    -BootTrace:$BootTrace -S3Trio64:$S3Trio64
+    -BootTrace:$traceEnabled -S3Trio64:$S3Trio64
 & (Join-Path $PSScriptRoot "build-minivdd-skeleton.ps1") `
     -BuildId $BuildId -DdkRoot $DdkRoot
 & (Join-Path $PSScriptRoot "build-settings.ps1") -BuildId $BuildId
@@ -160,7 +166,7 @@ $manifest = @(
     "Target: Windows 98SE, $expectedHardwareId only",
     "Modes: 640x480, 800x600, 1024x768 at 8/16 bpp and 60 Hz",
     "Forced diagnostic mode index: $ForceModeIndex (-1 means registry-selected)",
-    "Boot trace: $BootTrace (writes C:\\V9XBOOT.INI)",
+    "Boot trace: $traceEnabled (writes C:\\V9XBOOT.INI)",
     "Rendering: Windows DIB Engine plus DirectDraw HAL",
     "Mini-VDD callbacks: D0-only caps + guarded VESA DPMS + Win98 power state",
     "Settings: read-only bring-up status, report, and recovery shortcut",

@@ -8,7 +8,7 @@ not commit or package their executables, ROMs, NVR files, or disk images.
 
 ## Working baseline
 
-- Root: `C:\Users\michael\Downloads\86BoxWin98\86Box`
+- Root: `<86Box 4.2 install directory>`
 - 86Box version: 4.2
 - Executable SHA-256:
   `18D71766F2A24A0FFD7712F0BC239CC3F0C5017BD5B58D47FE54FE9FD336279F`
@@ -25,8 +25,8 @@ work only on a separate copy or recoverable snapshot.
 - 86Box version: 6.0
 - Executable SHA-256:
   `DC236A27E5FCCB07D20A60F471E5C1252FBCD82D0505542DD8E4A15C1689E885`
-- Manager profile: `C:\Users\michael\86Box VMs\Win86SE`
-- Direct launch: `C:\86Box\86Box.exe -P "C:\Users\michael\86Box VMs\Win86SE"`
+- Manager profile: `<86Box VMs>\Win86SE`
+- Direct launch: `C:\86Box\86Box.exe -P "<86Box VMs>\Win86SE"`
 
 86Box 6.0 starts its VM Manager when invoked without `-P`; it does not use the
 portable `C:\86Box\86box.cfg` in that mode. The Manager-created profile had an

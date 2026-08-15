@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
-    [string]$ControllerPath =
-        "C:\everything\claude\personal\v9x-remote-agent\scripts\v9xctl.ps1",
+    # Path to the remote-agent controller (v9xctl.ps1). Set V9X_AGENT_CTL to
+    # avoid passing it on every call; the agent lives outside this repository.
+    [string]$ControllerPath = $env:V9X_AGENT_CTL,
     [string]$PackagePath,
     [string]$GuestJob = "C:\V9XREMOTE\JOBS\velocity9x-mode-matrix",
     [string]$ResultsDirectory,
@@ -25,6 +26,9 @@ if (-not $ResultsDirectory) {
     $ResultsDirectory = Join-Path $repoRoot (
         "build\driver-results\mode-matrix-{0}" -f
         (Get-Date -Format "yyyyMMdd-HHmmss"))
+}
+if (-not $ControllerPath) {
+    throw "Specify -ControllerPath (or set V9X_AGENT_CTL) to the remote agent's v9xctl.ps1."
 }
 foreach ($path in @($ControllerPath, $PackagePath)) {
     if (-not (Test-Path -LiteralPath $path)) {

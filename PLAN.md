@@ -1,5 +1,10 @@
 # Velocity9x Ground-Up Development Plan
 
+> This is the original planning baseline and is kept as a historical record.
+> Parts of it are out of date — Direct3D is listed here as deferred scope but
+> has since been implemented on the ViRGE. For what the driver does today, see
+> [README.md](README.md) and [CHANGELOG.md](CHANGELOG.md).
+
 Status: planning baseline, revision 2 (2026-08-08)  
 Initial target: Windows 98 Second Edition on S3 ViRGE/DX 86C375  
 Initial graphics scope: Windows GDI and DirectDraw  

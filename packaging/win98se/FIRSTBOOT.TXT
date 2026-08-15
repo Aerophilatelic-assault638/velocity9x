@@ -6,8 +6,8 @@ until the cold backup below has completed.
 HOST PREPARATION
 
 1. Shut down Windows 98 and fully close every 86Box/86Box Manager process.
-2. Tell Codex that 86Box is closed. Codex can run:
-     .\scripts\backup-86box-profile.ps1
+2. With 86Box closed, run on the host:
+     .\scripts\backup-86box-profile.ps1 -ProfilePath "<your 86Box profile>"
    This copies the active VHD, 86box.cfg, and NVR directory and writes hashes.
 3. Start the VM normally and, if desired, run D:\ACTIVE\V9XSTAGE.EXE.
    PASS verifies that both binaries load and the DRV query is coherent. It does
@@ -29,12 +29,12 @@ ONE INSTALL ATTEMPT
 MODE-MATRIX TEST
 
 10. After the default mode passes, use Display Properties to test these modes:
-      800x600x8, 1024x768x8,
+      640x400x8, 800x600x8, 1024x768x8,
       640x480x16, 800x600x16, 1024x768x16.
-11. Resolution changes at the current colour depth apply live; run
-    V9XGDI.EXE after each switch. Colour-depth changes still require a full
-    reboot - accept the restart prompt. V9XMSW.EXE /cycle:N automates the
-    same-depth switch loop.
+11. Resolution and colour-depth changes both apply live on the ViRGE target;
+    run V9XGDI.EXE /auto after each switch. V9XMSW.EXE /cycle:N automates the
+    resolution loop and /depth:N alternates 8 and 16 bpp. Live depth
+    switching is unverified on Trio64 - accept any restart prompt there.
 
 STOP CONDITIONS
 

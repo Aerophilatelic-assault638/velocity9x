@@ -1,6 +1,6 @@
 # Matrox Millennium II physical baseline
 
-The physical Windows 98 target at `10.0.1.170` was inventoried through the
+The physical Windows 98 target on the local network was inventoried through the
 remote agent before making any driver change. It is currently stable at
 1024x768x24 with the stock Matrox driver.
 

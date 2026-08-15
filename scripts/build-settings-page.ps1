@@ -64,7 +64,11 @@ $resourceFile = Join-Path $outputDir "settings_propsheet.rc"
 Add-Type -AssemblyName System.Drawing
 $sourceImage = [Drawing.Image]::FromFile($logoSource)
 try {
-    $bitmap = New-Object Drawing.Bitmap 355, 71,
+    # Keep this smaller than the dialog's logo slot in both axes. The static
+    # control uses SS_CENTERIMAGE, which clips anything larger than itself
+    # rather than scaling it; at 355x71 the bitmap was taller than the slot and
+    # lost its top and bottom edges. See tools/diag/settings_propsheet.rc.
+    $bitmap = New-Object Drawing.Bitmap 320, 65,
         ([Drawing.Imaging.PixelFormat]::Format24bppRgb)
     try {
         $graphics = [Drawing.Graphics]::FromImage($bitmap)
@@ -72,7 +76,7 @@ try {
             $graphics.Clear([Drawing.Color]::White)
             $graphics.InterpolationMode =
                 [Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-            $destination = New-Object Drawing.Rectangle 0, 0, 355, 71
+            $destination = New-Object Drawing.Rectangle 0, 0, 320, 65
             $sourceRectangle = New-Object Drawing.Rectangle 45, 300, 1680, 340
             $graphics.DrawImage($sourceImage, $destination, $sourceRectangle,
                                 [Drawing.GraphicsUnit]::Pixel)

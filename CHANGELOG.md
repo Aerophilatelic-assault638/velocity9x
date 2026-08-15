@@ -1,53 +1,10 @@
 # Changelog
 
-- Support live colour-depth changes. The 8-bpp PDEVICE needs a palette the
-  16-bpp one does not, so an in-place rebuild across a depth change used to
-  overrun the allocation and `ReEnable` refused it; `dpDEVICEsize` now always
-  reserves the palette so one GDI allocation serves either depth, the size
-  actually granted is recorded and re-checked before every rebuild, and the
-  palette is rebuilt whenever the depth changes. Verified on the ViRGE guest:
-  20/20 alternating 8/16-bpp switches with cursor agitation, palette
-  animation and GDI readback passing at both depths, and a clean boot with
-  the registry left at 8 bpp. `ModeSwitching` now reports `live-any-depth`.
-- Publish 640x400x8 (VBE mode `100h`) in the mode table and the INF. It works
-  as a GDI desktop mode, but DirectDraw admits no sub-480-line mode outside
-  its own ModeX set, so it does not make `SetDisplayMode(640, 400, 8)`
-  succeed - see `docs/issues/2026-08-15-doom95-low-resolution-modes.md`.
-- Extend V9XDDP with a `/pal8` palettized-presentation test that records the
-  depth and pitch DirectDraw actually delivers, dumps both the GDI and the
-  DirectDraw mode lists, and reads a known palette index back through the
-  surface and the screen DC. Rework `V9XMSW /depth` into `/depth:N`, a
-  depth-cycle stress, now that live depth changes are expected to succeed.
-- Trace DirectDraw surface negotiation through `CanCreateSurface`,
-  `CreateSurface`, `DestroySurface`, and `AddAttachedSurface`; enlarge the
-  shared callback ring, correct Win16 exit bookkeeping, and honor the
-  `GetDriverInfo` handled-return contract.
-- Extend V9XDDP with an RGB565 Direct3D texture lifecycle and add V9XWND, a
-  GDI-free top-level window inventory for diagnosing blocked fullscreen
-  dialogs.
-- Program ViRGE 8.7 color gradients for Gouraud-shaded triangles and expose
-  the hardware's perspective-correction raster capability required by
-  Hellbender's Direct3D device filter.
-- Publish a coherent RGB565 Direct3D texture format and bounded legacy
-  texture-handle lifecycle callbacks, with per-operation trace diagnostics.
-- Add dormant legacy Direct3D execute-buffer parsing and DirectDraw
-  pseudo-surface lifecycle tracing. Win98 rejects a HAL that publishes the
-  obsolete `Execute` entry, so the valid DX5 callback path remains advertised.
-- Guard the Win16 `SetCursor` and `MoveCursor` DIBENG extension thunks while
-  the display PDEVICE is unavailable during mode teardown, preventing a null
-  PDEVICE fault in `DIB_MOVECURSOREXT` observed when Hellbender exits a failed
-  full-screen initialization; guarded Pascal returns discard their four bytes
-  of original cursor arguments before returning to USER.
-- Follow the Windows 98 DIBENGINE mini-driver ReEnable ordering by rebuilding
-  the PDEVICE directly, without carrying a BeginAccess cursor exclusion across
-  `CreateDIBPDevice`; the old exclusion state is invalid after the in-place
-  PDEVICE rebuild and caused striped framebuffer writes plus a cursor fault.
-
 All notable Velocity9x changes are recorded here. The project uses semantic
 version numbers for product milestones; diagnostic builds retain a separate
 build identifier so exact guest-tested binaries remain traceable.
 
-## Unreleased
+## 0.3 - 2026-08-15
 
 ### Added
 
@@ -74,16 +31,75 @@ build identifier so exact guest-tested binaries remain traceable.
   timeout, before recovery can discard the last useful callback history. The
   manual trace utility writes `C:\V9XSNAP.INI` so it cannot erase that evidence.
 
-### Added
-
 - ARGB4444 Direct3D textures. The texture unit selects its format from bits
   7:5 of the command register, so 4444 and 1555 are both native and need no
   conversion; only 1555 was published, leaving an application one format with
   a single alpha bit. V9XDDP dumps every enumerated format and pixel-verifies
   a 4444 texture render.
+- Publish 640x400x8 (VBE mode `100h`) in the mode table and the INF. It works
+  as a GDI desktop mode, but DirectDraw admits no sub-480-line mode outside
+  its own ModeX set, so it does not make `SetDisplayMode(640, 400, 8)`
+  succeed - see
+  [docs/issues/2026-08-15-doom95-low-resolution-modes.md](docs/issues/2026-08-15-doom95-low-resolution-modes.md).
+- Extend V9XDDP with a `/pal8` palettized-presentation test that records the
+  depth and pitch DirectDraw actually delivers, dumps both the GDI and the
+  DirectDraw mode lists, and reads a known palette index back through the
+  surface and the screen DC. Rework `V9XMSW /depth` into `/depth:N`, a
+  depth-cycle stress, now that live depth changes are expected to succeed.
+- Extend V9XDDP with an RGB565 Direct3D texture lifecycle and add V9XWND, a
+  GDI-free top-level window inventory for diagnosing blocked fullscreen
+  dialogs.
+- Program ViRGE 8.7 color gradients for Gouraud-shaded triangles and expose
+  the hardware's perspective-correction raster capability required by
+  Hellbender's Direct3D device filter.
+- Publish a coherent RGB565 Direct3D texture format and bounded legacy
+  texture-handle lifecycle callbacks, with per-operation trace diagnostics.
+- Add dormant legacy Direct3D execute-buffer parsing and DirectDraw
+  pseudo-surface lifecycle tracing. Win98 rejects a HAL that publishes the
+  obsolete `Execute` entry, so the valid DX5 callback path remains advertised.
+
+### Changed
+
+- Support live colour-depth changes. The 8-bpp PDEVICE needs a palette the
+  16-bpp one does not, so an in-place rebuild across a depth change used to
+  overrun the allocation and `ReEnable` refused it; `dpDEVICEsize` now always
+  reserves the palette so one GDI allocation serves either depth, the size
+  actually granted is recorded and re-checked before every rebuild, and the
+  palette is rebuilt whenever the depth changes. Verified on the ViRGE guest:
+  20/20 alternating 8/16-bpp switches with cursor agitation, palette
+  animation and GDI readback passing at both depths, and a clean boot with
+  the registry left at 8 bpp. `ModeSwitching` now reports `live-any-depth`.
 
 ### Fixed
 
+- The Display Properties page no longer clips its logo. The generated bitmap
+  was 355x71 into a static control roughly 357x49 pixels, and `SS_CENTERIMAGE`
+  clips rather than scales, so the logo lost its top and bottom edges. The
+  logo slot is now 238x46 dialog units and the bitmap 320x65, with margin in
+  both axes.
+- The boot trace keeps the furthest stage it reached. `enable-ok` was written
+  and then overwritten by a later GDIINFO query, because the guard tested
+  `v9x_enabled`, which `Disable` clears — and Windows disables and re-enables
+  the display during startup. A latch set on the first successful Enable and
+  never cleared replaces it, so the settings page no longer reports a healthy
+  driver as "Not confirmed - stage: query-ok".
+- The active packages are built with the boot trace enabled by default. It was
+  opt-in behind `-BootTrace`, so the shipping ViRGE driver never wrote
+  `C:\V9XBOOT.INI` at all and the settings page read whatever stale file was
+  left behind. `-NoBootTrace` omits it; `-BootTrace` is still accepted.
+- Trace DirectDraw surface negotiation through `CanCreateSurface`,
+  `CreateSurface`, `DestroySurface`, and `AddAttachedSurface`; enlarge the
+  shared callback ring, correct Win16 exit bookkeeping, and honor the
+  `GetDriverInfo` handled-return contract.
+- Guard the Win16 `SetCursor` and `MoveCursor` DIBENG extension thunks while
+  the display PDEVICE is unavailable during mode teardown, preventing a null
+  PDEVICE fault in `DIB_MOVECURSOREXT` observed when Hellbender exits a failed
+  full-screen initialization; guarded Pascal returns discard their four bytes
+  of original cursor arguments before returning to USER.
+- Follow the Windows 98 DIBENGINE mini-driver ReEnable ordering by rebuilding
+  the PDEVICE directly, without carrying a BeginAccess cursor exclusion across
+  `CreateDIBPDevice`; the old exclusion state is invalid after the in-place
+  PDEVICE rebuild and caused striped framebuffer writes plus a cursor fault.
 - The texture sampler reads the surface's own pixel format instead of assuming
   ARGB1555 for everything. `ddpfSurface` is only allocated when the surface's
   format differs from the primary's, so it is read only when the owning local
@@ -207,6 +223,24 @@ build identifier so exact guest-tested binaries remain traceable.
 - Direct3D primary and flip-chain render targets now use the live scanout
   pitch, dimensions, and RGB565 description instead of potentially stale
   per-surface metadata. Target layout is included in the callback trace.
+
+### Known limitations
+
+- Direct3D is ViRGE-only and accepts pre-transformed, pre-lit vertices only.
+  Transform, lighting, clipping (`dwNumClipVertices` is zero), backface
+  culling, lines and indexed primitives are not supported.
+- The S3D triangle engine still writes native ZRGB1555 while the 16-bpp
+  display mode is RGB565.
+- Colour-key transparency, `SORTINCREASINGZ` and `SPECULARFLATRGB` are still
+  absent against the retail S3 ViRGE driver's capability set; `dwTextureCaps`
+  is `0x27` against its `0x2F`.
+- DirectDraw admits no sub-480-line mode outside its own ModeX set, so the
+  published 640x400x8 mode is reachable from GDI but not from
+  `SetDisplayMode`. The 320x200/320x240 ModeX path reports success and then
+  fails in use; applications configured for it can crash. See
+  [docs/issues/2026-08-15-doom95-low-resolution-modes.md](docs/issues/2026-08-15-doom95-low-resolution-modes.md).
+- GDI acceleration and a hardware cursor are not advertised on either chip.
+- Trio64 has no Direct3D and no monitor-power behaviour in this baseline.
 
 ## 0.2 - 2026-08-11
 
