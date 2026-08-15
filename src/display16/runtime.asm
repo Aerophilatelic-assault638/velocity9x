@@ -27,7 +27,9 @@ V9xDdSharedSel   dw 0
 V9xDdSharedLin   dd 0
 
 ; DirectDraw shared-block size: sizeof(V9X_DD_SHARED) rounded up.
-V9X_DD_SHARED_BYTES EQU 2048
+; Must match the v9x_dd_assert_shared_fits_dpmi_block bound in
+; include/velocity9x/win9x_ddraw_abi.h.
+V9X_DD_SHARED_BYTES EQU 4096
 
 .code
 

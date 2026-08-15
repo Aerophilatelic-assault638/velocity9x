@@ -109,6 +109,7 @@ typedef void (FAR PASCAL *V9X_DD_CODE_PTR)();
 
 #define V9X_DDSD_CAPS                0x00000001ul
 #define V9X_DDSD_PIXELFORMAT         0x00001000ul
+#define V9X_DDRAWISURF_HASPIXELFORMAT 0x00002000ul
 
 #pragma pack(push, 1)
 
@@ -627,7 +628,15 @@ typedef struct v9x_ddhal_addattachedsurfacedata {
     DWORD AddAttachedSurface;
 } V9X_DDHAL_ADDATTACHEDSURFACEDATA;
 
-/* DDRAWI_DDRAWSURFACE_GBL prefix: fpVidMem at +20, lPitch at +24. */
+/*
+ * DDRAWI_DDRAWSURFACE_GBL prefix: fpVidMem at +20, lPitch at +24,
+ * ddpfSurface at +40.
+ *
+ * The DDK notes that ddpfSurface is allocated only when the surface's format
+ * differs from the primary's, so it may be read only when the owning LCL has
+ * DDRAWISURF_HASPIXELFORMAT set. Without that flag the surface carries the
+ * primary's format and these bytes are not part of the allocation.
+ */
 typedef struct v9x_dd_surface_gbl {
     DWORD dwRefCnt;
     DWORD dwGlobalFlags;
@@ -638,6 +647,9 @@ typedef struct v9x_dd_surface_gbl {
     LONG lPitch;
     WORD wHeight;
     WORD wWidth;
+    DWORD dwUsageCount;
+    DWORD dwReserved1;
+    V9X_DDPIXELFORMAT ddpfSurface;
 } V9X_DD_SURFACE_GBL;
 
 /* DDRAWI_DDRAWSURFACE_LCL prefix: lpGbl at +4, ddsCaps at +32. */
@@ -921,7 +933,7 @@ typedef struct v9x_ddhal_destroydriverdata {
  * V9XHAL.DLL's DriverInit. The 32-bit side owns all content except the
  * framebuffer descriptor, which the 16-bit side refreshes on every enable.
  */
-#define V9X_DD_SHARED_ABI   2026081501ul
+#define V9X_DD_SHARED_ABI   2026081502ul
 #define V9X_DD_MODE_COUNT            6u
 
 /* fb.flags */
@@ -1092,7 +1104,7 @@ typedef struct v9x_dd_shared {
     V9X_DDHAL_DDPALETTECALLBACKS palette_callbacks;
     V9X_DDHAL_DDEXEBUFCALLBACKS execute_buffer_callbacks;
     V9X_D3DHAL_GLOBALDRIVERDATA d3d_global;
-    V9X_DDSURFACEDESC texture_formats[1];
+    V9X_DDSURFACEDESC texture_formats[2];
     V9X_D3DHAL_CALLBACKS d3d_callbacks;
     V9X_D3D_DIAGNOSTICS d3d_diagnostics;
     V9X_VIDMEM heaps[1];
@@ -1148,6 +1160,8 @@ typedef char v9x_dd_assert_dcicmd[sizeof(V9X_DCICMD) == 20 ? 1 : -1];
 typedef char v9x_dd_assert_dd32data[
     sizeof(V9X_DD32BITDRIVERDATA) == 328 ? 1 : -1];
 #ifdef __386__
+typedef char v9x_dd_assert_surface_gbl[
+    sizeof(V9X_DD_SURFACE_GBL) == 72 ? 1 : -1];
 typedef char v9x_dd_assert_bltdata[
     sizeof(V9X_DDHAL_BLTDATA) == 160 ? 1 : -1];
 #endif
@@ -1155,7 +1169,9 @@ typedef char v9x_dd_assert_trace_entry[
     sizeof(V9X_DD_TRACE_ENTRY) == 8 ? 1 : -1];
 typedef char v9x_dd_assert_trace[
     sizeof(V9X_DD_TRACE) == 572 ? 1 : -1];
+/* Must match V9X_DD_SHARED_BYTES in src/display16/runtime.asm, which is the
+ * size the 16-bit side DPMI-allocates and the limit it sets on the selector. */
 typedef char v9x_dd_assert_shared_fits_dpmi_block[
-    sizeof(V9X_DD_SHARED) <= 2048 ? 1 : -1];
+    sizeof(V9X_DD_SHARED) <= 4096 ? 1 : -1];
 
 #endif /* VELOCITY9X_WIN9X_DDRAW_ABI_H */

@@ -351,10 +351,21 @@ typedef struct v9x_d3d_enum_result {
     V9X_D3D_DEVICE_DESC software[8];
 } V9X_D3D_ENUM_RESULT;
 
+#define V9X_TEXTURE_ENUM_MAX 8
+
 typedef struct v9x_texture_enum_result {
     DWORD count;
     DWORD rgb565;
     DWORD argb1555;
+    DWORD argb4444;
+    /* Every enumerated format, so a driver offering more than the ones this
+     * probe recognises can still be compared against field by field. */
+    DWORD bits[V9X_TEXTURE_ENUM_MAX];
+    DWORD flags[V9X_TEXTURE_ENUM_MAX];
+    DWORD red[V9X_TEXTURE_ENUM_MAX];
+    DWORD green[V9X_TEXTURE_ENUM_MAX];
+    DWORD blue[V9X_TEXTURE_ENUM_MAX];
+    DWORD alpha[V9X_TEXTURE_ENUM_MAX];
 } V9X_TEXTURE_ENUM_RESULT;
 
 /* IDirectDraw version 1 method table, in vtable order. */
@@ -522,7 +533,26 @@ static HRESULT __stdcall v9x_enum_texture_format(
     V9X_TEXTURE_ENUM_RESULT *result = (V9X_TEXTURE_ENUM_RESULT *)context;
 
     if (desc != 0) {
+        if (result->count < V9X_TEXTURE_ENUM_MAX) {
+            DWORD i = result->count;
+
+            result->bits[i] = desc->ddpfPixelFormat.dwRGBBitCount;
+            result->flags[i] = desc->ddpfPixelFormat.dwFlags;
+            result->red[i] = desc->ddpfPixelFormat.dwRBitMask;
+            result->green[i] = desc->ddpfPixelFormat.dwGBitMask;
+            result->blue[i] = desc->ddpfPixelFormat.dwBBitMask;
+            result->alpha[i] = desc->ddpfPixelFormat.dwRGBAlphaBitMask;
+        }
         ++result->count;
+        if ((desc->ddpfPixelFormat.dwFlags & 0x00000041ul) ==
+                0x00000041ul &&
+            desc->ddpfPixelFormat.dwRGBBitCount == 16ul &&
+            desc->ddpfPixelFormat.dwRBitMask == 0x00000f00ul &&
+            desc->ddpfPixelFormat.dwGBitMask == 0x000000f0ul &&
+            desc->ddpfPixelFormat.dwBBitMask == 0x0000000ful &&
+            desc->ddpfPixelFormat.dwRGBAlphaBitMask == 0x0000f000ul) {
+            result->argb4444 = 1ul;
+        }
         if ((desc->ddpfPixelFormat.dwFlags & 0x00000040ul) != 0ul &&
             desc->ddpfPixelFormat.dwRGBBitCount == 16ul &&
             desc->ddpfPixelFormat.dwRBitMask == 0x0000f800ul &&
@@ -1376,6 +1406,27 @@ void __stdcall V9xDdrawProbeEntry(void)
                 v9x_write_uint("TexFormatCount", texture_result.count);
                 v9x_write_uint("TexFormat565", texture_result.rgb565);
                 v9x_write_uint("TexFormat1555", texture_result.argb1555);
+                v9x_write_uint("TexFormat4444", texture_result.argb4444);
+                {
+                    DWORD i;
+                    char key[32];
+
+                    for (i = 0ul; i < texture_result.count &&
+                                  i < V9X_TEXTURE_ENUM_MAX; ++i) {
+                        wsprintfA(key, "TexFmt%luBits", i);
+                        v9x_write_uint(key, texture_result.bits[i]);
+                        wsprintfA(key, "TexFmt%luFlags", i);
+                        v9x_write_hresult(key, (HRESULT)texture_result.flags[i]);
+                        wsprintfA(key, "TexFmt%luR", i);
+                        v9x_write_hresult(key, (HRESULT)texture_result.red[i]);
+                        wsprintfA(key, "TexFmt%luG", i);
+                        v9x_write_hresult(key, (HRESULT)texture_result.green[i]);
+                        wsprintfA(key, "TexFmt%luB", i);
+                        v9x_write_hresult(key, (HRESULT)texture_result.blue[i]);
+                        wsprintfA(key, "TexFmt%luA", i);
+                        v9x_write_hresult(key, (HRESULT)texture_result.alpha[i]);
+                    }
+                }
 
                 v9x_zero(&desc, sizeof(desc));
                 desc.dwSize = sizeof(desc);
@@ -1794,6 +1845,104 @@ void __stdcall V9xDdrawProbeEntry(void)
                     (trilinear_raw & 0x03e0ul) <= 0x0240ul &&
                     (trilinear_raw & 0x001ful) >= 12ul &&
                     (trilinear_raw & 0x001ful) <= 20ul ? 1ul : 0ul);
+                /*
+                 * ARGB4444 sampling.
+                 *
+                 * The texel is 0xf0f0: opaque pure green in 4444. Read as
+                 * ARGB1555 - the driver's only other texture format, and what
+                 * it assumed unconditionally before it classified surfaces -
+                 * the same bits decode to strong red and blue with little
+                 * green, so the channel balance distinguishes correct
+                 * sampling from a misread format without having to predict
+                 * how the hardware expands four bits.
+                 *
+                 * The expected value is in ZRGB1555, not the RGB565 of the
+                 * display: the ViRGE triangle engine writes its own 1555
+                 * layout into the target, which is why the flat-colour test
+                 * above reads 0x7c00 for red rather than 0xf800.
+                 */
+                {
+                    struct v9x_dds *surface4444 = 0;
+                    struct v9x_d3d_texture2 *texture4444 = 0;
+                    DWORD handle4444 = 0ul;
+                    HRESULT hr4444;
+                    WORD raw4444 = 0u;
+
+                    v9x_zero(&desc, sizeof(desc));
+                    desc.dwSize = sizeof(desc);
+                    desc.dwFlags = V9X_DDSD_CAPS | V9X_DDSD_WIDTH |
+                                   V9X_DDSD_HEIGHT | V9X_DDSD_PIXELFORMAT;
+                    desc.dwWidth = 64ul;
+                    desc.dwHeight = 64ul;
+                    desc.ddsCaps.dwCaps = V9X_DDSCAPS_TEXTURE;
+                    desc.ddpfPixelFormat.dwSize = sizeof(V9X_DDPIXELFORMAT);
+                    desc.ddpfPixelFormat.dwFlags = 0x00000041ul;
+                    desc.ddpfPixelFormat.dwRGBBitCount = 16ul;
+                    desc.ddpfPixelFormat.dwRBitMask = 0x00000f00ul;
+                    desc.ddpfPixelFormat.dwGBitMask = 0x000000f0ul;
+                    desc.ddpfPixelFormat.dwBBitMask = 0x0000000ful;
+                    desc.ddpfPixelFormat.dwRGBAlphaBitMask = 0x0000f000ul;
+                    hr4444 = ddraw->vtbl->CreateSurface(ddraw, &desc,
+                                                        &surface4444, 0);
+                    v9x_write_hresult("Tex4444SurfaceHr", hr4444);
+                    if (hr4444 == 0 && surface4444 != 0) {
+                        v9x_fill_surface(surface4444, 0xf0f0f0f0ul);
+                        hr4444 = surface4444->vtbl->QueryInterface(
+                            surface4444, &v9x_iid_d3d_texture2,
+                            (void **)&texture4444);
+                        v9x_write_hresult("Tex4444InterfaceHr", hr4444);
+                    }
+                    if (hr4444 == 0 && texture4444 != 0) {
+                        hr4444 = texture4444->vtbl->GetHandle(
+                            texture4444, d3d_device, &handle4444);
+                        v9x_write_hresult("Tex4444HandleHr", hr4444);
+                    }
+                    if (hr4444 == 0 && handle4444 != 0ul) {
+                        v9x_fill_surface(d3d_target, 0ul);
+                        hr4444 = d3d_device->vtbl->SetRenderState(
+                            d3d_device, V9X_D3DRENDERSTATE_TEXTUREHANDLE,
+                            handle4444);
+                        if (hr4444 == 0) {
+                            hr4444 = d3d_device->vtbl->SetRenderState(
+                                d3d_device,
+                                V9X_D3DRENDERSTATE_TEXTUREMAPBLEND,
+                                V9X_D3DTBLEND_COPY);
+                        }
+                        triangle[0].tu = 0.125f;
+                        triangle[0].tv = 0.125f;
+                        triangle[1].tu = 0.875f;
+                        triangle[1].tv = 0.125f;
+                        triangle[2].tu = 0.125f;
+                        triangle[2].tv = 0.875f;
+                        begin_hr = hr4444 == 0
+                            ? d3d_device->vtbl->BeginScene(d3d_device)
+                            : hr4444;
+                        if (begin_hr == 0) {
+                            draw_hr = d3d_device->vtbl->DrawPrimitive(
+                                d3d_device, V9X_D3DPT_TRIANGLELIST,
+                                V9X_D3DVT_TLVERTEX, triangle, 3ul, 0ul);
+                            end_hr = d3d_device->vtbl->EndScene(d3d_device);
+                        }
+                        raw4444 = v9x_surface_pixel16(d3d_target,
+                                                      16ul, 16ul);
+                        v9x_write_uint("Tex4444Raw", raw4444);
+                        v9x_write_uint("Tex4444PixelOk",
+                            begin_hr == 0 && draw_hr == 0 && end_hr == 0 &&
+                            ((DWORD)raw4444 & 0x03e0ul) >= 0x0300ul &&
+                            ((DWORD)raw4444 & 0x7c00ul) <= 0x1000ul &&
+                            ((DWORD)raw4444 & 0x001ful) <= 4ul ? 1ul : 0ul);
+                        (void)d3d_device->vtbl->SetRenderState(
+                            d3d_device,
+                            V9X_D3DRENDERSTATE_TEXTUREHANDLE, 0ul);
+                    }
+                    if (texture4444 != 0) {
+                        texture4444->vtbl->Release(texture4444);
+                    }
+                    if (surface4444 != 0) {
+                        surface4444->vtbl->Release(surface4444);
+                    }
+                }
+
                 (void)d3d_device->vtbl->SetRenderState(
                     d3d_device, V9X_D3DRENDERSTATE_TEXTUREHANDLE, 0ul);
                 if (d3d_viewport != 0) {

@@ -56,7 +56,22 @@ build identifier so exact guest-tested binaries remain traceable.
   timeout, before recovery can discard the last useful callback history. The
   manual trace utility writes `C:\V9XSNAP.INI` so it cannot erase that evidence.
 
+### Added
+
+- ARGB4444 Direct3D textures. The texture unit selects its format from bits
+  7:5 of the command register, so 4444 and 1555 are both native and need no
+  conversion; only 1555 was published, leaving an application one format with
+  a single alpha bit. V9XDDP dumps every enumerated format and pixel-verifies
+  a 4444 texture render.
+
 ### Fixed
+
+- The texture sampler reads the surface's own pixel format instead of assuming
+  ARGB1555 for everything. `ddpfSurface` is only allocated when the surface's
+  format differs from the primary's, so it is read only when the owning local
+  surface has `DDRAWISURF_HASPIXELFORMAT`; a surface without it carries the
+  primary's RGB565, which this engine cannot sample and now declines rather
+  than misreading.
 
 - The Direct3D texture capabilities now describe what the sampler actually
   does. `v9x_d3d_texture_setup` accepts only square, power-of-two, 16-bit

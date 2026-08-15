@@ -114,6 +114,7 @@
 #define V9X_VIRGE_3D_CMD_TEXTURE_UNLIT  0x10000000ul
 #define V9X_VIRGE_3D_CMD_TEXTURE_LIT    0x08000000ul
 #define V9X_VIRGE_3D_CMD_TEX_ARGB1555   0x00000040ul
+#define V9X_VIRGE_3D_CMD_TEX_ARGB4444   0x00000020ul
 #define V9X_VIRGE_3D_CMD_FILTER_NEAREST 0x00004000ul
 #define V9X_VIRGE_3D_CMD_FILTER_LINEAR  0x00006000ul
 #define V9X_VIRGE_3D_CMD_MIP_NEAREST    0x00000000ul
@@ -1647,9 +1648,50 @@ static void v9x_d3d_textures_destroy_context(DWORD context)
     }
 }
 
+/* Which ViRGE texture format a surface is sampled as. */
+#define V9X_TEX_FORMAT_ARGB1555 0
+#define V9X_TEX_FORMAT_ARGB4444 1
+
+/*
+ * Classify the surface's pixel format.
+ *
+ * ddpfSurface exists only when the surface carries its own format, which
+ * DDRAWISURF_HASPIXELFORMAT reports; without it the surface is in the
+ * primary's format, which is RGB565 here and not a format this engine can
+ * sample. Reading the field unconditionally would also read past the
+ * allocation, since the DDK only allocates it in the differing case.
+ */
+static int v9x_d3d_texture_format(const V9X_DD_SURFACE_LCL *surface,
+                                  DWORD *format_out)
+{
+    const V9X_DDPIXELFORMAT *pixel;
+
+    if ((surface->dwFlags & V9X_DDRAWISURF_HASPIXELFORMAT) == 0ul) {
+        return 0;
+    }
+    pixel = &surface->lpGbl->ddpfSurface;
+    if ((pixel->dwFlags & V9X_DDPF_RGB) == 0ul ||
+        pixel->dwRGBBitCount != 16ul) {
+        return 0;
+    }
+    if (pixel->dwRBitMask == 0x00007c00ul &&
+        pixel->dwGBitMask == 0x000003e0ul &&
+        pixel->dwBBitMask == 0x0000001ful) {
+        *format_out = V9X_TEX_FORMAT_ARGB1555;
+        return 1;
+    }
+    if (pixel->dwRBitMask == 0x00000f00ul &&
+        pixel->dwGBitMask == 0x000000f0ul &&
+        pixel->dwBBitMask == 0x0000000ful) {
+        *format_out = V9X_TEX_FORMAT_ARGB4444;
+        return 1;
+    }
+    return 0;
+}
+
 static int v9x_d3d_texture_info(V9X_D3D_CONTEXT *context,
                                 DWORD *offset_out, DWORD *size_log_out,
-                                int *mipmapped_out)
+                                int *mipmapped_out, DWORD *format_out)
 {
     V9X_D3D_TEXTURE *texture;
     V9X_DD_SURFACE_LCL *surface;
@@ -1676,6 +1718,9 @@ static int v9x_d3d_texture_info(V9X_D3D_CONTEXT *context,
         return 0;
     }
     if (surface->lpGbl->lPitch != (LONG)surface->lpGbl->wWidth * 2l) {
+        return 0;
+    }
+    if (!v9x_d3d_texture_format(surface, format_out)) {
         return 0;
     }
     size = surface->lpGbl->wWidth;
@@ -2564,6 +2609,7 @@ static int v9x_d3d_triangle(V9X_D3D_CONTEXT *context,
     BYTE trilinear_alpha = 0u;
     int trilinear_blend = 0;
     int texture_mipmapped = 0;
+    DWORD texture_format = V9X_TEX_FORMAT_ARGB1555;
     int textured;
 
     if (!(p0->sx >= 0.0f && p0->sx <= (float)(context->width - 1ul) &&
@@ -2628,7 +2674,8 @@ static int v9x_d3d_triangle(V9X_D3D_CONTEXT *context,
                           (LONG)((p0->color >> 24) & 0xfful)) -
             dady * fdy01) * fdxr;
     textured = v9x_d3d_texture_info(context, &texture_offset,
-                                    &texture_size_log, &texture_mipmapped);
+                                    &texture_size_log, &texture_mipmapped,
+                                    &texture_format);
     if (textured) {
         dudy = (p2->tu - p0->tu) * 134217728.0f * fdy02r;
         dvdy = (p2->tv - p0->tv) * 134217728.0f * fdy02r;
@@ -2714,7 +2761,9 @@ static int v9x_d3d_triangle(V9X_D3D_CONTEXT *context,
      * Y01_Y12 write launches the triangle. */
     command = V9X_VIRGE_3D_CMD_GOURAUD_16_AE;
     if (textured) {
-        command |= V9X_VIRGE_3D_CMD_TEX_ARGB1555 |
+        command |= (texture_format == V9X_TEX_FORMAT_ARGB4444
+                        ? V9X_VIRGE_3D_CMD_TEX_ARGB4444
+                        : V9X_VIRGE_3D_CMD_TEX_ARGB1555) |
                    (texture_size_log << 8);
         if (context->texture_blend == V9X_D3DTBLEND_MODULATE) {
             command |= V9X_VIRGE_3D_CMD_TEXTURE_LIT |
@@ -3312,7 +3361,30 @@ DWORD __stdcall DriverInit(DWORD context)
     shared->texture_formats[0].ddpfPixelFormat.dwRGBAlphaBitMask =
         0x00008000ul;
     shared->texture_formats[0].ddsCaps.dwCaps = V9X_DDSCAPS_TEXTURE;
-    shared->d3d_global.dwNumTextureFormats = 1ul;
+
+    /*
+     * ARGB4444. The texture unit selects its format from bits 7:5 of the
+     * command register - 1 is ARGB4444, 2 is ARGB1555 - so both are native
+     * and the sampler needs no conversion. Publishing only one format left
+     * an application with a single choice that carries one alpha bit; 4444
+     * trades colour precision for four bits of it.
+     */
+    shared->texture_formats[1].dwSize = sizeof(V9X_DDSURFACEDESC);
+    shared->texture_formats[1].dwFlags =
+        V9X_DDSD_CAPS | V9X_DDSD_PIXELFORMAT;
+    shared->texture_formats[1].ddpfPixelFormat.dwSize =
+        sizeof(V9X_DDPIXELFORMAT);
+    shared->texture_formats[1].ddpfPixelFormat.dwFlags =
+        V9X_DDPF_RGB | V9X_DDPF_ALPHAPIXELS;
+    shared->texture_formats[1].ddpfPixelFormat.dwRGBBitCount = 16ul;
+    shared->texture_formats[1].ddpfPixelFormat.dwRBitMask = 0x00000f00ul;
+    shared->texture_formats[1].ddpfPixelFormat.dwGBitMask = 0x000000f0ul;
+    shared->texture_formats[1].ddpfPixelFormat.dwBBitMask = 0x0000000ful;
+    shared->texture_formats[1].ddpfPixelFormat.dwRGBAlphaBitMask =
+        0x0000f000ul;
+    shared->texture_formats[1].ddsCaps.dwCaps = V9X_DDSCAPS_TEXTURE;
+
+    shared->d3d_global.dwNumTextureFormats = 2ul;
     shared->d3d_global.lpTextureFormats = &shared->texture_formats[0];
 
     shared->d3d_callbacks.dwSize = sizeof(V9X_D3DHAL_CALLBACKS);
