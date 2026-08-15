@@ -3200,6 +3200,22 @@ DWORD __stdcall DriverInit(DWORD context)
     shared->d3d_global.hwCaps.dcmColorModel = V9X_D3DCOLOR_RGB;
     shared->d3d_global.hwCaps.dwDevCaps =
         V9X_D3DDEVCAPS_FLOATTLVERTEX |
+        /*
+         * "Device can use execute buffers from system memory."
+         *
+         * A DirectX 2/3-era title renders only through execute buffers and
+         * selects its device by capability, so omitting this bit makes it
+         * discard the HAL and fall back to a software device - which is what
+         * Hellbender was doing: it read the caps, warned about fog, then
+         * created no context on the driver at all.
+         *
+         * The driver does not parse execute buffers and does not need to.
+         * The runtime decomposes them into RenderState and RenderPrimitive
+         * calls, which is why the Windows 98 DDK's own ViRGE sample sets this
+         * bit while leaving the Execute and ExecuteClipped callbacks null,
+         * exactly as this driver does.
+         */
+        V9X_D3DDEVCAPS_EXECUTESYSTEMMEMORY |
         V9X_D3DDEVCAPS_TLVERTEXSYSTEMMEMORY |
         V9X_D3DDEVCAPS_DRAWPRIMTLVERTEX;
     shared->d3d_global.hwCaps.dtcTransformCaps.dwSize =
