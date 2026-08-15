@@ -31,10 +31,9 @@ MODE-MATRIX TEST
 10. After the default mode passes, use Display Properties to test these modes:
       640x400x8, 800x600x8, 1024x768x8,
       640x480x16, 800x600x16, 1024x768x16.
-11. Resolution and colour-depth changes both apply live on the ViRGE target;
-    run V9XGDI.EXE /auto after each switch. V9XMSW.EXE /cycle:N automates the
-    resolution loop and /depth:N alternates 8 and 16 bpp. Live depth
-    switching is unverified on Trio64 - accept any restart prompt there.
+11. Resolution and colour-depth changes both apply live on both targets; run
+    V9XGDI.EXE /auto after each switch. V9XMSW.EXE /cycle:N automates the
+    resolution loop and /depth:N alternates 8 and 16 bpp.
 
 STOP CONDITIONS
 

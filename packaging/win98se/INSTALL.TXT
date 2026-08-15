@@ -46,9 +46,8 @@ The first boot defaults to 640x480x8. After it passes, Display Properties may
 select 800x600 or 1024x768 at 256 colours, or any of the same resolutions at
 High Color (16 bit). 640x400 is also offered at 256 colours.
 
-Resolution and colour-depth changes both apply live, without a reboot, on the
-S3 ViRGE/DX target. Live depth switching has not been verified on the Trio64
-target; if Windows shows a restart prompt there, accept it.
+Resolution and colour-depth changes both apply live, without a reboot, on
+both the S3 ViRGE/DX and the S3 Trio32/64 targets.
 
 V9XMSW.EXE exercises live switching: /set:WxHxB, /cycle:N for resolution and
 /depth:N to alternate 8 and 16 bpp.

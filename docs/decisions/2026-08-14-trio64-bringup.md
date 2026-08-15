@@ -46,6 +46,12 @@ animation and screen-readback test passes. Switching color depth is not live;
 updating the hardware-profile depth and rebooting succeeds in both directions.
 The VM was left at 1024x768x16 with a final GDI PASS.
 
+> **Superseded 2026-08-15.** Colour-depth changes now apply live on this
+> target too. Build `v0.3-rc6` passed 20/20 alternating 8/16-bpp switches with
+> cursor agitation on the Trio64 guest, plus GDI validation at 640x480x8,
+> 640x480x16 and 640x400x8 and palette validation at 800x600x8. See the 0.3
+> entry in [CHANGELOG.md](../../CHANGELOG.md).
+
 ## Current boundary
 
 - DirectDraw video-memory surfaces, CRTC page flips, and bounded solid fills

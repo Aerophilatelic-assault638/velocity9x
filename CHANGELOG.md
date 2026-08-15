@@ -65,7 +65,7 @@ build identifier so exact guest-tested binaries remain traceable.
   overrun the allocation and `ReEnable` refused it; `dpDEVICEsize` now always
   reserves the palette so one GDI allocation serves either depth, the size
   actually granted is recorded and re-checked before every rebuild, and the
-  palette is rebuilt whenever the depth changes. Verified on the ViRGE guest:
+  palette is rebuilt whenever the depth changes. Verified on both guests:
   20/20 alternating 8/16-bpp switches with cursor agitation, palette
   animation and GDI readback passing at both depths, and a clean boot with
   the registry left at 8 bpp. `ModeSwitching` now reports `live-any-depth`.

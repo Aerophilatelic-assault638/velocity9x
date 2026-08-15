@@ -46,7 +46,7 @@ provides:
 | Status | Primary target | Conservative baseline |
 | Display modes | 640x400x8, 640/800/1024 at 8 and 16 bpp | same |
 | Live resolution change | Yes | Yes |
-| Live colour-depth change | Yes | Built, **not yet verified** |
+| Live colour-depth change | Yes | Yes |
 | DirectDraw surfaces / page flip / vblank | Yes | Yes |
 | Hardware colour fill | Yes (S3D) | Yes (8514/A) |
 | Hardware BitBLT | Yes (S3D) | Yes (8514/A) |
