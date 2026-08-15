@@ -63,6 +63,40 @@ A third target, the **Matrox Millennium II**, exists only in the Win16 skeleton
 and loader-probe build scripts. It is exploratory, is not produced by the
 active package builder, and should not be treated as supported.
 
+## Have an unsupported card?
+
+Writing a backend for a chip means knowing what is actually on the board, and
+a photograph of the silkscreen is not enough. `V9XSURV.EXE` collects it: the
+PCI identifiers and full configuration space, the video BIOS, the VBE mode
+list, your monitor's EDID and the raw VGA register file.
+
+**Download it from the [`survey-v1` release](https://github.com/michaeldale/velocity9x/releases/tag/survey-v1).**
+It is a real-mode DOS program — that is the only place one executable can read
+all of the above without a driver. Boot to DOS (`Start` → `Shut Down` →
+*Restart in MS-DOS mode*), run `V9XSURV`, and send back the
+`C:\V9XSURV.INI` it writes. A DOS box inside Windows also works; it just sees
+less.
+
+It reads, it does not write: no mode change, nothing installed, nothing left
+behind on the card. The one step that writes anything is the opt-in vendor
+probe, which sets the documented unlock keys for your chipset family, reads
+the registers behind them and restores the originals — it is asked as a
+question, the main report is already on disk before it runs, and declining
+costs you only that section.
+
+The report is plain text — open it before you send it. It holds hardware
+identifiers and register values only, with one exception worth knowing about:
+your monitor's EDID carries its model and factory serial number.
+
+What the tool captures and why, including the safety tiers and the per-vendor
+probe support, is specified in
+[docs/specifications/vga-survey.md](docs/specifications/vga-survey.md).
+Reports are decoded host-side by
+[scripts/parse-vga-survey.ps1](scripts/parse-vga-survey.ps1), so a decoding
+mistake is fixed by editing a script and re-running it over every report
+already collected, rather than by shipping a new executable to everyone who
+helped.
+
 ## The Direct3D path, as a third party sees it
 
 ![Final Reality 1.01 Advanced Options running on Velocity9x, listing the
