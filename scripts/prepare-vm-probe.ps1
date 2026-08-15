@@ -28,6 +28,7 @@ if (-not $BuildId) {
     -BuildId $BuildId -DdkRoot $DdkRoot
 & (Join-Path $PSScriptRoot "build-minivdd-skeleton.ps1") `
     -BuildId $BuildId -DdkRoot $DdkRoot
+& (Join-Path $PSScriptRoot "build-vga-survey.ps1") -BuildId $BuildId
 
 New-Item -ItemType Directory -Force -Path $vmRoot,$outputDir,$logDir | Out-Null
 Copy-Item -LiteralPath (Join-Path $repoRoot "build\win32-diag\v9xser.exe") `
@@ -46,6 +47,8 @@ Copy-Item -LiteralPath (Join-Path $repoRoot "build\win16-ddi\v9xdisp.drv") `
     -Destination (Join-Path $outputDir "V9XDISP.DRV") -Force
 Copy-Item -LiteralPath (Join-Path $repoRoot "build\minivdd32\v9xmini.vxd") `
     -Destination (Join-Path $outputDir "V9XMINI.VXD") -Force
+Copy-Item -LiteralPath (Join-Path $repoRoot "build\vga-survey\V9XSURV.EXE") `
+    -Destination (Join-Path $outputDir "V9XSURV.EXE") -Force
 
 $readme = @(
     "Velocity9x VM probe bundle",
@@ -64,6 +67,12 @@ $readme = @(
     "CONSOLIDATED DRIVER-STAGE TEST: run V9XSTAGE.EXE once.",
     "It holds V9XPROBE.VXD loaded while V9X16LD.EXE silently loads/unloads",
     "V9XDISP.DRV, reports one PASS/FAIL result, and changes no display mode.",
+    "SAFE HARDWARE SURVEY: run V9XSURV.EXE from a DOS prompt.",
+    "It reads PCI config space, the video BIOS, VBE and the VGA registers and",
+    "writes C:\V9XSURV.INI. It sets no video mode. Boot to MS-DOS mode for a",
+    "full report; a DOS box works but cannot see real register values.",
+    "Add /rom for the complete video BIOS image, /notier2 to skip the",
+    "vendor-specific register probe it asks about.",
     "",
     "DO NOT INSTALL V9XDISP.DRV OR V9XMINI.VXD.",
     "They are ABI/link artifacts whose initialization deliberately fails.",
