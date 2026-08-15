@@ -57,6 +57,13 @@ build identifier so exact guest-tested binaries remain traceable.
 - Add dormant legacy Direct3D execute-buffer parsing and DirectDraw
   pseudo-surface lifecycle tracing. Win98 rejects a HAL that publishes the
   obsolete `Execute` entry, so the valid DX5 callback path remains advertised.
+- `scripts/build-floppy-package.ps1` assembles an offline transfer folder that
+  fits one 1.44 MB floppy. It carries both chip packages, because the card in
+  an offline machine cannot be identified ahead of time and a second trip is
+  expensive, plus a root README written for real hardware rather than a VM.
+  The output is a plain directory tree, not an archive: Windows 98 has no
+  built-in extractor. The script fails rather than emitting a tree too large
+  for the disk.
 
 ### Changed
 

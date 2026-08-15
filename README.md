@@ -124,10 +124,37 @@ are recorded under [docs/issues](docs/issues).
 | Task | Read |
 |---|---|
 | Install on a test VM or machine | [docs/INSTALL.md](docs/INSTALL.md) |
+| Get it onto an offline machine | [Transfer disk](#transfer-disk) below |
 | Recover a machine that will not boot | [packaging/win98se/RECOVER.TXT](packaging/win98se/RECOVER.TXT) |
 | Build from source | [docs/BUILDING.md](docs/BUILDING.md) |
 | Understand the design | [docs/specifications/win9x-driver-boundaries.md](docs/specifications/win9x-driver-boundaries.md) |
 | See what changed | [CHANGELOG.md](CHANGELOG.md) |
+
+## Transfer disk
+
+For a machine with no network, build a folder that fits one 1.44 MB floppy:
+
+```powershell
+./scripts/build-floppy-package.ps1
+```
+
+The result is `build/floppy`, about 460 KB, carrying **both** chip packages
+so the target machine can pick the one that matches its card:
+
+```
+README.TXT     what this is, which folder to use, install and recovery
+RECOVER.TXT    recovery steps, at the root so they are findable in a hurry
+VIRGE\         S3 ViRGE/DX 86C375   (PCI 5333:8A01)
+TRIO64\        S3 Trio32/64 86C764  (PCI 5333:8811)
+```
+
+Copy the whole tree to a formatted floppy, or to any other medium the machine
+can read. Nothing is archived, because Windows 98 has no built-in extractor
+and an offline machine may have no unzip tool — the files are usable straight
+off the disk. Add `-Zip` if you want an archive for network transfer instead.
+
+Each package carries a `SHA256.TXT`; after copying you can confirm nothing was
+corrupted in transit.
 
 ## Reporting problems
 

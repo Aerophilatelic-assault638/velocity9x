@@ -62,6 +62,25 @@ DirectDraw MMIO window, the S3D engine or Direct3D.
 Pass `-BuildId <id>` to stamp a specific identifier into every binary, which is
 how a guest-tested build stays traceable.
 
+## The offline transfer disk
+
+```powershell
+./scripts/build-floppy-package.ps1
+```
+
+Builds both chip packages and assembles `build/floppy` — roughly 460 KB, so it
+fits one 1.44 MB floppy with room to spare. It carries `VIRGE\` and `TRIO64\`
+side by side plus a root `README.TXT` written for the real-hardware case
+(identifying the card, the Have Disk flow, recovery, and which `C:\V9X*.INI`
+files to collect when reporting a problem).
+
+The output is a plain directory tree on purpose: Windows 98 has no built-in
+extractor, so an offline machine must be able to use the files directly. Pass
+`-Zip` to also produce an archive for network transfer, and `-SkipBuild` to
+assemble from packages you have already built.
+
+The script refuses to finish if the tree exceeds the usable space on a floppy.
+
 ## Component builds
 
 These exist for bisecting a problem down to one image. None of them is
