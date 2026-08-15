@@ -74,76 +74,85 @@ static void v9x_create_controls(HWND window)
     HWND control;
 
     control = v9x_control(window, "STATIC", "",
-        SS_BITMAP | SS_CENTERIMAGE, 25, 6, 390, 78, 0);
+        SS_BITMAP | SS_CENTERIMAGE, 25, 4, 390, 56, 0);
     if (control != 0 && v9x_logo_bitmap != 0) {
         SendMessageA(control, STM_SETIMAGE, IMAGE_BITMAP,
                      (LPARAM)v9x_logo_bitmap);
     }
-    control = v9x_control(window, "STATIC",
-        "Engineering bring-up build - conservative features are locked on.",
-        SS_CENTER, 16, 86, 398, 16, 0);
 
-    (void)v9x_control(window, "BUTTON", "Display",
-                      BS_GROUPBOX, 14, 106, 402, 126, 0);
+    (void)v9x_control(window, "BUTTON", "Display adapter",
+                      BS_GROUPBOX, 14, 66, 402, 90, 0);
     (void)v9x_control(window, "STATIC", "Adapter:",
-                      SS_LEFT, 28, 127, 76, 18, 0);
+                      SS_LEFT, 28, 84, 84, 16, 0);
     (void)v9x_control(window, "STATIC", v9x_status.adapter_name,
-                      SS_LEFT, 110, 127, 278, 18, 0);
+                      SS_LEFT, 118, 84, 270, 16, 0);
+    (void)v9x_control(window, "STATIC", "PCI ID:",
+                      SS_LEFT, 28, 106, 84, 16, 0);
+    (void)v9x_control(window, "STATIC", v9x_status.pci_id,
+                      SS_LEFT, 118, 106, 96, 16, 0);
+    (void)v9x_control(window, "STATIC", "Video memory:",
+                      SS_LEFT, 222, 106, 90, 16, 0);
+    (void)v9x_control(window, "STATIC", v9x_status.video_memory,
+                      SS_LEFT, 316, 106, 72, 16, 0);
     (void)v9x_control(window, "STATIC", "Active mode:",
-                      SS_LEFT, 28, 151, 76, 18, 0);
+                      SS_LEFT, 28, 128, 84, 16, 0);
     (void)v9x_control(window, "STATIC", v9x_status.active_mode,
-                      SS_LEFT, 110, 151, 278, 18, 0);
-    (void)v9x_control(window, "STATIC", "Core clock:",
-                      SS_LEFT, 28, 175, 76, 18, 0);
-    (void)v9x_control(window, "STATIC", v9x_status.core_clock,
-                      SS_LEFT, 110, 175, 278, 18, 0);
-    (void)v9x_control(window, "STATIC", "Memory clock:",
-                      SS_LEFT, 28, 199, 76, 18, 0);
-    (void)v9x_control(window, "STATIC", v9x_status.memory_clock,
-                      SS_LEFT, 110, 199, 278, 18, 0);
+                      SS_LEFT, 118, 128, 270, 16, 0);
 
-    (void)v9x_control(window, "BUTTON", "Rendering and safety",
-                      BS_GROUPBOX, 14, 242, 402, 86, 0);
-    control = v9x_control(window, "BUTTON", "Windows DIB Engine rendering",
-                          BS_AUTOCHECKBOX | WS_DISABLED, 28, 262, 250, 20, 0);
-    SendMessageA(control, BM_SETCHECK, BST_CHECKED, 0);
-    control = v9x_control(window, "BUTTON", "Hardware acceleration",
-                          BS_AUTOCHECKBOX | WS_DISABLED, 28, 285, 250, 20, 0);
-    SendMessageA(control, BM_SETCHECK,
-                 v9x_status.hardware_acceleration
-                     ? BST_CHECKED : BST_UNCHECKED, 0);
-    (void)v9x_control(window, "STATIC", "Version: " V9X_VERSION_STRING,
-                      SS_RIGHT, 218, 287, 180, 18, 0);
-    control = v9x_control(window, "BUTTON", "Live mode switching",
-                          BS_AUTOCHECKBOX | WS_DISABLED, 28, 308, 190, 20, 0);
-    SendMessageA(control, BM_SETCHECK,
-                 v9x_status.live_mode_switching ? BST_CHECKED : BST_UNCHECKED,
-                 0);
-    (void)v9x_control(window, "STATIC", "Build: " V9X_BUILD_ID,
-                      SS_RIGHT, 218, 310, 180, 18, 0);
+    /* Value rows, not checkboxes: these are statements of what the driver
+     * does, and a permanently checked, permanently greyed box conveys
+     * nothing. See tools/diag/settings_propsheet.rc. */
+    (void)v9x_control(window, "BUTTON", "Acceleration",
+                      BS_GROUPBOX, 14, 162, 402, 112, 0);
+    (void)v9x_control(window, "STATIC", "Rendering:",
+                      SS_LEFT, 28, 180, 84, 16, 0);
+    (void)v9x_control(window, "STATIC", v9x_status.rendering,
+                      SS_LEFT, 118, 180, 270, 16, 0);
+    (void)v9x_control(window, "STATIC", "DirectDraw:",
+                      SS_LEFT, 28, 202, 84, 16, 0);
+    (void)v9x_control(window, "STATIC", v9x_status.directdraw,
+                      SS_LEFT, 118, 202, 270, 16, 0);
+    (void)v9x_control(window, "STATIC", "Direct3D:",
+                      SS_LEFT, 28, 224, 84, 16, 0);
+    (void)v9x_control(window, "STATIC", v9x_status.direct3d,
+                      SS_LEFT, 118, 224, 270, 16, 0);
+    (void)v9x_control(window, "STATIC", "Mode switching:",
+                      SS_LEFT, 28, 246, 84, 16, 0);
+    (void)v9x_control(window, "STATIC", v9x_status.mode_switching,
+                      SS_LEFT, 118, 246, 270, 16, 0);
 
     (void)v9x_control(window, "BUTTON", "Runtime diagnostics",
-                      BS_GROUPBOX, 14, 338, 402, 62, 0);
+                      BS_GROUPBOX, 14, 280, 402, 90, 0);
+    (void)v9x_control(window, "STATIC", "Clock:",
+                      SS_LEFT, 28, 298, 116, 16, 0);
+    (void)v9x_control(window, "STATIC", v9x_status.core_clock,
+                      SS_LEFT, 148, 298, 250, 16, 0);
     (void)v9x_control(window, "STATIC", "Driver / framebuffer:",
-                      SS_LEFT, 28, 358, 116, 18, 0);
+                      SS_LEFT, 28, 320, 116, 16, 0);
     (void)v9x_control(window, "STATIC", v9x_status.framebuffer_status,
-                      SS_LEFT, 148, 358, 250, 18, 0);
+                      SS_LEFT, 148, 320, 250, 16, 0);
     (void)v9x_control(window, "STATIC", "Last GDI test:",
-                      SS_LEFT, 28, 380, 116, 18, 0);
+                      SS_LEFT, 28, 342, 116, 16, 0);
     (void)v9x_control(window, "STATIC", v9x_status.gdi_status,
-                      SS_LEFT, 148, 380, 250, 18, 0);
+                      SS_LEFT, 148, 342, 250, 16, 0);
+
+    (void)v9x_control(window, "STATIC",
+                      "Engineering bring-up build - read-only status page."
+                      "   Version: " V9X_VERSION_STRING
+                      "   Build: " V9X_BUILD_ID,
+                      SS_LEFT, 16, 376, 398, 16, 0);
 
     (void)v9x_control(window, "BUTTON", "Copy report",
-                      BS_PUSHBUTTON | WS_TABSTOP, 15, 412, 92, 28,
+                      BS_PUSHBUTTON | WS_TABSTOP, 15, 396, 92, 26,
                       V9X_ID_COPY_REPORT);
     (void)v9x_control(window, "BUTTON", "Run GDI test",
-                      BS_PUSHBUTTON | WS_TABSTOP, 113, 412, 94, 28,
+                      BS_PUSHBUTTON | WS_TABSTOP, 113, 396, 94, 26,
                       V9X_ID_GDI_TEST);
     (void)v9x_control(window, "BUTTON", "Recovery guide",
-                      BS_PUSHBUTTON | WS_TABSTOP, 213, 412, 104, 28,
+                      BS_PUSHBUTTON | WS_TABSTOP, 213, 396, 104, 26,
                       V9X_ID_RECOVERY);
     (void)v9x_control(window, "BUTTON", "Close",
-                      BS_DEFPUSHBUTTON | WS_TABSTOP, 323, 412, 93, 28,
+                      BS_DEFPUSHBUTTON | WS_TABSTOP, 323, 396, 93, 26,
                       V9X_ID_CLOSE);
 }
 
@@ -228,11 +237,11 @@ void WINAPI V9xSettingsEntry(void)
                                   MAKEINTRESOURCEA(V9X_ID_LOGO_BITMAP));
     v9x_settings_collect(&v9x_status, V9X_VERSION_STRING, V9X_BUILD_ID);
     x = (GetSystemMetrics(SM_CXSCREEN) - 440) / 2;
-    y = (GetSystemMetrics(SM_CYSCREEN) - 475) / 2;
+    y = (GetSystemMetrics(SM_CYSCREEN) - 462) / 2;
     window = CreateWindowExA(WS_EX_DLGMODALFRAME,
                              v9x_class_name, v9x_window_title,
                              WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
-                             x, y, 440, 475, 0, 0, instance, 0);
+                             x, y, 440, 462, 0, 0, instance, 0);
     if (window == 0) {
         ExitProcess(2ul);
     }

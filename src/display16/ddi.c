@@ -190,6 +190,56 @@ static BYTE v9x_s3_read_sequencer(BYTE index)
     v9x_port_out(0x03c4u, index);
     return v9x_port_in(0x03c5u);
 }
+
+/* The CRTC pair follows the MISC output register's colour/mono bit. */
+static WORD v9x_crtc_index_port(void)
+{
+    return (v9x_port_in(0x03ccu) & 0x01u) != 0u ? 0x03d4u : 0x03b4u;
+}
+
+static BYTE v9x_s3_read_crtc(WORD index_port, BYTE index)
+{
+    v9x_port_out(index_port, index);
+    return v9x_port_in((WORD)(index_port + 1u));
+}
+
+static void v9x_s3_write_crtc(WORD index_port, BYTE index, BYTE value)
+{
+    v9x_port_out(index_port, index);
+    v9x_port_out((WORD)(index_port + 1u), value);
+}
+
+/*
+ * Installed video memory from CRTC register 36h.
+ *
+ * CR36 sits behind the S3 extended-register locks, so CR38 and CR39 are
+ * unlocked around the read and restored afterwards. Returns 0 when the code
+ * is one this driver does not decode, which the caller reports as unavailable
+ * rather than guessing a size.
+ */
+static DWORD v9x_s3_detect_video_memory(void)
+{
+    WORD index_port = v9x_crtc_index_port();
+    BYTE saved_index = v9x_port_in(index_port);
+    BYTE saved_lock1;
+    BYTE saved_lock2;
+    BYTE cr36;
+    DWORD bytes = 0ul;
+
+    saved_lock1 = v9x_s3_read_crtc(index_port, 0x38u);
+    saved_lock2 = v9x_s3_read_crtc(index_port, 0x39u);
+    v9x_s3_write_crtc(index_port, 0x38u, 0x48u);
+    v9x_s3_write_crtc(index_port, 0x39u, 0xa5u);
+    cr36 = v9x_s3_read_crtc(index_port, 0x36u);
+    v9x_s3_write_crtc(index_port, 0x39u, saved_lock2);
+    v9x_s3_write_crtc(index_port, 0x38u, saved_lock1);
+    v9x_port_out(index_port, saved_index);
+
+    if (v9x_s3_virge_decode_memory_size(cr36, &bytes) != V9X_STATUS_OK) {
+        return 0ul;
+    }
+    return bytes;
+}
 #endif
 
 static void v9x_publish_hardware_diagnostics(void)
@@ -261,9 +311,38 @@ static void v9x_publish_hardware_diagnostics(void)
     WritePrivateProfileString("Velocity9xHardware", "ModeSwitching",
                               "live-any-depth",
                               V9X_HARDWARE_INFO_PATH);
+    /* What the DirectDraw HAL actually executes on the engine. Both S3
+     * targets do bounded solid fills and screen-to-screen copies; only the
+     * ViRGE advertises Direct3D. */
     WritePrivateProfileString("Velocity9xHardware", "Acceleration",
-                              "directdraw-solid-fill",
+                              "directdraw-fill-blt",
                               V9X_HARDWARE_INFO_PATH);
+#ifdef V9X_TARGET_S3_TRIO64
+    WritePrivateProfileString("Velocity9xHardware", "Direct3D",
+                              "not-advertised",
+                              V9X_HARDWARE_INFO_PATH);
+#else
+    WritePrivateProfileString("Velocity9xHardware", "Direct3D",
+                              "hardware-s3d",
+                              V9X_HARDWARE_INFO_PATH);
+#endif
+    {
+        DWORD memory_bytes = v9x_s3_detect_video_memory();
+
+        if (memory_bytes != 0ul) {
+            v9x_format_u32(number, memory_bytes);
+            WritePrivateProfileString("Velocity9xHardware",
+                                      "VideoMemoryBytes", number,
+                                      V9X_HARDWARE_INFO_PATH);
+            WritePrivateProfileString("Velocity9xHardware",
+                                      "VideoMemoryStatus", "valid",
+                                      V9X_HARDWARE_INFO_PATH);
+        } else {
+            WritePrivateProfileString("Velocity9xHardware",
+                                      "VideoMemoryStatus", "unavailable",
+                                      V9X_HARDWARE_INFO_PATH);
+        }
+    }
 
     status = v9x_s3_virge_decode_clock_pll(sr10, sr11, &clocks);
     if (status != V9X_STATUS_OK) {

@@ -34,7 +34,8 @@ provides:
   perspective-correct triangles with mipmapping, trilinear filtering, alpha
   blending, specular highlights, fog and Z testing.
 - **A Velocity9x page inside Display Properties** reporting the detected
-  adapter, active mode, framebuffer, clock, build and last test result.
+  adapter, PCI ID, installed video memory, active mode and clock, which
+  acceleration paths are live, and the driver's own runtime diagnostics.
 
 ## Supported chips
 

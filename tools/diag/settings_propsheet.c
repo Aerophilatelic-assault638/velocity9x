@@ -93,12 +93,21 @@ static BOOL CALLBACK v9x_page_dialog_proc(HWND dialog,
                              V9X_BUILD_ID);
         SetDlgItemTextA(dialog, V9X_IDC_ADAPTER,
                         v9x_page_status.adapter_name);
+        SetDlgItemTextA(dialog, V9X_IDC_PCI_ID, v9x_page_status.pci_id);
+        SetDlgItemTextA(dialog, V9X_IDC_VIDEO_MEMORY,
+                        v9x_page_status.video_memory);
         SetDlgItemTextA(dialog, V9X_IDC_ACTIVE_MODE,
                         v9x_page_status.active_mode);
         SetDlgItemTextA(dialog, V9X_IDC_CORE_CLOCK,
                         v9x_page_status.core_clock);
-        SetDlgItemTextA(dialog, V9X_IDC_MEMORY_CLOCK,
-                        v9x_page_status.memory_clock);
+        SetDlgItemTextA(dialog, V9X_IDC_RENDERING,
+                        v9x_page_status.rendering);
+        SetDlgItemTextA(dialog, V9X_IDC_DIRECTDRAW,
+                        v9x_page_status.directdraw);
+        SetDlgItemTextA(dialog, V9X_IDC_DIRECT3D,
+                        v9x_page_status.direct3d);
+        SetDlgItemTextA(dialog, V9X_IDC_MODE_SWITCH,
+                        v9x_page_status.mode_switching);
         SetDlgItemTextA(dialog, V9X_IDC_VERSION,
                         "Version: " V9X_VERSION_STRING);
         SetDlgItemTextA(dialog, V9X_IDC_BUILD, "Build: " V9X_BUILD_ID);
@@ -106,13 +115,6 @@ static BOOL CALLBACK v9x_page_dialog_proc(HWND dialog,
                         v9x_page_status.framebuffer_status);
         SetDlgItemTextA(dialog, V9X_IDC_GDI_TEST,
                         v9x_page_status.gdi_status);
-        CheckDlgButton(dialog, V9X_IDC_DIB_CHECK, BST_CHECKED);
-        CheckDlgButton(dialog, V9X_IDC_ACCEL_CHECK,
-                       v9x_page_status.hardware_acceleration
-                           ? BST_CHECKED : BST_UNCHECKED);
-        CheckDlgButton(dialog, V9X_IDC_MODESW_CHECK,
-                       v9x_page_status.live_mode_switching
-                           ? BST_CHECKED : BST_UNCHECKED);
         return TRUE;
     case WM_COMMAND:
         if (LOWORD(wparam) == V9X_IDC_COPY_REPORT) {

@@ -1,53 +1,69 @@
 // Velocity9x Display Properties page dialog template.
 // The logo bitmap resource (101) is appended by the build script.
 //
-// The logo slot must stay larger than the generated bitmap in both axes.
-// SS_CENTERIMAGE centres the image and clips whatever does not fit, so a
-// bitmap taller than the control loses its top and bottom edges. The bitmap
-// is generated at 320x65 (see scripts/build-settings-page.ps1); at the
-// MS Sans Serif 8 base units this 238x46 slot is roughly 357x75 pixels,
-// which leaves margin in both directions.
+// HEIGHT IS THE BINDING CONSTRAINT. A property sheet sizes itself to its
+// tallest page, and this page is the tallest, so its height sets the size of
+// the whole native Display Properties dialog. The driver's default first boot
+// is 640x480, where the work area is about 450 pixels tall; a page much over
+// 211 dialog units pushes the OK/Cancel/Apply row off the bottom of the
+// screen and makes the dialog unusable. Rows are on an 11-unit pitch and the
+// logo gets a deliberately modest slot for that reason. Re-check at 640x480
+// after changing anything here.
+//
+// The logo slot must also stay larger than the generated bitmap in both axes:
+// SS_CENTERIMAGE centres the image and clips whatever does not fit rather
+// than scaling it. The bitmap is generated at 185x37 (see
+// scripts/build-settings-page.ps1) against this 238x24 slot.
+//
+// Every row is a read-only label/value pair. The page previously used
+// disabled checkboxes for "DIB Engine rendering", "Hardware acceleration"
+// and "Live mode switching", but those are statements of fact rather than
+// settings: a permanently checked, permanently greyed box tells the reader
+// nothing it could ever not say. They are value rows now, naming what the
+// driver actually does, and they can report a narrower answer on a chip or a
+// build where less is available.
 #include <windows.h>
 #include "settings_propsheet.h"
 
-V9X_ID_PAGE_DIALOG DIALOG 0, 0, 252, 234
+V9X_ID_PAGE_DIALOG DIALOG 0, 0, 252, 211
 STYLE DS_3DLOOK | WS_CHILD | WS_DISABLED | WS_CAPTION
 CAPTION "Velocity9x"
 FONT 8, "MS Sans Serif"
 BEGIN
     CONTROL         "#101", -1, "STATIC", SS_BITMAP | SS_CENTERIMAGE,
-                    7, 4, 238, 46
-    LTEXT           "Engineering bring-up build - conservative features are locked on.",
-                    V9X_IDC_NOTICE, 7, 52, 238, 10
+                    7, 2, 238, 24
 
-    GROUPBOX        "Display", -1, 7, 64, 238, 62
-    LTEXT           "Adapter:", -1, 15, 76, 52, 8
-    LTEXT           "", V9X_IDC_ADAPTER, 70, 76, 168, 8
-    LTEXT           "Active mode:", -1, 15, 88, 52, 8
-    LTEXT           "", V9X_IDC_ACTIVE_MODE, 70, 88, 168, 8
-    LTEXT           "Core clock:", -1, 15, 100, 52, 8
-    LTEXT           "", V9X_IDC_CORE_CLOCK, 70, 100, 168, 8
-    LTEXT           "Memory clock:", -1, 15, 112, 52, 8
-    LTEXT           "", V9X_IDC_MEMORY_CLOCK, 70, 112, 168, 8
+    GROUPBOX        "Display adapter", -1, 7, 30, 238, 58
+    LTEXT           "Adapter:", -1, 14, 41, 56, 8
+    LTEXT           "", V9X_IDC_ADAPTER, 72, 41, 166, 8
+    LTEXT           "PCI ID:", -1, 14, 52, 56, 8
+    LTEXT           "", V9X_IDC_PCI_ID, 72, 52, 58, 8
+    LTEXT           "Video memory:", -1, 134, 52, 50, 8
+    LTEXT           "", V9X_IDC_VIDEO_MEMORY, 186, 52, 52, 8
+    LTEXT           "Active mode:", -1, 14, 63, 56, 8
+    LTEXT           "", V9X_IDC_ACTIVE_MODE, 72, 63, 166, 8
+    LTEXT           "Clock:", -1, 14, 74, 56, 8
+    LTEXT           "", V9X_IDC_CORE_CLOCK, 72, 74, 166, 8
 
-    GROUPBOX        "Rendering and safety", -1, 7, 130, 238, 56
-    CONTROL         "Windows DIB Engine rendering", V9X_IDC_DIB_CHECK,
-                    "BUTTON", BS_AUTOCHECKBOX | WS_DISABLED,
-                    15, 142, 150, 10
-    CONTROL         "Hardware acceleration", V9X_IDC_ACCEL_CHECK,
-                    "BUTTON", BS_AUTOCHECKBOX | WS_DISABLED,
-                    15, 154, 150, 10
-    CONTROL         "Live mode switching", V9X_IDC_MODESW_CHECK,
-                    "BUTTON", BS_AUTOCHECKBOX | WS_DISABLED,
-                    15, 166, 150, 10
-    RTEXT           "", V9X_IDC_VERSION, 130, 164, 108, 8
-    RTEXT           "", V9X_IDC_BUILD, 130, 174, 108, 8
+    GROUPBOX        "Acceleration", -1, 7, 92, 238, 58
+    LTEXT           "Rendering:", -1, 14, 103, 56, 8
+    LTEXT           "", V9X_IDC_RENDERING, 72, 103, 166, 8
+    LTEXT           "DirectDraw:", -1, 14, 114, 56, 8
+    LTEXT           "", V9X_IDC_DIRECTDRAW, 72, 114, 166, 8
+    LTEXT           "Direct3D:", -1, 14, 125, 56, 8
+    LTEXT           "", V9X_IDC_DIRECT3D, 72, 125, 166, 8
+    LTEXT           "Mode switching:", -1, 14, 136, 56, 8
+    LTEXT           "", V9X_IDC_MODE_SWITCH, 72, 136, 166, 8
 
-    GROUPBOX        "Runtime diagnostics", -1, 7, 190, 238, 38
-    LTEXT           "Driver / framebuffer:", -1, 15, 202, 68, 8
-    LTEXT           "", V9X_IDC_FRAMEBUFFER, 86, 202, 152, 8
-    LTEXT           "Last GDI test:", -1, 15, 214, 68, 8
-    LTEXT           "", V9X_IDC_GDI_TEST, 86, 214, 100, 8
+    GROUPBOX        "Runtime diagnostics", -1, 7, 154, 238, 36
+    LTEXT           "Driver / framebuffer:", -1, 14, 165, 66, 8
+    LTEXT           "", V9X_IDC_FRAMEBUFFER, 82, 165, 156, 8
+    LTEXT           "Last GDI test:", -1, 14, 176, 66, 8
+    LTEXT           "", V9X_IDC_GDI_TEST, 82, 176, 156, 8
 
-    PUSHBUTTON      "Copy report", V9X_IDC_COPY_REPORT, 190, 212, 55, 14
+    LTEXT           "", V9X_IDC_VERSION, 7, 195, 80, 8
+    LTEXT           "", V9X_IDC_BUILD, 89, 195, 96, 8
+    LTEXT           "", V9X_IDC_NOTICE, 0, 0, 0, 0
+
+    PUSHBUTTON      "Copy report", V9X_IDC_COPY_REPORT, 190, 193, 55, 14
 END

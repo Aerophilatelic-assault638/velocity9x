@@ -10,6 +10,8 @@
 
 typedef struct v9x_settings_status {
     char adapter_name[96];
+    char pci_id[24];
+    char video_memory[48];
     char active_mode[48];
     char core_clock[96];
     char memory_clock[64];
@@ -18,6 +20,9 @@ typedef struct v9x_settings_status {
     char framebuffer_status[96];
     char gdi_status[160];
     char mode_switching[80];
+    char rendering[64];
+    char directdraw[80];
+    char direct3d[64];
     int live_mode_switching;
     int hardware_acceleration;
     int live_depth_switching;

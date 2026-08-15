@@ -45,6 +45,7 @@ $required = @(
     "src\common\resources.c",
     "src\chipsets\s3\virge\backend.c",
     "src\chipsets\s3\virge\clocks.c",
+    "src\chipsets\s3\virge\memory.c",
     "src\display16\display_component.c",
     "src\display16\loader.c",
     "src\display16\ddi.c",

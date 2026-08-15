@@ -67,8 +67,10 @@ try {
     # Keep this smaller than the dialog's logo slot in both axes. The static
     # control uses SS_CENTERIMAGE, which clips anything larger than itself
     # rather than scaling it; at 355x71 the bitmap was taller than the slot and
-    # lost its top and bottom edges. See tools/diag/settings_propsheet.rc.
-    $bitmap = New-Object Drawing.Bitmap 320, 65,
+    # lost its top and bottom edges. The slot is deliberately modest because
+    # the page height sets the size of the whole Display Properties dialog and
+    # it has to fit a 640x480 screen. See tools/diag/settings_propsheet.rc.
+    $bitmap = New-Object Drawing.Bitmap 185, 37,
         ([Drawing.Imaging.PixelFormat]::Format24bppRgb)
     try {
         $graphics = [Drawing.Graphics]::FromImage($bitmap)
@@ -76,7 +78,7 @@ try {
             $graphics.Clear([Drawing.Color]::White)
             $graphics.InterpolationMode =
                 [Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-            $destination = New-Object Drawing.Rectangle 0, 0, 320, 65
+            $destination = New-Object Drawing.Rectangle 0, 0, 185, 37
             $sourceRectangle = New-Object Drawing.Rectangle 45, 300, 1680, 340
             $graphics.DrawImage($sourceImage, $destination, $sourceRectangle,
                                 [Drawing.GraphicsUnit]::Pixel)

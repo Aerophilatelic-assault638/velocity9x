@@ -365,6 +365,39 @@ static void test_s3_virge_clock_decode(void)
           V9X_STATUS_INVALID_ARGUMENT);
 }
 
+static void test_s3_virge_memory_decode(void)
+{
+    v9x_u32 bytes;
+
+    /* CR36 bits 7:5 carry the installed-memory code. The values below are the
+     * ones the Trio32/64 and ViRGE/DX actually emit; the low bits are chip
+     * configuration and must be ignored. */
+    CHECK(v9x_s3_virge_decode_memory_size(0x00u, &bytes) == V9X_STATUS_OK);
+    CHECK(bytes == 4ul * 1024ul * 1024ul);
+    /* 86Box builds a 4 MiB ViRGE/DX CR36 as 2 | (0 << 2) | (1 << 4). */
+    CHECK(v9x_s3_virge_decode_memory_size(0x12u, &bytes) == V9X_STATUS_OK);
+    CHECK(bytes == 4ul * 1024ul * 1024ul);
+    CHECK(v9x_s3_virge_decode_memory_size(0x60u, &bytes) == V9X_STATUS_OK);
+    CHECK(bytes == 8ul * 1024ul * 1024ul);
+    CHECK(v9x_s3_virge_decode_memory_size(0x92u, &bytes) == V9X_STATUS_OK);
+    CHECK(bytes == 2ul * 1024ul * 1024ul);
+    CHECK(v9x_s3_virge_decode_memory_size(0xc0u, &bytes) == V9X_STATUS_OK);
+    CHECK(bytes == 1ul * 1024ul * 1024ul);
+    CHECK(v9x_s3_virge_decode_memory_size(0xe0u, &bytes) == V9X_STATUS_OK);
+    CHECK(bytes == 512ul * 1024ul);
+
+    /* Codes 1, 2 and 5 belong to other S3 parts and must not be guessed. */
+    CHECK(v9x_s3_virge_decode_memory_size(0x20u, &bytes) ==
+          V9X_STATUS_UNSUPPORTED);
+    CHECK(bytes == 0ul);
+    CHECK(v9x_s3_virge_decode_memory_size(0x40u, &bytes) ==
+          V9X_STATUS_UNSUPPORTED);
+    CHECK(v9x_s3_virge_decode_memory_size(0xa0u, &bytes) ==
+          V9X_STATUS_UNSUPPORTED);
+    CHECK(v9x_s3_virge_decode_memory_size(0u, 0) ==
+          V9X_STATUS_INVALID_ARGUMENT);
+}
+
 static void test_backend_registry_and_millennium2(void)
 {
     struct v9x_backend_state state;
@@ -462,6 +495,7 @@ int main(void)
     test_framebuffer_resource_properties();
     test_probe_is_strict();
     test_s3_virge_clock_decode();
+    test_s3_virge_memory_decode();
     test_backend_registry_and_millennium2();
     test_components_and_log();
     test_build_identity();

@@ -158,8 +158,68 @@ void v9x_settings_collect(V9X_SETTINGS_STATUS *status,
     }
 
     {
+        char vendor[16];
+        char device[16];
+
+        GetPrivateProfileStringA("Velocity9xHardware", "VendorId", "",
+                                 vendor, sizeof(vendor), "C:\\V9XHW.INI");
+        GetPrivateProfileStringA("Velocity9xHardware", "DeviceId", "",
+                                 device, sizeof(device), "C:\\V9XHW.INI");
+        status->pci_id[0] = '\0';
+        if (vendor[0] != '\0' && device[0] != '\0') {
+            v9x_append(status->pci_id, sizeof(status->pci_id), vendor);
+            v9x_append(status->pci_id, sizeof(status->pci_id), ":");
+            v9x_append(status->pci_id, sizeof(status->pci_id), device);
+        } else {
+            v9x_append(status->pci_id, sizeof(status->pci_id), "Unavailable");
+        }
+    }
+
+    /*
+     * Installed video memory, reported in whole MB when it divides evenly.
+     * The driver decodes this from the chip and reports nothing when the
+     * encoding is one it does not recognise, so an unknown card shows
+     * "Unavailable" rather than a fabricated size.
+     */
+    {
+        char memory_status[16];
+        char memory_bytes_text[16];
+        DWORD memory_bytes = 0ul;
+
+        GetPrivateProfileStringA("Velocity9xHardware", "VideoMemoryStatus",
+                                 "unavailable", memory_status,
+                                 sizeof(memory_status), "C:\\V9XHW.INI");
+        GetPrivateProfileStringA("Velocity9xHardware", "VideoMemoryBytes",
+                                 "0", memory_bytes_text,
+                                 sizeof(memory_bytes_text), "C:\\V9XHW.INI");
+        if (!v9x_parse_u32(memory_bytes_text, &memory_bytes)) {
+            memory_bytes = 0ul;
+        }
+        status->video_memory[0] = '\0';
+        if (lstrcmpiA(memory_status, "valid") == 0 && memory_bytes != 0ul) {
+            if ((memory_bytes % (1024ul * 1024ul)) == 0ul) {
+                v9x_append_uint(status->video_memory,
+                                sizeof(status->video_memory),
+                                (UINT)(memory_bytes / (1024ul * 1024ul)));
+                v9x_append(status->video_memory,
+                           sizeof(status->video_memory), " MB");
+            } else {
+                v9x_append_uint(status->video_memory,
+                                sizeof(status->video_memory),
+                                (UINT)(memory_bytes / 1024ul));
+                v9x_append(status->video_memory,
+                           sizeof(status->video_memory), " KB");
+            }
+        } else {
+            v9x_append(status->video_memory, sizeof(status->video_memory),
+                       "Unavailable");
+        }
+    }
+
+    {
         char switching[32];
         char acceleration[40];
+        char direct3d[32];
 
         GetPrivateProfileStringA("Velocity9xHardware", "ModeSwitching",
                                  "reboot-selected", switching,
@@ -181,7 +241,39 @@ void v9x_settings_collect(V9X_SETTINGS_STATUS *status,
                                  "disabled", acceleration,
                                  sizeof(acceleration), "C:\\V9XHW.INI");
         status->hardware_acceleration =
+            lstrcmpiA(acceleration, "directdraw-fill-blt") == 0 ||
             lstrcmpiA(acceleration, "directdraw-solid-fill") == 0;
+
+        /* Describe what the DirectDraw HAL runs on the engine. Anything the
+         * driver does not claim is reported as software so the page never
+         * overstates the hardware path. */
+        status->directdraw[0] = '\0';
+        if (lstrcmpiA(acceleration, "directdraw-fill-blt") == 0) {
+            v9x_append(status->directdraw, sizeof(status->directdraw),
+                       "Surfaces, page flip, vblank, fill, blit");
+        } else if (lstrcmpiA(acceleration, "directdraw-solid-fill") == 0) {
+            v9x_append(status->directdraw, sizeof(status->directdraw),
+                       "Surfaces, page flip, vblank, fill");
+        } else {
+            v9x_append(status->directdraw, sizeof(status->directdraw),
+                       "Software emulation only");
+        }
+
+        GetPrivateProfileStringA("Velocity9xHardware", "Direct3D",
+                                 "not-advertised", direct3d,
+                                 sizeof(direct3d), "C:\\V9XHW.INI");
+        status->direct3d[0] = '\0';
+        if (lstrcmpiA(direct3d, "hardware-s3d") == 0) {
+            v9x_append(status->direct3d, sizeof(status->direct3d),
+                       "Hardware (S3D triangle engine)");
+        } else {
+            v9x_append(status->direct3d, sizeof(status->direct3d),
+                       "Not advertised on this chip");
+        }
+
+        status->rendering[0] = '\0';
+        v9x_append(status->rendering, sizeof(status->rendering),
+                   "Windows DIB Engine (software GDI)");
     }
 
     GetPrivateProfileStringA("Velocity9x", "Stage", "not recorded",
@@ -234,6 +326,10 @@ void v9x_settings_collect(V9X_SETTINGS_STATUS *status,
     v9x_append(status->report, sizeof(status->report), build_id);
     v9x_append(status->report, sizeof(status->report), "\r\nAdapter: ");
     v9x_append(status->report, sizeof(status->report), status->adapter_name);
+    v9x_append(status->report, sizeof(status->report), "\r\nPCI ID: ");
+    v9x_append(status->report, sizeof(status->report), status->pci_id);
+    v9x_append(status->report, sizeof(status->report), "\r\nVideo memory: ");
+    v9x_append(status->report, sizeof(status->report), status->video_memory);
     v9x_append(status->report, sizeof(status->report), "\r\nActive mode: ");
     v9x_append(status->report, sizeof(status->report), status->active_mode);
     v9x_append(status->report, sizeof(status->report),
@@ -255,13 +351,14 @@ void v9x_settings_collect(V9X_SETTINGS_STATUS *status,
     v9x_append(status->report, sizeof(status->report),
                status->mode_switching);
     v9x_append(status->report, sizeof(status->report),
-        "\r\nSupported modes: 640x480, 800x600, 1024x768 at 8/16 bpp"
-        "\r\nRendering: Windows DIB Engine plus DirectDraw HAL"
-        "\r\nAcceleration: ");
-    v9x_append(status->report, sizeof(status->report),
-               status->hardware_acceleration
-                   ? "solid fills and page flips"
-                   : "disabled");
+        "\r\nSupported modes: 640x400 at 8 bpp; 640x480, 800x600, 1024x768"
+        " at 8/16 bpp"
+        "\r\nRendering: ");
+    v9x_append(status->report, sizeof(status->report), status->rendering);
+    v9x_append(status->report, sizeof(status->report), "\r\nDirectDraw: ");
+    v9x_append(status->report, sizeof(status->report), status->directdraw);
+    v9x_append(status->report, sizeof(status->report), "\r\nDirect3D: ");
+    v9x_append(status->report, sizeof(status->report), status->direct3d);
     v9x_append(status->report, sizeof(status->report),
                "\r\nMini-VDD callbacks: master VDD defaults\r\n");
 }

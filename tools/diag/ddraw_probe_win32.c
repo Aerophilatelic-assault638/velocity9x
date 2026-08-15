@@ -843,6 +843,11 @@ static void v9x_write_raw(const char *prefix, const BYTE *base,
     }
 }
 
+/* Compose "<prefix><suffix>" into an INI key. Defined below; used by the
+ * globals dump above it. */
+static void v9x_compose_key(char *key, const char *prefix,
+                            const char *suffix);
+
 static void v9x_write_ddraw_globals(struct v9x_dd *ddraw)
 {
     const BYTE *object = (const BYTE *)ddraw;
@@ -984,6 +989,7 @@ static void v9x_pal8_mode_test(struct v9x_dd *ddraw, const char *prefix,
 /* Dump every mode DirectDraw enumerates, so a resolution the driver never
  * published can be told apart from one it published and mis-programmed. */
 static void v9x_enum_modes(struct v9x_dd *ddraw);
+
 
 /* Compose "<prefix><suffix>" into an INI key. */
 static void v9x_compose_key(char *key, const char *prefix, const char *suffix)

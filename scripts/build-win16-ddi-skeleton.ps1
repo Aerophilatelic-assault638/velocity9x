@@ -76,7 +76,8 @@ $sources = @(
 if (-not $MatroxMillennium2) {
     $sources = @($sources[0..3]) + @(
         @{ Name = "virge_backend"; Path = "src\chipsets\s3\virge\backend.c" },
-        @{ Name = "virge_clocks"; Path = "src\chipsets\s3\virge\clocks.c" }
+        @{ Name = "virge_clocks"; Path = "src\chipsets\s3\virge\clocks.c" },
+        @{ Name = "virge_memory"; Path = "src\chipsets\s3\virge\memory.c" }
     ) + @($sources[4..($sources.Count - 1)])
 }
 

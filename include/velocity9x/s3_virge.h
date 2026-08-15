@@ -22,5 +22,6 @@ v9x_status v9x_s3_virge_decode_clock_pll(
     v9x_u8 sr10,
     v9x_u8 sr11,
     struct v9x_clock_info *clocks);
+v9x_status v9x_s3_virge_decode_memory_size(v9x_u8 cr36, v9x_u32 *bytes);
 
 #endif

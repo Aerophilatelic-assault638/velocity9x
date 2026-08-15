@@ -72,6 +72,27 @@ build identifier so exact guest-tested binaries remain traceable.
 
 ### Fixed
 
+- Report installed video memory. The driver decodes it from CRTC register
+  36h, which the Trio32/64 and the ViRGE/DX encode the same way, instead of
+  the flat 4 MiB the shared block had always assumed. Codes belonging to
+  other S3 parts are reported as unavailable rather than guessed, and the
+  decode is covered by host tests.
+- Replace the settings page's three permanently checked, permanently greyed
+  checkboxes with value rows. "DIB Engine rendering", "Hardware acceleration"
+  and "Live mode switching" were statements of fact rather than settings, so
+  the boxes could never say anything else. The page now reports the PCI ID,
+  installed video memory, and separate Rendering, DirectDraw, Direct3D and
+  mode-switching rows whose text narrows on a chip or build that does less -
+  the Trio64 reports Direct3D as not advertised, for instance. `V9XHW.INI`
+  gained `VideoMemoryBytes`, `VideoMemoryStatus` and `Direct3D`, and
+  `Acceleration` now reads `directdraw-fill-blt` rather than the stale
+  `directdraw-solid-fill`.
+- The Display Properties dialog fits a 640x480 screen again. A property sheet
+  sizes itself to its tallest page and this page is the tallest, so it set
+  the height of the whole native dialog; at the driver's own default
+  first-boot mode the OK/Cancel/Apply row sat below the bottom of the screen.
+  The page is now 211 dialog units on an 11-unit row pitch. The standalone
+  V9XSET.EXE panel was over the same limit and was compacted to match.
 - The Display Properties page no longer clips its logo. The generated bitmap
   was 355x71 into a static control roughly 357x49 pixels, and `SS_CENTERIMAGE`
   clips rather than scales, so the logo lost its top and bottom edges. The

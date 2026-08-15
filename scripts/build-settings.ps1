@@ -62,7 +62,7 @@ $resourceFile = Join-Path $outputDir "settings.rc"
 Add-Type -AssemblyName System.Drawing
 $sourceImage = [Drawing.Image]::FromFile($logoSource)
 try {
-    $bitmap = New-Object Drawing.Bitmap 390, 78,
+    $bitmap = New-Object Drawing.Bitmap 386, 54,
         ([Drawing.Imaging.PixelFormat]::Format24bppRgb)
     try {
         $graphics = [Drawing.Graphics]::FromImage($bitmap)
@@ -70,7 +70,7 @@ try {
             $graphics.Clear([Drawing.Color]::White)
             $graphics.InterpolationMode =
                 [Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-            $destination = New-Object Drawing.Rectangle 0, 0, 390, 78
+            $destination = New-Object Drawing.Rectangle 0, 0, 386, 54
             $sourceRectangle = New-Object Drawing.Rectangle 45, 300, 1680, 340
             $graphics.DrawImage($sourceImage, $destination, $sourceRectangle,
                                 [Drawing.GraphicsUnit]::Pixel)

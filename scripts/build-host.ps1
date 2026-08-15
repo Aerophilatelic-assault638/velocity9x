@@ -45,6 +45,7 @@ $sourceNames = @(
     "src\common\resources.c",
     "src\chipsets\s3\virge\backend.c",
     "src\chipsets\s3\virge\clocks.c",
+    "src\chipsets\s3\virge\memory.c",
     "src\chipsets\matrox\millennium2\mga2_backend.c",
     "src\display16\display_component.c",
     "src\minivdd32\minivdd_component.c",
